@@ -17,7 +17,7 @@ export const BottomNav: React.FC = () => {
 
   if (currentRole === 'operator') {
     return (
-      <nav style={styles.navBar}>
+      <nav className="bottom-nav-bar" style={styles.navBar}>
         <button
           style={isActive('/operator/home') ? styles.navItemActive : styles.navItem}
           onClick={() => navigate('/operator/home')}
@@ -66,7 +66,7 @@ export const BottomNav: React.FC = () => {
   if (currentRole === 'supervisor') {
     // Supervisor has exactly 4 items and NO Scan button
     return (
-      <nav style={styles.navBar}>
+      <nav className="bottom-nav-bar" style={styles.navBar}>
         <button
           style={isActive('/supervisor/home') ? styles.navItemActive : styles.navItem}
           onClick={() => navigate('/supervisor/home')}
@@ -107,7 +107,7 @@ export const BottomNav: React.FC = () => {
 
   // Admin Navigation (5 items)
   return (
-    <nav style={styles.navBar}>
+    <nav className="bottom-nav-bar" style={styles.navBar}>
       <button
         style={isActive('/admin/dashboard') ? styles.navItemActive : styles.navItem}
         onClick={() => navigate('/admin/dashboard')}

@@ -95,7 +95,7 @@ export const OperatorHome: React.FC = () => {
       {/* 4 Operation Action Tiles */}
       <div>
         <h4 style={styles.sectionHeader}>Operations</h4>
-        <div style={styles.opsGrid}>
+        <div className="grid-4-desktop" style={styles.opsGrid}>
           {/* QC Test */}
           <button
             style={styles.opTileGreen}

@@ -29,7 +29,7 @@ export const SupervisorHome: React.FC = () => {
       </div>
 
       {/* Quick Stats Banner */}
-      <div style={styles.statsGrid}>
+      <div className="grid-4-desktop" style={styles.statsGrid}>
         <div style={styles.statCard}>
           <span style={styles.statNum}>{currentPos.length}</span>
           <span style={styles.statLabel}>Active POs</span>

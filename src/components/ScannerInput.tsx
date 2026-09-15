@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { QrCode, Camera, Send, CheckCircle2, AlertTriangle, XCircle, Volume2, VolumeX } from 'lucide-react';
+import { QrCode, Camera, Send, CheckCircle2, AlertTriangle, XCircle, Volume2, VolumeX, ScanLine } from 'lucide-react';
 import { CameraScannerModal } from './CameraScannerModal';
 import { useKeyboardWedgeScanner } from '../hooks/useKeyboardWedgeScanner';
 
@@ -19,7 +19,7 @@ interface ScannerInputProps {
 export const ScannerInput: React.FC<ScannerInputProps> = ({
   onScan,
   placeholder = 'Scan or type code...',
-  autoFocus = true,
+  autoFocus = false,
   disabled = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
@@ -84,15 +84,10 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
       };
       setFeedback(failFeedback);
       triggerBeep('rejected');
-    } finally {
-      // Re-focus input for next scan
-      setTimeout(() => {
-        if (inputRef.current) inputRef.current.focus();
-      }, 50);
     }
   };
 
-  // Keyboard wedge listener hook
+  // Keyboard wedge listener hook (captures hardware wedge scanners without opening virtual keyboard)
   const { lastScan } = useKeyboardWedgeScanner({
     onScan: (code) => {
       handleCodeSubmitted(code);
@@ -121,6 +116,48 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+      {/* Prominent Camera QR Scanner Card / Action Button */}
+      <button
+        type="button"
+        onClick={() => setIsCameraOpen(true)}
+        disabled={disabled}
+        style={{
+          backgroundColor: 'rgba(22, 184, 174, 0.08)',
+          border: '2px dashed #16B8AE',
+          borderRadius: '16px',
+          padding: '20px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
+          width: '100%',
+        }}
+      >
+        <div
+          className="scan-pulse"
+          style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '16px',
+            backgroundColor: 'rgba(22, 184, 174, 0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#16B8AE',
+          }}
+        >
+          <ScanLine size={30} />
+        </div>
+        <span style={{ fontSize: '16px', fontWeight: 800, color: '#ECF7F6' }}>
+          Tap to Open Camera QR Scanner
+        </span>
+        <span style={{ fontSize: '12px', color: '#8EABB0' }}>
+          Or scan with Bluetooth / USB hardware wedge reader
+        </span>
+      </button>
       {/* Input Bar */}
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', width: '100%', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1 }}>

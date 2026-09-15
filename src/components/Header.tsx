@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, Bell } from 'lucide-react';
+import { ArrowLeft, Bell, Home, ClipboardList, ScanLine, User, BarChart, Package, Menu } from 'lucide-react';
 import '../styles/tokens.css';
 
 export const Header: React.FC<{ title?: string }> = ({ title }) => {
@@ -26,8 +26,37 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
     else navigate('/admin/alerts');
   };
 
+  const getNavItems = () => {
+    if (currentRole === 'operator') {
+      return [
+        { label: 'Home', path: '/operator/home', icon: Home },
+        { label: 'Orders', path: '/operator/orders', icon: ClipboardList },
+        { label: 'Scan', path: '/operator/scan', icon: ScanLine },
+        { label: 'Alerts', path: '/operator/alerts', icon: Bell, badge: unreadAlertsCount },
+        { label: 'Profile', path: '/operator/profile', icon: User }
+      ];
+    } else if (currentRole === 'supervisor') {
+      return [
+        { label: 'Home', path: '/supervisor/home', icon: Home },
+        { label: 'Orders', path: '/supervisor/orders', icon: ClipboardList },
+        { label: 'Alerts', path: '/supervisor/alerts', icon: Bell, badge: unreadAlertsCount },
+        { label: 'Profile', path: '/supervisor/profile', icon: User }
+      ];
+    } else {
+      return [
+        { label: 'Dashboard', path: '/admin/dashboard', icon: BarChart },
+        { label: 'Orders', path: '/admin/orders', icon: ClipboardList },
+        { label: 'Reports', path: '/admin/reports', icon: Package },
+        { label: 'Alerts', path: '/admin/alerts', icon: Bell, badge: unreadAlertsCount },
+        { label: 'More', path: '/admin/more', icon: Menu }
+      ];
+    }
+  };
+
+  const navItems = getNavItems();
+
   return (
-    <header style={styles.header}>
+    <header className="app-header-container" style={styles.header}>
       <div style={styles.leftGroup}>
         {!isRootPage && location.pathname !== '/login' && (
           <button style={styles.iconBtn} onClick={() => navigate(-1)} aria-label="Go Back">
@@ -35,18 +64,37 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
           </button>
         )}
         <div style={styles.brandTitle}>
-          {title ? (
-            <span style={styles.pageTitle}>{title}</span>
-          ) : (
-            <div style={styles.brandGroup}>
-              <div style={styles.logoBadge}>
-                <span style={styles.logoIcon}>⚡</span>
-              </div>
-              <span style={styles.brandText}>UniFlow <span style={{ color: 'var(--primary-teal)' }}>Ops</span></span>
+          <div style={{ ...styles.brandGroup, cursor: 'pointer' }} onClick={() => navigate(navItems[0].path)}>
+            <div style={styles.logoBadge}>
+              <span style={styles.logoIcon}>⚡</span>
             </div>
+            <span style={styles.brandText}>UniFlow <span style={{ color: 'var(--primary-teal)' }}>Ops</span></span>
+          </div>
+          {title && (
+            <span style={styles.titleDivider}>
+              / <span style={styles.pageTitle}>{title}</span>
+            </span>
           )}
         </div>
       </div>
+
+      <nav className="desktop-top-nav" style={styles.topNav}>
+        {navItems.map(item => {
+          const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              style={active ? styles.topNavItemActive : styles.topNavItem}
+            >
+              <Icon size={16} />
+              <span>{item.label}</span>
+              {item.badge ? item.badge > 0 && <span style={styles.topNavBadge}>{item.badge}</span> : null}
+            </button>
+          );
+        })}
+      </nav>
 
       <div style={styles.rightGroup}>
         <button style={styles.bellBtn} onClick={handleAlertClick} aria-label="Notifications">
@@ -166,5 +214,52 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
+  },
+  topNav: {
+    alignItems: 'center',
+    gap: '8px',
+    margin: '0 24px'
+  },
+  topNavItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    fontSize: '13px',
+    fontWeight: 600,
+    transition: 'all 0.2s ease',
+    backgroundColor: 'transparent'
+  },
+  topNavItemActive: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    borderRadius: '8px',
+    color: 'var(--primary-teal)',
+    backgroundColor: 'rgba(22, 184, 174, 0.12)',
+    fontSize: '13px',
+    fontWeight: 700
+  },
+  topNavBadge: {
+    minWidth: '16px',
+    height: '16px',
+    borderRadius: '8px',
+    backgroundColor: 'var(--color-red)',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: 700,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 4px',
+    marginLeft: '2px'
+  },
+  titleDivider: {
+    color: 'var(--text-muted)',
+    margin: '0 8px',
+    fontSize: '15px'
   }
 };

@@ -13,16 +13,23 @@ export function setStoredToken(token: string | null): void {
 }
 
 // Offline IndexedDB Queue Setup
-const dbPromise = openDB('uniflow-offline-db', 1, {
-  upgrade(db) {
-    if (!db.objectStoreNames.contains('scan_queue')) {
-      db.createObjectStore('scan_queue', { keyPath: 'idempotencyKey' });
-    }
+async function getOfflineDb() {
+  try {
+    return await openDB('uniflow-offline-db', 1, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains('scan_queue')) {
+          db.createObjectStore('scan_queue', { keyPath: 'idempotencyKey' });
+        }
+      }
+    });
+  } catch {
+    return null;
   }
-});
+}
 
 export async function queueOfflineScan(scanPayload: { endpoint: string; body: any; idempotencyKey: string }) {
-  const db = await dbPromise;
+  const db = await getOfflineDb();
+  if (!db) return;
   await db.put('scan_queue', {
     ...scanPayload,
     queuedAt: new Date().toISOString()
@@ -31,7 +38,8 @@ export async function queueOfflineScan(scanPayload: { endpoint: string; body: an
 
 export async function syncOfflineQueue() {
   if (!navigator.onLine) return;
-  const db = await dbPromise;
+  const db = await getOfflineDb();
+  if (!db) return;
   const queue = await db.getAll('scan_queue');
   if (queue.length === 0) return;
 
@@ -103,7 +111,8 @@ export async function login(username: string, password_hash: string) {
 
 export async function getPendingSyncCount(): Promise<number> {
   try {
-    const db = await dbPromise;
+    const db = await getOfflineDb();
+    if (!db) return 0;
     const all = await db.getAll('scan_queue');
     return all.length;
   } catch {
