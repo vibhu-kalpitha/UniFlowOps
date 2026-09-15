@@ -1,0 +1,53 @@
+:root {
+  /* Color Palette - Matching exact requirements */
+  --bg-app: #071B23;
+  --bg-surface-1: #0D2630;
+  --bg-surface-2: #102E38;
+  --bg-header: #041820;
+  --bg-nav: #041820;
+  --border-color: #213C44;
+  --border-light: #2A4B55;
+
+  --text-primary: #ECF7F6;
+  --text-secondary: #8EABB0;
+  --text-muted: #5E7A80;
+
+  /* Accent Colors */
+  --primary-teal: #16B8AE;
+  --primary-teal-light: #22D3C5;
+  --primary-teal-dark: #0D857E;
+  --primary-teal-glow: rgba(22, 184, 174, 0.25);
+
+  --color-green: #18B879;
+  --color-green-bg: rgba(24, 184, 121, 0.15);
+  --color-blue: #4385F5;
+  --color-blue-bg: rgba(67, 133, 245, 0.15);
+  --color-purple: #8B5CF6;
+  --color-purple-bg: rgba(139, 92, 246, 0.15);
+  --color-orange: #F59E42;
+  --color-orange-bg: rgba(245, 158, 66, 0.15);
+  --color-red: #EF5C5C;
+  --color-red-bg: rgba(239, 92, 92, 0.15);
+  --color-amber: #F3A833;
+  --color-amber-bg: rgba(243, 168, 51, 0.15);
+
+  /* Radii & Shadows */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 9999px;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 20px rgba(22, 184, 174, 0.35);
+
+  /* Typography */
+  --font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Layout dimensions */
+  --header-height: 60px;
+  --bottom-nav-height: 72px;
+  --touch-target-min: 44px;
+}
