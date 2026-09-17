@@ -8,6 +8,24 @@ export function seedDatabase(database = db) {
   const now = new Date().toISOString();
   const passwordHash = bcrypt.hashSync('demo123', 10);
 
+  // Clear existing production & scan data
+  database.exec(`
+    DELETE FROM scan_events;
+    DELETE FROM alerts;
+    DELETE FROM aql_samples;
+    DELETE FROM aql_inspections;
+    DELETE FROM box_transfer_items;
+    DELETE FROM box_transfers;
+    DELETE FROM box_items;
+    DELETE FROM boxes;
+    DELETE FROM qc_fail_log;
+    DELETE FROM qc_results;
+    DELETE FROM item_units;
+    DELETE FROM sales_orders;
+    DELETE FROM production_order_operations;
+    DELETE FROM production_orders;
+  `);
+
   // 1. Users
   const users = [
     { id: 'usr-001', employee_no: 'EMP-101', username: 'chamika', full_name: 'Chamika Silva', role: 'OPERATOR', phone: '+94771234567' },
@@ -72,157 +90,7 @@ export function seedDatabase(database = db) {
 
   shiftMembers.forEach(sm => insertShiftMember.run(sm.id, sm.shift_id, sm.operator_id, now));
 
-  // 5. Production Orders
-  const pos = [
-    {
-      id: 'PO-2026-0184',
-      po_number: 'PO-2026-0184',
-      map_po: 'MAP-PO-44821',
-      customer: 'Nike',
-      start_date: '2026-09-01',
-      due_date: '2026-09-28',
-      supervisor_id: 'usr-002',
-      remarks: 'High priority export batch',
-      status: 'CURRENT'
-    },
-    {
-      id: 'PO-2026-0185',
-      po_number: 'PO-2026-0185',
-      map_po: 'MAP-PO-88129',
-      customer: 'Adidas',
-      start_date: '2026-09-05',
-      due_date: '2026-09-30',
-      supervisor_id: 'usr-002',
-      remarks: 'Standard production',
-      status: 'CURRENT'
-    }
-  ];
-
-  const insertPo = database.prepare(`
-    INSERT INTO production_orders (id, po_number, map_po, customer, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(po_number) DO UPDATE SET
-      map_po = excluded.map_po,
-      customer = excluded.customer,
-      status = excluded.status,
-      updated_at = excluded.updated_at
-  `);
-
-  pos.forEach(p => insertPo.run(p.id, p.po_number, p.map_po, p.customer, p.start_date, p.due_date, p.supervisor_id, p.remarks, p.status, now, now));
-
-  // 6. PO Operations
-  const poOps = [
-    { po_id: 'PO-2026-0184', op: 'QC_TEST' },
-    { po_id: 'PO-2026-0184', op: 'PACKING' },
-    { po_id: 'PO-2026-0184', op: 'AQL' },
-    { po_id: 'PO-2026-0184', op: 'BOX_TRANSFER' },
-    { po_id: 'PO-2026-0185', op: 'QC_TEST' },
-    { po_id: 'PO-2026-0185', op: 'PACKING' }
-  ];
-
-  const insertPoOp = database.prepare(`
-    INSERT INTO production_order_operations (production_order_id, operation)
-    VALUES (?, ?)
-    ON CONFLICT DO NOTHING
-  `);
-
-  poOps.forEach(o => insertPoOp.run(o.po_id, o.op));
-
-  // 7. Sales Orders
-  const sos = [
-    {
-      id: 'SO-77201',
-      production_order_id: 'PO-2026-0184',
-      so_number: 'SO-77201',
-      map_so: 'MAP-SO-90317',
-      product: 'Running Tee',
-      style_code: 'ST-NK-902',
-      colour: 'Black',
-      size_range: 'S - XL',
-      order_quantity: 2500,
-      line_id: 'line-04',
-      shift_id: 'shift-c',
-      box_capacity: 12
-    },
-    {
-      id: 'SO-77202',
-      production_order_id: 'PO-2026-0184',
-      so_number: 'SO-77202',
-      map_so: 'MAP-SO-90318',
-      product: 'Running Tee',
-      style_code: 'ST-NK-902',
-      colour: 'White',
-      size_range: 'M - XXL',
-      order_quantity: 1800,
-      line_id: 'line-04',
-      shift_id: 'shift-c',
-      box_capacity: 12
-    }
-  ];
-
-  const insertSo = database.prepare(`
-    INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', ?, ?)
-    ON CONFLICT(so_number) DO UPDATE SET
-      map_so = excluded.map_so,
-      order_quantity = excluded.order_quantity,
-      updated_at = excluded.updated_at
-  `);
-
-  sos.forEach(s => insertSo.run(s.id, s.production_order_id, s.so_number, s.map_so, s.product, s.style_code, s.colour, s.size_range, s.order_quantity, s.line_id, s.shift_id, s.box_capacity, now, now));
-
-  // 8. Sample Item Units & QC Results & Boxes
-  const qrCodes = [
-    'PNFLS092632670', 'PNFLS092632671', 'PNFLS092632672', 'PNFLS092632673',
-    'PNFLS092632674', 'PNFLS092632675', 'PNFLS092632676', 'PNFLS092632677',
-    'PNFLS092639901', 'PNFLS092639902', 'PNFLS092639903'
-  ];
-
-  const insertItem = database.prepare(`
-    INSERT INTO item_units (id, qr_code, sales_order_id, size, status, created_at, updated_at)
-    VALUES (?, ?, 'SO-77201', 'L', 'PACKED', ?, ?)
-    ON CONFLICT(qr_code) DO NOTHING
-  `);
-
-  qrCodes.forEach(qr => {
-    insertItem.run(`itm-${qr}`, qr, now, now);
-  });
-
-  // 9. Boxes (BX-000218 with 8 items, BX-000245 with 3 items)
-  const insertBox = database.prepare(`
-    INSERT INTO boxes (id, box_number, sales_order_id, capacity, status, created_at)
-    VALUES (?, ?, 'SO-77201', 12, 'OPEN', ?)
-    ON CONFLICT(box_number) DO NOTHING
-  `);
-
-  insertBox.run('box-218', 'BX-000218', now);
-  insertBox.run('box-245', 'BX-000245', now);
-
-  const insertBoxItem = database.prepare(`
-    INSERT INTO box_items (box_id, item_id, packed_by, packed_at)
-    VALUES (?, ?, 'usr-001', ?)
-    ON CONFLICT DO NOTHING
-  `);
-
-  qrCodes.slice(0, 8).forEach(qr => {
-    insertBoxItem.run('box-218', `itm-${qr}`, now);
-  });
-
-  qrCodes.slice(8, 11).forEach(qr => {
-    insertBoxItem.run('box-245', `itm-${qr}`, now);
-  });
-
-  // 10. Alerts
-  const insertAlert = database.prepare(`
-    INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO NOTHING
-  `);
-
-  insertAlert.run('alt-001', 'usr-001', 'OPERATOR', 'QUALITY', 'SUCCESS', 'AQL Inspection Available', 'Box BX-000217 passed AQL inspection.', now);
-  insertAlert.run('alt-002', 'usr-001', 'OPERATOR', 'WORK', 'INFO', 'Box Almost Full', 'Box BX-000218 reached 8/12 items.', now);
-
-  console.log('✅ SQLite Database Idempotent Seed Completed.');
+  console.log('✅ SQLite Cleaned: Production orders, boxes, and scan logs cleared.');
 }
 
 if (process.argv[1]?.endsWith('seed.ts') || process.argv[1]?.endsWith('seed.js')) {

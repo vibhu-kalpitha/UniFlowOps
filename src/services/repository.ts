@@ -1,14 +1,37 @@
 import { ProductionOrder, ActiveJob, UserRole, AlertItem, PackingBox, AQLSession } from '../types';
 import { INITIAL_PRODUCTION_ORDERS, MOCK_USERS, INITIAL_ALERTS, INITIAL_PACKING_BOXES } from '../data/mockData';
 
+// ─── Bump this version whenever structure changes or resetting demo data ──────
+const DATA_VERSION = '7';
+const VERSION_KEY  = 'uniflow_data_version';
+
 const KEYS = {
-  CURRENT_ROLE: 'uniflow_role',
-  ACTIVE_JOB: 'uniflow_active_job',
-  PRODUCTION_ORDERS: 'uniflow_pos',
-  PACKING_BOXES: 'uniflow_boxes',
-  ALERTS: 'uniflow_alerts',
-  AQL_SESSION: 'uniflow_aql_session'
+  CURRENT_ROLE:       'uniflow_role',
+  ACTIVE_JOB:         'uniflow_active_job',
+  PRODUCTION_ORDERS:  'uniflow_pos',
+  PACKING_BOXES:      'uniflow_boxes',
+  ALERTS:             'uniflow_alerts',
+  AQL_SESSION:        'uniflow_aql_session',
 };
+
+/**
+ * On first call, if the stored data version doesn't match DATA_VERSION,
+ * wipe POs, activeJob, boxes, and alerts so they start 100% fresh.
+ */
+function ensureFreshData(): void {
+  const stored = localStorage.getItem(VERSION_KEY);
+  if (stored !== DATA_VERSION) {
+    localStorage.removeItem(KEYS.PRODUCTION_ORDERS);
+    localStorage.removeItem(KEYS.ACTIVE_JOB);
+    localStorage.removeItem(KEYS.PACKING_BOXES);
+    localStorage.removeItem(KEYS.ALERTS);
+    localStorage.removeItem(KEYS.AQL_SESSION);
+    localStorage.setItem(VERSION_KEY, DATA_VERSION);
+  }
+}
+
+// Run once at import time
+ensureFreshData();
 
 export const repository = {
   // Role & Auth
@@ -29,25 +52,24 @@ export const repository = {
   getActiveJob(): ActiveJob | null {
     const data = localStorage.getItem(KEYS.ACTIVE_JOB);
     if (!data) {
-      // Default to PO-2026-0184 & SO-77201 if available
       const pos = this.getProductionOrders();
-      const defaultPo = pos.find(p => p.id === 'PO-2026-0184') || pos[0];
-      if (defaultPo && defaultPo.salesOrders.length > 0) {
+      if (pos.length > 0 && pos[0].salesOrders.length > 0) {
+        const defaultPo = pos[0];
         const defaultSo = defaultPo.salesOrders[0];
         const defaultShift = defaultSo.shifts[0] || {
-          id: 'shf-101',
+          id: `shf-${Date.now()}`,
           salesOrderId: defaultSo.id,
           workerId: 'usr-001',
           workerName: 'Chamika Silva',
           startTime: '14:00',
           endTime: '18:00',
-          date: '2026-09-14',
-          enabledOperations: ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
+          date: new Date().toISOString().split('T')[0],
+          enabledOperations: defaultPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
         };
         const job: ActiveJob = {
           productionOrder: defaultPo,
-          salesOrder: defaultSo,
-          shift: defaultShift
+          salesOrder:      defaultSo,
+          shift:           defaultShift
         };
         this.setActiveJob(job);
         return job;
@@ -55,7 +77,8 @@ export const repository = {
       return null;
     }
     try {
-      return JSON.parse(data);
+      const parsed: ActiveJob = JSON.parse(data);
+      return parsed;
     } catch {
       return null;
     }
@@ -73,13 +96,13 @@ export const repository = {
   getProductionOrders(): ProductionOrder[] {
     const data = localStorage.getItem(KEYS.PRODUCTION_ORDERS);
     if (!data) {
-      localStorage.setItem(KEYS.PRODUCTION_ORDERS, JSON.stringify(INITIAL_PRODUCTION_ORDERS));
-      return INITIAL_PRODUCTION_ORDERS;
+      return [];
     }
     try {
-      return JSON.parse(data);
+      const parsed: ProductionOrder[] = JSON.parse(data);
+      return parsed;
     } catch {
-      return INITIAL_PRODUCTION_ORDERS;
+      return [];
     }
   },
 

@@ -116,10 +116,18 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
-      {/* Prominent Camera QR Scanner Card / Action Button */}
+      {/* Hardware QR Scanner Card / Focus Action Button */}
       <button
         type="button"
-        onClick={() => setIsCameraOpen(true)}
+        onClick={() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+            setFeedback({
+              status: 'accepted',
+              message: 'Hardware QR Scanner Ready — Point scanner at barcode & press trigger',
+            });
+          }
+        }}
         disabled={disabled}
         style={{
           backgroundColor: 'rgba(22, 184, 174, 0.08)',
@@ -152,10 +160,10 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
           <ScanLine size={30} />
         </div>
         <span style={{ fontSize: '16px', fontWeight: 800, color: '#ECF7F6' }}>
-          Tap to Open Camera QR Scanner
+          Connected QR Scanner Ready
         </span>
         <span style={{ fontSize: '12px', color: '#8EABB0' }}>
-          Or scan with Bluetooth / USB hardware wedge reader
+          Tap to focus • Point Bluetooth/USB QR scanner to scan code
         </span>
       </button>
       {/* Input Bar */}

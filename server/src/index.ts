@@ -38,14 +38,23 @@ app.use('/api/shifts', shiftRoutes);
 app.use('/api', scanRoutes);
 app.use('/api', dashboardRoutes);
 
-// Serve production static frontend from /dist if built
+// Serve production static frontend from /dist with no-cache headers to ensure immediate updates
 const distPath = path.resolve(__dirname, '../../dist');
-app.use(express.static(distPath));
+app.use(express.static(distPath, {
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 
 // Fallback all non-API GET routes to index.html for SPA client routing
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
   const indexPath = path.join(distPath, 'index.html');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(indexPath, err => {
     if (err) {
       res.status(200).send('UniFlow Ops API Server Running. Frontend build in /dist.');

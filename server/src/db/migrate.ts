@@ -117,8 +117,23 @@ export function runMigrations(database = db) {
       qc_result TEXT NOT NULL CHECK(qc_result IN ('PASS', 'FAIL')),
       test_result TEXT NOT NULL CHECK(test_result IN ('PASS', 'FAIL')),
       failure_reason TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      first_scanned_at TEXT NOT NULL,
       scanned_at TEXT NOT NULL
     );
+
+    -- 10b. qc_fail_log — one row per individual failure attempt
+    CREATE TABLE IF NOT EXISTS qc_fail_log (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL REFERENCES item_units(id),
+      operator_id TEXT NOT NULL REFERENCES users(id),
+      qc_result TEXT NOT NULL CHECK(qc_result IN ('PASS', 'FAIL')),
+      test_result TEXT NOT NULL CHECK(test_result IN ('PASS', 'FAIL')),
+      failure_reason TEXT,
+      attempt_number INTEGER NOT NULL DEFAULT 1,
+      scanned_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_qc_fail_log_item ON qc_fail_log(item_id);
 
     -- 11. boxes
     CREATE TABLE IF NOT EXISTS boxes (
@@ -234,6 +249,11 @@ export function runMigrations(database = db) {
     CREATE INDEX IF NOT EXISTS idx_alerts_role ON alerts(role_target);
     CREATE INDEX IF NOT EXISTS idx_scan_idempotency ON scan_events(idempotency_key);
   `);
+
+  // Safe ALTER TABLE for existing databases
+  try { db.exec(`ALTER TABLE qc_results ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_results ADD COLUMN first_scanned_at TEXT NOT NULL DEFAULT ''`); } catch (_) {}
+
   console.log('✅ SQLite Database Migrations Completed.');
 }
 

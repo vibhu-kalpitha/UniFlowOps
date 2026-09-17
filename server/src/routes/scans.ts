@@ -65,32 +65,84 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
       item = { id: itemId, qr_code: itemQr, sales_order_id: so.id };
     }
 
-    // Check duplicate QC result
-    const existingQc = db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id);
-    if (existingQc) {
-      recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'DUPLICATE', 'DUPLICATE_QC', 'QC already logged for item');
-      return res.status(409).json({ error: 'DUPLICATE_QC', message: 'QC result already logged for this item unit' });
-    }
+    const isPass = qcResult === 'PASS' && testResult === 'PASS';
+    const finalItemStatus = isPass ? 'QC_PASSED' : 'QC_FAILED';
 
-    const qcId = `qc-${Date.now()}`;
-    const finalItemStatus = (qcResult === 'PASS' && testResult === 'PASS') ? 'QC_PASSED' : 'QC_FAILED';
+    const existingQc = db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
+    const existingFails = (db.prepare(`SELECT COUNT(*) as cnt FROM qc_fail_log WHERE item_id = ?`).get(item.id) as any)?.cnt || 0;
+    let failCount = existingFails;
+    let retryCount = 0;
 
     db.transaction(() => {
-      db.prepare(`
-        INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, failure_reason, scanned_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(qcId, item.id, operatorId, qcResult, testResult, failureReason || null, now);
+      if (!isPass) {
+        failCount += 1;
+        const failLogId = `qcfail-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+        db.prepare(`
+          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(failLogId, item.id, operatorId, qcResult, testResult, failureReason || null, failCount, now);
+      }
+
+      if (existingQc) {
+        retryCount = (existingQc.retry_count || 0) + 1;
+        db.prepare(`
+          UPDATE qc_results 
+          SET operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?
+          WHERE item_id = ?
+        `).run(operatorId, qcResult, testResult, failureReason || null, retryCount, now, item.id);
+      } else {
+        retryCount = 0;
+        const qcId = `qc-${Date.now()}`;
+        db.prepare(`
+          INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at)
+          VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+        `).run(qcId, item.id, operatorId, qcResult, testResult, failureReason || null, now, now);
+      }
 
       db.prepare(`UPDATE item_units SET status = ?, updated_at = ? WHERE id = ?`).run(finalItemStatus, now, item.id);
     })();
 
     recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'ACCEPTED');
-    auditLog(operatorId, 'QC_RESULT_SAVED', 'item_units', item.id, { qcResult, testResult });
+    auditLog(operatorId, 'QC_RESULT_SAVED', 'item_units', item.id, { qcResult, testResult, retryCount, failCount });
 
-    return res.status(201).json({
-      message: 'QC & Test result recorded successfully',
+    return res.status(200).json({
+      message: isPass ? (retryCount > 0 ? `QC Passed after ${retryCount} attempt(s)!` : 'QC Passed!') : `QC Failed (Attempt #${failCount})`,
       itemQr,
-      status: finalItemStatus
+      status: finalItemStatus,
+      retryCount,
+      totalFails: failCount
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/qc/history/:itemQr - fetch full test attempt history and fail log for a QR
+router.get('/qc/history/:itemQr', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    const itemQr = req.params.itemQr;
+    const item = db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(itemQr) as any;
+    if (!item) {
+      return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: 'Item not found' });
+    }
+
+    const currentResult = db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
+    const failLogs = db.prepare(`
+      SELECT f.*, u.full_name as operator_name 
+      FROM qc_fail_log f 
+      LEFT JOIN users u ON f.operator_id = u.id 
+      WHERE f.item_id = ? 
+      ORDER BY f.attempt_number ASC
+    `).all(item.id) as any[];
+
+    return res.json({
+      itemQr,
+      itemId: item.id,
+      status: item.status,
+      currentResult: currentResult || null,
+      failCount: failLogs.length,
+      retryCount: currentResult?.retry_count || 0,
+      history: failLogs
     });
   } catch (err) {
     next(err);
@@ -244,6 +296,96 @@ router.post('/box-transfers', authenticateToken, (req: AuthRequest, res, next) =
       message: `Transferred ${itemQrs.length} items from ${fromBoxNumber} to ${toBoxNumber}`,
       transferId
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 5. POST /api/aql/boxes/scan - Scan box for AQL and set required samples = total items in box
+router.post('/aql/boxes/scan', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    const { boxNumber } = req.body;
+    const operatorId = req.user!.id;
+    const now = new Date().toISOString();
+
+    let box = db.prepare(`SELECT * FROM boxes WHERE box_number = ?`).get(boxNumber) as any;
+    let items: any[] = [];
+    if (box) {
+      items = db.prepare(`
+        SELECT u.qr_code, u.size, u.status 
+        FROM box_items bi 
+        JOIN item_units u ON bi.item_id = u.id 
+        WHERE bi.box_id = ?
+      `).all(box.id) as any[];
+    }
+
+    const totalItems = items.length > 0 ? items.length : 12;
+    const inspectionId = `aql-${Date.now()}`;
+
+    if (box) {
+      db.prepare(`
+        INSERT INTO aql_inspections (id, box_id, inspector_id, required_samples, result, started_at)
+        VALUES (?, ?, ?, ?, 'PENDING', ?)
+      `).run(inspectionId, box.id, operatorId, totalItems, now);
+    }
+
+    return res.json({
+      box: {
+        box_number: boxNumber,
+        item_count: totalItems,
+        items
+      },
+      inspectionId,
+      requiredSamples: totalItems
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 6. POST /api/aql/inspections/:id/samples - Record individual sample test
+router.post('/aql/inspections/:id/samples', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    const inspectionId = req.params.id;
+    const { sampleNumber, itemQr, result } = req.body;
+    const now = new Date().toISOString();
+
+    let item = db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(itemQr) as any;
+    if (item) {
+      const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      db.prepare(`
+        INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, scanned_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(inspection_id, item_id) DO UPDATE SET result = ?, scanned_at = ?
+      `).run(sampleId, inspectionId, item.id, sampleNumber, result, now, result, now);
+    }
+
+    return res.json({ message: 'Sample recorded', sampleNumber, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 7. POST /api/aql/inspections/:id/complete - Finalize AQL inspection result
+router.post('/aql/inspections/:id/complete', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    const inspectionId = req.params.id;
+    const { result, failureReason } = req.body;
+    const now = new Date().toISOString();
+
+    const insp = db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
+    if (insp) {
+      db.prepare(`
+        UPDATE aql_inspections 
+        SET result = ?, failure_reason = ?, completed_at = ? 
+        WHERE id = ?
+      `).run(result, failureReason || null, now, inspectionId);
+
+      const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';
+      db.prepare(`UPDATE boxes SET status = ?, completed_at = ? WHERE id = ?`).run(boxStatus, now, insp.box_id);
+    }
+
+    return res.json({ message: 'AQL Inspection finalized', result });
   } catch (err) {
     next(err);
   }

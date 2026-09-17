@@ -52,6 +52,8 @@ export interface ProductionOrder {
   id: string;                  // e.g. PO-2026-0184
   mapPo: string;               // Free text e.g. MAP-PO-44821
   customer: string;            // e.g. Nike
+  boxRangeStart?: string;      // e.g. PNFLS092632670
+  boxRangeEnd?: string;        // e.g. PNFLS092632690
   startDate: string;           // e.g. 2026-09-10
   dueDate: string;             // e.g. 2026-09-25
   supervisorId: string;        // e.g. Nimal Perera

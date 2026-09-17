@@ -12,8 +12,8 @@ export const AQLResultPage: React.FC = () => {
   const session = aqlSession || {
     boxNumber: 'BX-000218',
     totalBoxQuantity: 12,
-    sampleRequired: 3,
-    currentSampleIndex: 3,
+    sampleRequired: 12,
+    currentSampleIndex: 12,
     samples: [
       { sampleIndex: 1, itemQr: 'PNFLS092632670', size: 'L', result: 'PASS' as const },
       { sampleIndex: 2, itemQr: 'PNFLS092632671', size: 'L', result: 'PASS' as const },
@@ -25,6 +25,8 @@ export const AQLResultPage: React.FC = () => {
 
   const hasFailedSample = session.samples.some(s => s.result === 'FAIL');
   const isPassed = session.overallResult === 'PASSED' && !hasFailedSample;
+
+  const totalRequired = session.sampleRequired || session.samples.length || 12;
 
   const [defectReason, setDefectReason] = useState('Stitched Hem Defect');
 
@@ -49,7 +51,7 @@ export const AQLResultPage: React.FC = () => {
         <div style={styles.stepDivider} />
         <div style={styles.stepCompleted}>
           <span style={styles.stepNumCompleted}>✓</span>
-          <span>Samples (3/3)</span>
+          <span>Samples ({session.samples.length}/{totalRequired})</span>
         </div>
         <div style={styles.stepDivider} />
         <div style={isPassed ? styles.stepActiveGreen : styles.stepActiveRed}>

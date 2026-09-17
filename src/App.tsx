@@ -23,6 +23,7 @@ import { OperatorProfile } from './pages/operator/OperatorProfile';
 
 // Supervisor Pages
 import { SupervisorHome } from './pages/supervisor/SupervisorHome';
+import { SelectStylePage } from './pages/supervisor/SelectStylePage';
 import { CreatePOGeneral } from './pages/supervisor/CreatePOGeneral';
 import { CreatePOSalesOrders } from './pages/supervisor/CreatePOSalesOrders';
 import { CreatePOReview } from './pages/supervisor/CreatePOReview';
@@ -171,6 +172,14 @@ const AppRoutes: React.FC = () => {
           element={
             <RoleRouteGuard allowedRole="supervisor">
               <SupervisorHome />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/supervisor/production-orders/new/style"
+          element={
+            <RoleRouteGuard allowedRole="supervisor">
+              <SelectStylePage />
             </RoleRouteGuard>
           }
         />

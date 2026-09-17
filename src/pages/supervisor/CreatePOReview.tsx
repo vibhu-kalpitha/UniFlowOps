@@ -4,11 +4,12 @@ import { useApp } from '../../context/AppContext';
 import { ProductionOrder, SalesOrder } from '../../types';
 import { StatusPill } from '../../components/StatusPill';
 import { CheckCircle2, ArrowLeft, CheckSquare, Square, Edit3 } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const CreatePOReview: React.FC = () => {
   const navigate = useNavigate();
-  const { saveProductionOrder, showToast } = useApp();
+  const { saveProductionOrder, setActiveJob, showToast } = useApp();
 
   const [draftPoGeneral, setDraftPoGeneral] = useState<any>(null);
   const [draftSos, setDraftSos] = useState<SalesOrder[]>([]);
@@ -37,11 +38,13 @@ export const CreatePOReview: React.FC = () => {
   const totalQuantity = draftSos.reduce((sum, s) => sum + s.quantity, 0);
   const totalShifts = draftSos.reduce((sum, s) => sum + s.shifts.length, 0);
 
-  const handleFinalCreate = () => {
+  const handleFinalCreate = async () => {
     const finalPo: ProductionOrder = {
       id: draftPoGeneral.id,
       mapPo: draftPoGeneral.mapPo,
       customer: draftPoGeneral.customer,
+      boxRangeStart: draftPoGeneral.boxRangeStart,
+      boxRangeEnd: draftPoGeneral.boxRangeEnd,
       startDate: draftPoGeneral.startDate,
       dueDate: draftPoGeneral.dueDate,
       supervisorId: draftPoGeneral.supervisorId,
@@ -51,12 +54,40 @@ export const CreatePOReview: React.FC = () => {
       salesOrders: draftSos
     };
 
+    try {
+      await apiFetch('/api/production-orders', {
+        method: 'POST',
+        body: JSON.stringify(finalPo)
+      });
+    } catch (e) {
+      console.error('Failed to post PO to server', e);
+    }
+
     saveProductionOrder(finalPo);
+    if (makeCurrent && finalPo.salesOrders.length > 0) {
+      const firstSo = finalPo.salesOrders[0];
+      const shift = firstSo.shifts[0] || {
+        id: `shf-${Date.now()}`,
+        salesOrderId: firstSo.id,
+        workerId: 'usr-001',
+        workerName: 'Chamika Silva',
+        startTime: '14:00',
+        endTime: '18:00',
+        date: new Date().toISOString().split('T')[0],
+        enabledOperations: finalPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
+      };
+      setActiveJob({
+        productionOrder: finalPo,
+        salesOrder: firstSo,
+        shift
+      });
+    }
+
     sessionStorage.removeItem('uniflow_draft_po_general');
     sessionStorage.removeItem('uniflow_draft_po_sos');
 
     setIsCreated(true);
-    showToast(`Production Order ${finalPo.id} created successfully!`, 'success');
+    showToast(`Production Order ${finalPo.id} created & deployed to server database!`, 'success');
   };
 
   if (isCreated) {

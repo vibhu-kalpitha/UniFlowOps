@@ -151,4 +151,26 @@ router.get('/reports/production', authenticateToken, (req, res, next) => {
   }
 });
 
+// GET /api/db-view - View all SQLite database tables & contents
+router.get('/db-view', (req, res, next) => {
+  try {
+    const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).all() as { name: string }[];
+    const result: Record<string, { count: number; rows: any[] }> = {};
+
+    for (const table of tables) {
+      const count = (db.prepare(`SELECT COUNT(*) as cnt FROM "${table.name}"`).get() as any)?.cnt || 0;
+      const rows = db.prepare(`SELECT * FROM "${table.name}" LIMIT 25`).all();
+      result[table.name] = { count, rows };
+    }
+
+    return res.json({
+      database: 'SQLite (server/data/uniflow.db)',
+      tablesCount: tables.length,
+      tables: result
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

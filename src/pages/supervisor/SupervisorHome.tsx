@@ -54,10 +54,10 @@ export const SupervisorHome: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <button
             style={styles.actionBtnPrimary}
-            onClick={() => navigate('/supervisor/production-orders/new/general')}
+            onClick={() => navigate('/supervisor/production-orders/new/style')}
           >
             <PlusCircle size={22} color="#041820" />
-            <span>Create PO</span>
+            <span>Create Style</span>
           </button>
 
           <button

@@ -1,17 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { OperationType } from '../../types';
-import { ArrowRight, CheckSquare, Square } from 'lucide-react';
+import { ArrowRight, CheckSquare, Square, Tag } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const CreatePOGeneral: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useApp();
 
+  const [selectedStyle, setSelectedStyle] = useState('Style 01 (Running Tee)');
+
+  useEffect(() => {
+    const savedStyle = sessionStorage.getItem('uniflow_draft_po_style');
+    if (savedStyle) {
+      setSelectedStyle(savedStyle);
+    }
+  }, []);
+
   const [poId, setPoId] = useState('PO-2026-0187');
   const [mapPo, setMapPo] = useState('MAP-PO-44821');
-  const [customer, setCustomer] = useState('Nike');
+  const [boxRangeStart, setBoxRangeStart] = useState('BX-000100');
+  const [boxRangeEnd, setBoxRangeEnd] = useState('BX-000500');
   const [startDate, setStartDate] = useState('2026-09-15');
   const [dueDate, setDueDate] = useState('2026-10-10');
   const [supervisor, setSupervisor] = useState('Nimal Perera');
@@ -34,8 +44,12 @@ export const CreatePOGeneral: React.FC = () => {
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!poId.trim() || !mapPo.trim() || !customer.trim()) {
+    if (!poId.trim() || !mapPo.trim()) {
       showToast('Please fill required PO fields', 'warning');
+      return;
+    }
+    if (!boxRangeStart.trim() || !boxRangeEnd.trim()) {
+      showToast('Please specify box serial number / barcode range', 'warning');
       return;
     }
     if (selectedOps.length === 0) {
@@ -47,7 +61,10 @@ export const CreatePOGeneral: React.FC = () => {
     const draftPo = {
       id: poId,
       mapPo,
-      customer,
+      customer: 'Nike',
+      selectedStyle,
+      boxRangeStart,
+      boxRangeEnd,
       startDate,
       dueDate,
       supervisorId: supervisor,
@@ -64,17 +81,17 @@ export const CreatePOGeneral: React.FC = () => {
       {/* Wizard Step Bar */}
       <div style={styles.wizardBar}>
         <div style={styles.stepActive}>
-          <span style={styles.stepNumActive}>1</span>
+          <span style={styles.stepNumActive}>2</span>
           <span>General Info</span>
         </div>
         <div style={styles.stepDivider} />
         <div style={styles.stepInactive}>
-          <span style={styles.stepNumInactive}>2</span>
+          <span style={styles.stepNumInactive}>3</span>
           <span>Sales Orders</span>
         </div>
         <div style={styles.stepDivider} />
         <div style={styles.stepInactive}>
-          <span style={styles.stepNumInactive}>3</span>
+          <span style={styles.stepNumInactive}>4</span>
           <span>Review</span>
         </div>
       </div>
@@ -82,8 +99,40 @@ export const CreatePOGeneral: React.FC = () => {
       <div>
         <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Create Production Order</h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Step 1 of 3: Define Production Order Header & Required Operations.
+          Step 2 of 4: Define Production Order Header & Box Serial Number Range.
         </p>
+      </div>
+
+      {/* Selected Style Banner */}
+      <div
+        style={{
+          backgroundColor: 'rgba(22, 184, 174, 0.12)',
+          border: '1px solid var(--primary-teal)',
+          borderRadius: '14px',
+          padding: '12px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Tag size={20} color="var(--primary-teal)" />
+          <div>
+            <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700, textTransform: 'uppercase' }}>
+              Selected Garment Style
+            </span>
+            <h4 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+              {selectedStyle}
+            </h4>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/supervisor/production-orders/new/style')}
+          style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textDecoration: 'underline' }}
+        >
+          Change Style
+        </button>
       </div>
 
       <form onSubmit={handleNext} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -112,20 +161,30 @@ export const CreatePOGeneral: React.FC = () => {
           />
         </div>
 
-        {/* Customer */}
-        <div>
-          <label style={styles.label}>Customer / Brand</label>
-          <select
-            className="input-field select-field"
-            value={customer}
-            onChange={e => setCustomer(e.target.value)}
-          >
-            <option value="Nike">Nike</option>
-            <option value="Adidas">Adidas</option>
-            <option value="Puma">Puma</option>
-            <option value="Levi's">Levi's</option>
-            <option value="Under Armour">Under Armour</option>
-          </select>
+        {/* Box Serial Number / Barcode Range (Letters & Numbers) */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div>
+            <label style={styles.label}>Box Serial Range Start</label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="e.g. BX-000100"
+              value={boxRangeStart}
+              onChange={e => setBoxRangeStart(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label style={styles.label}>Box Serial Range End</label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="e.g. BX-000500"
+              value={boxRangeEnd}
+              onChange={e => setBoxRangeEnd(e.target.value)}
+              required
+            />
+          </div>
         </div>
 
         {/* Dates Row */}
