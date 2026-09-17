@@ -26,6 +26,9 @@ export const AdminUsers: React.FC = () => {
 
   const [roleFilter, setRoleFilter] = useState<'All' | 'Operator' | 'Supervisor' | 'Admin'>('All');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [selectedResetUser, setSelectedResetUser] = useState<UserRecord | null>(null);
+  const [newPassword, setNewPassword] = useState('');
 
   // Form State
   const [name, setName] = useState('');
@@ -61,6 +64,37 @@ export const AdminUsers: React.FC = () => {
     setUsername('');
   };
 
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedResetUser || !newPassword.trim()) {
+      showToast('Please enter a new password', 'warning');
+      return;
+    }
+    if (newPassword.length < 6) {
+      showToast('Password must be at least 6 characters', 'warning');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedResetUser.id, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.message || 'Password reset failed', 'error');
+        return;
+      }
+      showToast(`Password reset successfully for @${selectedResetUser.username}`, 'success');
+      setShowResetModal(false);
+      setSelectedResetUser(null);
+      setNewPassword('');
+    } catch (err: any) {
+      showToast(err.message || 'Password reset failed', 'error');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -87,8 +121,8 @@ export const AdminUsers: React.FC = () => {
         ))}
       </div>
 
-      {/* User Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* User Cards Grid */}
+      <div className="desktop-grid-3" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {filteredUsers.map(u => (
           <div key={u.id} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -103,9 +137,17 @@ export const AdminUsers: React.FC = () => {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                 <StatusPill label={u.role} variant={u.role === 'Admin' ? 'purple' : u.role === 'Supervisor' ? 'blue' : 'teal'} />
-                <span style={{ fontSize: '11px', color: u.status === 'Active' ? 'var(--color-green)' : 'var(--text-muted)', fontWeight: 600 }}>
-                  ● {u.status}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedResetUser(u);
+                    setNewPassword('');
+                    setShowResetModal(true);
+                  }}
+                  style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}
+                >
+                  Reset Password
+                </button>
               </div>
             </div>
           </div>
@@ -155,6 +197,42 @@ export const AdminUsers: React.FC = () => {
 
               <button type="submit" className="btn-primary" style={{ marginTop: '10px' }}>
                 Save User
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {showResetModal && selectedResetUser && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Reset Password</h3>
+              <button style={{ background: 'none', border: 'none' }} onClick={() => setShowResetModal(false)}>
+                <X size={20} color="var(--text-secondary)" />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+              Setting new password for user <strong>@{selectedResetUser.username}</strong> ({selectedResetUser.name}).
+            </p>
+
+            <form onSubmit={handleResetPasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={styles.label}>New Password</label>
+                <input
+                  type="password"
+                  className="input-field"
+                  placeholder="Minimum 6 characters"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  required
+                />
+              </div>
+
+              <button type="submit" className="btn-primary" style={{ marginTop: '10px' }}>
+                Confirm Password Reset
               </button>
             </form>
           </div>

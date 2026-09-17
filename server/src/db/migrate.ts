@@ -236,6 +236,31 @@ export function runMigrations(database = db) {
       created_at TEXT NOT NULL
     );
 
+    -- 20. styles
+    CREATE TABLE IF NOT EXISTS styles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      customer TEXT,
+      season TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- 21. so_operator_allocations
+    CREATE TABLE IF NOT EXISTS so_operator_allocations (
+      id TEXT PRIMARY KEY,
+      sales_order_id TEXT NOT NULL REFERENCES sales_orders(id),
+      shift_id TEXT REFERENCES shifts(id),
+      operator_id TEXT NOT NULL REFERENCES users(id),
+      operation TEXT NOT NULL CHECK(operation IN ('QC_TEST', 'PACKING', 'AQL', 'BOX_TRANSFER')),
+      created_by TEXT REFERENCES users(id),
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_po_number ON production_orders(po_number);
@@ -248,11 +273,21 @@ export function runMigrations(database = db) {
     CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
     CREATE INDEX IF NOT EXISTS idx_alerts_role ON alerts(role_target);
     CREATE INDEX IF NOT EXISTS idx_scan_idempotency ON scan_events(idempotency_key);
+    CREATE INDEX IF NOT EXISTS idx_styles_code ON styles(code);
+    CREATE INDEX IF NOT EXISTS idx_so_op_alloc_so ON so_operator_allocations(sales_order_id);
+    CREATE INDEX IF NOT EXISTS idx_so_op_alloc_op ON so_operator_allocations(operator_id);
   `);
 
   // Safe ALTER TABLE for existing databases
   try { db.exec(`ALTER TABLE qc_results ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
   try { db.exec(`ALTER TABLE qc_results ADD COLUMN first_scanned_at TEXT NOT NULL DEFAULT ''`); } catch (_) {}
+  try { db.exec(`ALTER TABLE production_orders ADD COLUMN style_id TEXT REFERENCES styles(id)`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_fail_log ADD COLUMN idempotency_key TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_fail_log ADD COLUMN raw_qr TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_fail_log ADD COLUMN so_id TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_fail_log ADD COLUMN po_id TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_fail_log ADD COLUMN shift_id TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE qc_fail_log ADD COLUMN failure_type TEXT`); } catch (_) {}
 
   console.log('✅ SQLite Database Migrations Completed.');
 }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ArrowRight, BoxSelect, ScanLine, Package } from 'lucide-react';
+import { ArrowRight, BoxSelect, ScanLine, Package, Search } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
 import { apiFetch } from '../../services/api';
@@ -25,12 +25,9 @@ export const AQLBoxScanPage: React.FC = () => {
 
   /* ── Scan box handler ─────────────────────────────────────── */
   const handleScanBox = async (code: string) => {
-
-    // 1. Look up packing data from local state first
     const localBox = packingBoxes[code];
     const localItems: string[] = localBox?.items ? localBox.items.map(i => i.qr) : [];
 
-    // 2. Try server API
     let serverItems: string[] = [];
     let inspectionId: string | undefined;
     let totalItems = localItems.length || 0;
@@ -47,7 +44,6 @@ export const AQLBoxScanPage: React.FC = () => {
       sampleRequirement = res.requiredSamples || totalItems || 12;
     } catch { /* offline — use local packing data */ }
 
-    // Merge: prefer server, fall back to local
     const finalItems = serverItems.length > 0 ? serverItems : localItems;
     const reqSamples = finalItems.length > 0 ? finalItems.length : (totalItems || 12);
 
@@ -87,7 +83,14 @@ export const AQLBoxScanPage: React.FC = () => {
 
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header */}
+      <div>
+        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>AQL Inspection — Step 1</h2>
+        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+          Scan the packing box barcode to load its contents for inspection.
+        </p>
+      </div>
 
       {/* Step indicator */}
       <div style={styles.stepBar}>
@@ -107,104 +110,130 @@ export const AQLBoxScanPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Header */}
-      <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>AQL Inspection — Step 1</h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Scan the packing box barcode to load its contents for inspection.
-        </p>
-      </div>
-
-      {/* PO range info */}
-      {(po?.boxRangeStart || po?.boxRangeEnd) && (
-        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', padding: '6px 10px', backgroundColor: 'rgba(22,184,174,0.08)', borderRadius: '8px', border: '1px solid rgba(22,184,174,0.2)' }}>
-          PO Range: {po?.boxRangeStart} → {po?.boxRangeEnd}
-        </div>
-      )}
-
-      {/* Scanner */}
-      <ScannerInput onScan={handleScanBox} placeholder="Scan packing box QR / barcode…" />
-
-      {/* Box Not Found placeholder */}
-      {!scannedBox && (
-        <div style={styles.emptyCard}>
-          <BoxSelect size={36} color="var(--text-muted)" />
-          <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
-            Waiting for box scan…
-          </span>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Scan a packed box to see its contents
-          </span>
-        </div>
-      )}
-
-      {/* Scanned Box Details */}
-      {scannedBox && (
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', borderColor: 'var(--color-purple)', borderWidth: '1.5px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={styles.cardSubTitle}>BOX DETECTED</span>
-            <StatusPill label="Ready for AQL" variant="purple" />
-          </div>
-
-          <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-purple)', marginTop: '6px' }}>
-            {scannedBox.boxNumber}
-          </h3>
-
-          {/* Metrics */}
-          <div style={styles.detailsGrid}>
-            <div style={styles.detailCard}>
-              <span style={{ ...styles.detailCardVal }}>{scannedBox.totalItems}</span>
-              <span style={styles.detailCardLbl}>Items in Box</span>
-            </div>
-            <div style={styles.detailCard}>
-              <span style={{ ...styles.detailCardVal, color: 'var(--color-purple)' }}>
-                {scannedBox.sampleRequirement}
-              </span>
-              <span style={styles.detailCardLbl}>Required Samples</span>
-            </div>
-          </div>
-
-          {/* Packed Products List */}
-          {scannedBox.packedItemQrs.length > 0 && (
-            <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed var(--border-color)' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                Packed Products ({scannedBox.packedItemQrs.length} items):
-              </span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
-                {scannedBox.packedItemQrs.map((qr) => (
-                  <div key={qr} style={styles.itemRow}>
-                    <Package size={14} color="var(--primary-teal)" />
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', flex: 1, marginLeft: '8px' }}>
-                      {qr}
-                    </span>
-                    <StatusPill label="Packed" variant="teal" />
-                  </div>
-                ))}
-              </div>
+      {/* Split Grid for Desktop */}
+      <div className="desktop-split-7-5">
+        {/* Left Panel: Box Scanner & Detected Box Details */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
+          {(po?.boxRangeStart || po?.boxRangeEnd) && (
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', padding: '6px 10px', backgroundColor: 'rgba(22,184,174,0.08)', borderRadius: '8px', border: '1px solid rgba(22,184,174,0.2)' }}>
+              PO Range: {po?.boxRangeStart} → {po?.boxRangeEnd}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Proceed Button */}
-      <button
-        className="btn-primary"
-        disabled={!scannedBox}
-        onClick={handleProceed}
-        style={{
-          marginTop: 'auto',
-          background: scannedBox
-            ? 'linear-gradient(135deg, var(--color-purple) 0%, #A78BFA 100%)'
-            : 'var(--bg-surface-2)',
-          color: scannedBox ? '#fff' : 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-        }}
-      >
-        Proceed to Sample Scanning <ArrowRight size={18} />
-      </button>
+          <ScannerInput onScan={handleScanBox} placeholder="Scan packing box QR / barcode…" />
+
+          {!scannedBox && (
+            <div style={styles.emptyCard}>
+              <BoxSelect size={36} color="var(--text-muted)" />
+              <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
+                Waiting for box scan…
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Scan a packed box to see its contents
+              </span>
+            </div>
+          )}
+
+          {scannedBox && (
+            <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', borderColor: 'var(--color-purple)', borderWidth: '1.5px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={styles.cardSubTitle}>BOX DETECTED</span>
+                <StatusPill label="Ready for AQL" variant="purple" />
+              </div>
+
+              <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-purple)', marginTop: '6px' }}>
+                {scannedBox.boxNumber}
+              </h3>
+
+              <div style={styles.detailsGrid}>
+                <div style={styles.detailCard}>
+                  <span style={{ ...styles.detailCardVal }}>{scannedBox.totalItems}</span>
+                  <span style={styles.detailCardLbl}>Items in Box</span>
+                </div>
+                <div style={styles.detailCard}>
+                  <span style={{ ...styles.detailCardVal, color: 'var(--color-purple)' }}>
+                    {scannedBox.sampleRequirement}
+                  </span>
+                  <span style={styles.detailCardLbl}>Required Samples</span>
+                </div>
+              </div>
+
+              {scannedBox.packedItemQrs.length > 0 && (
+                <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px dashed var(--border-color)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    Packed Products ({scannedBox.packedItemQrs.length} items):
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+                    {scannedBox.packedItemQrs.map((qr) => (
+                      <div key={qr} style={styles.itemRow}>
+                        <Package size={14} color="var(--primary-teal)" />
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', flex: 1, marginLeft: '8px' }}>
+                          {qr}
+                        </span>
+                        <StatusPill label="Packed" variant="teal" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            className="btn-primary"
+            disabled={!scannedBox}
+            onClick={handleProceed}
+            style={{
+              marginTop: '12px',
+              background: scannedBox
+                ? 'linear-gradient(135deg, var(--color-purple) 0%, #A78BFA 100%)'
+                : 'var(--bg-surface-2)',
+              color: scannedBox ? '#fff' : 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            Proceed to Sample Scanning <ArrowRight size={18} />
+          </button>
+        </div>
+
+        {/* Right Panel: AQL Audit Info */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
+              AQL 2.5 AUDIT STANDARD
+            </span>
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Acceptance Quality Limit:</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-purple)' }}>ISO 2859-1 Level II</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Sample Size Rule:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>10% of Box (Min 3)</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Max Defect Tolerance:</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-red)' }}>0 Critical Defects</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+              AQL AUDIT INSTRUCTIONS
+            </span>
+            <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <li>Scan the sealed carton barcode to begin audit.</li>
+              <li>System automatically calculates required sample size.</li>
+              <li>Pull samples randomly from top, middle, and bottom of box.</li>
+              <li>Log individual sample pass/fail results in Step 2.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

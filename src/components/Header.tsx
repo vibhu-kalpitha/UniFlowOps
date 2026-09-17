@@ -57,53 +57,55 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
 
   return (
     <header className="app-header-container" style={styles.header}>
-      <div style={styles.leftGroup}>
-        {!isRootPage && location.pathname !== '/login' && (
-          <button style={styles.iconBtn} onClick={() => navigate(-1)} aria-label="Go Back">
-            <ArrowLeft size={20} color="var(--text-primary)" />
-          </button>
-        )}
-        <div style={styles.brandTitle}>
-          <div style={{ ...styles.brandGroup, cursor: 'pointer' }} onClick={() => navigate(navItems[0].path)}>
-            <div style={styles.logoBadge}>
-              <span style={styles.logoIcon}>⚡</span>
-            </div>
-            <span style={styles.brandText}>UniFlow <span style={{ color: 'var(--primary-teal)' }}>Ops</span></span>
-          </div>
-          {title && (
-            <span style={styles.titleDivider}>
-              / <span style={styles.pageTitle}>{title}</span>
-            </span>
-          )}
-        </div>
-      </div>
-
-      <nav className="desktop-top-nav" style={styles.topNav}>
-        {navItems.map(item => {
-          const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.path}
-              onClick={() => navigate(item.path)}
-              style={active ? styles.topNavItemActive : styles.topNavItem}
-            >
-              <Icon size={16} />
-              <span>{item.label}</span>
-              {item.badge ? item.badge > 0 && <span style={styles.topNavBadge}>{item.badge}</span> : null}
+      <div className="header-inner-container" style={styles.innerHeaderContainer}>
+        <div style={styles.leftGroup}>
+          {!isRootPage && location.pathname !== '/login' && (
+            <button style={styles.iconBtn} onClick={() => navigate(-1)} aria-label="Go Back">
+              <ArrowLeft size={20} color="var(--text-primary)" />
             </button>
-          );
-        })}
-      </nav>
+          )}
+          <div style={styles.brandTitle}>
+            <div style={{ ...styles.brandGroup, cursor: 'pointer' }} onClick={() => navigate(navItems[0].path)}>
+              <div style={styles.logoBadge}>
+                <span style={styles.logoIcon}>⚡</span>
+              </div>
+              <span style={styles.brandText}>UniFlow <span style={{ color: 'var(--primary-teal)' }}>Ops</span></span>
+            </div>
+            {title && (
+              <span style={styles.titleDivider}>
+                / <span style={styles.pageTitle}>{title}</span>
+              </span>
+            )}
+          </div>
+        </div>
 
-      <div style={styles.rightGroup}>
-        <button style={styles.bellBtn} onClick={handleAlertClick} aria-label="Notifications">
-          <Bell size={20} color="var(--text-primary)" />
-          {unreadAlertsCount > 0 && <span style={styles.badge}>{unreadAlertsCount}</span>}
-        </button>
+        <nav className="desktop-top-nav" style={styles.topNav}>
+          {navItems.map(item => {
+            const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                style={active ? styles.topNavItemActive : styles.topNavItem}
+              >
+                <Icon size={16} />
+                <span>{item.label}</span>
+                {item.badge ? item.badge > 0 && <span style={styles.topNavBadge}>{item.badge}</span> : null}
+              </button>
+            );
+          })}
+        </nav>
 
-        <div style={styles.avatar}>
-          <span>{currentUser.avatarInitials}</span>
+        <div style={styles.rightGroup}>
+          <button style={styles.bellBtn} onClick={handleAlertClick} aria-label="Notifications">
+            <Bell size={20} color="var(--text-primary)" />
+            {unreadAlertsCount > 0 && <span style={styles.badge}>{unreadAlertsCount}</span>}
+          </button>
+
+          <div style={styles.avatar}>
+            <span>{currentUser.avatarInitials}</span>
+          </div>
         </div>
       </div>
     </header>
@@ -117,10 +119,16 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: '1px solid var(--border-color)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     padding: '0 16px',
     zIndex: 100,
     flexShrink: 0
+  },
+  innerHeaderContainer: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between'
   },
   leftGroup: {
     display: 'flex',

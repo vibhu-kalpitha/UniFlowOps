@@ -28,22 +28,31 @@ export const OperatorProfile: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Profile Header Hero */}
+    <div className="profile-desktop-grid">
+      {/* Left Column: Hero Identity Card */}
       <div style={styles.profileHero}>
         <div style={styles.avatarBig}>
           <span>{currentUser.avatarInitials}</span>
         </div>
-        <h2 style={{ fontSize: '20px', fontWeight: 800, marginTop: '8px' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: 800, marginTop: '12px' }}>
           {currentUser.name}
         </h2>
-        <div style={{ marginTop: '4px' }}>
+        <div style={{ marginTop: '6px' }}>
           <StatusPill label={`${currentUser.role.toUpperCase()} • ${currentUser.lineId || 'Line 04'}`} variant="teal" />
         </div>
+
+        <div style={{ marginTop: '20px', width: '100%', textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+          <span style={styles.menuDesc}>ID: {currentUser.id} • Username: @{currentUser.username}</span>
+        </div>
+
+        {/* Logout Action */}
+        <button className="btn-danger" onClick={handleLogout} style={{ marginTop: '24px', width: '100%' }}>
+          <LogOut size={18} style={{ marginRight: '8px' }} /> Log Out
+        </button>
       </div>
 
-      {/* Profile Options List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* Right Column: Options & Diagnostic Tools */}
+      <div className="profile-options-grid" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {/* My Details */}
         <div className="card" style={styles.menuCard}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -51,8 +60,8 @@ export const OperatorProfile: React.FC = () => {
               <User size={18} color="var(--primary-teal)" />
             </div>
             <div>
-              <span style={styles.menuTitle}>My Details</span>
-              <span style={styles.menuDesc}>ID: {currentUser.id} • Username: {currentUser.username}</span>
+              <span style={styles.menuTitle}>My Account Details</span>
+              <span style={styles.menuDesc}>ID: {currentUser.id} • Username: @{currentUser.username}</span>
             </div>
           </div>
         </div>
@@ -64,7 +73,7 @@ export const OperatorProfile: React.FC = () => {
               <Globe size={18} color="var(--color-blue)" />
             </div>
             <div style={{ flex: 1 }}>
-              <span style={styles.menuTitle}>Language</span>
+              <span style={styles.menuTitle}>Language Preference</span>
               <span style={styles.menuDesc}>Select display language</span>
             </div>
             <select
@@ -104,7 +113,7 @@ export const OperatorProfile: React.FC = () => {
             </div>
             <div style={{ flex: 1 }}>
               <span style={styles.menuTitle}>Switch Demo Role</span>
-              <span style={styles.menuDesc}>Current: {currentRole.toUpperCase()}</span>
+              <span style={styles.menuDesc}>Current active: {currentRole.toUpperCase()}</span>
             </div>
             <ChevronRight size={18} color="var(--text-secondary)" />
           </div>
@@ -123,11 +132,6 @@ export const OperatorProfile: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Logout Action */}
-      <button className="btn-danger" onClick={handleLogout} style={{ marginTop: 'auto' }}>
-        <LogOut size={18} style={{ marginRight: '8px' }} /> Log Out
-      </button>
 
       {/* Switch Role Modal */}
       {showRoleModal && (

@@ -11,15 +11,15 @@ export const CreatePOGeneral: React.FC = () => {
 
   const [selectedStyle, setSelectedStyle] = useState('Style 01 (Running Tee)');
 
+  const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
+
   useEffect(() => {
     const savedStyle = sessionStorage.getItem('uniflow_draft_po_style');
     if (savedStyle) {
       setSelectedStyle(savedStyle);
     }
   }, []);
-
-  const [poId, setPoId] = useState('PO-2026-0187');
-  const [mapPo, setMapPo] = useState('MAP-PO-44821');
   const [boxRangeStart, setBoxRangeStart] = useState('BX-000100');
   const [boxRangeEnd, setBoxRangeEnd] = useState('BX-000500');
   const [startDate, setStartDate] = useState('2026-09-15');

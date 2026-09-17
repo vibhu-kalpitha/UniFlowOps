@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductionOrder, SalesOrder } from '../../types';
 import { StatusPill } from '../../components/StatusPill';
@@ -7,9 +7,24 @@ import { ChevronRight, FileText, X, AlertCircle } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const SupervisorOrders: React.FC = () => {
-  const { productionOrders } = useApp();
+  const { productionOrders, refreshProductionOrders } = useApp();
   const [selectedPo, setSelectedPo] = useState<ProductionOrder | null>(null);
   const [selectedSo, setSelectedSo] = useState<SalesOrder | null>(null);
+
+  useEffect(() => {
+    refreshProductionOrders();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetPoId = params.get('poId');
+    if (targetPoId && productionOrders.length > 0) {
+      const found = productionOrders.find(p => p.id === targetPoId || p.dbId === targetPoId);
+      if (found) {
+        setSelectedPo(found);
+      }
+    }
+  }, [productionOrders]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -18,8 +33,10 @@ export const SupervisorOrders: React.FC = () => {
       {/* PO Cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {productionOrders.map(po => {
-          const totalQty = po.salesOrders.reduce((sum, s) => sum + s.quantity, 0);
-          const packedQty = po.salesOrders.reduce((sum, s) => sum + s.progress.packed, 0);
+          const sos = po.salesOrders || [];
+          const totalQty = sos.reduce((sum, s) => sum + (s.quantity || 0), 0);
+          const packedQty = sos.reduce((sum, s) => sum + (s.progress?.packed || 0), 0);
+          const isUnassigned = sos.length === 0 || !sos.some(s => s.allocations && s.allocations.length > 0);
 
           return (
             <div
@@ -33,16 +50,27 @@ export const SupervisorOrders: React.FC = () => {
                   <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>{po.id}</h3>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Map PO: {po.mapPo}</span>
                 </div>
-                <StatusPill label={po.status} variant={po.status === 'Current' ? 'teal' : 'muted'} />
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {isUnassigned && <StatusPill label="Unassigned" variant="amber" />}
+                  <StatusPill label={po.status || 'Current'} variant={po.status === 'Current' ? 'teal' : 'muted'} />
+                </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                <span>Brand: {po.customer}</span>
-                <span>{po.salesOrders.length} Sales Orders</span>
+                <span>Brand: {po.customer || 'Factory Orders'}</span>
+                <span>{sos.length} Sales Orders</span>
               </div>
 
               <div style={{ marginTop: '10px' }}>
-                <ProgressBar current={packedQty} total={totalQty} />
+                {sos.length > 0 ? (
+                  <ProgressBar current={packedQty} total={totalQty} />
+                ) : (
+                  <div style={{ padding: '6px 10px', backgroundColor: 'rgba(243, 168, 51, 0.12)', border: '1px solid rgba(243, 168, 51, 0.3)', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-amber)', fontWeight: 700 }}>
+                      No Sales Orders attached (Awaiting operator allocation)
+                    </span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   <span>Supervisor: {po.supervisorId}</span>
                   <span>{packedQty} / {totalQty} units packed</span>
@@ -69,17 +97,25 @@ export const SupervisorOrders: React.FC = () => {
 
             <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Select Sales Order to View Progress</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
-              {selectedPo.salesOrders.map(so => (
-                <div key={so.id} style={styles.soRow} onClick={() => setSelectedSo(so)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{so.id}</span>
-                    <StatusPill label={so.lineId} variant="blue" />
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                    {so.product} ({so.colour}) • Qty: {so.quantity}
-                  </span>
+              {(!selectedPo.salesOrders || selectedPo.salesOrders.length === 0) ? (
+                <div style={{ padding: '16px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', textAlign: 'center' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    No Sales Orders attached yet (Awaiting operator allocation).
+                  </p>
                 </div>
-              ))}
+              ) : (
+                selectedPo.salesOrders.map(so => (
+                  <div key={so.id} style={styles.soRow} onClick={() => setSelectedSo(so)}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{so.id}</span>
+                      <StatusPill label={so.lineId || 'Line 04'} variant="blue" />
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
+                      {so.product} ({so.colour}) • Qty: {so.quantity}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
 
             <button className="btn-secondary" onClick={() => setSelectedPo(null)} style={{ marginTop: '14px' }}>

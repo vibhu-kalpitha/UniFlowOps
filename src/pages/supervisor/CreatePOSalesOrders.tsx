@@ -10,54 +10,15 @@ export const CreatePOSalesOrders: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useApp();
 
-  const initialSos: SalesOrder[] = [
-    {
-      id: 'SO-77204',
-      mapSo: 'MAP-SO-90317',
-      product: 'Thermal Jacket',
-      styleCode: 'ST-NK-990',
-      colour: 'Charcoal',
-      sizeRange: 'M - XXL',
-      quantity: 1500,
-      lineId: 'Line 04',
-      boxCapacity: 12,
-      shifts: [
-        {
-          id: 'shf-201',
-          salesOrderId: 'SO-77204',
-          workerId: 'usr-001',
-          workerName: 'Chamika Silva',
-          startTime: '14:00',
-          endTime: '18:00',
-          date: '2026-09-15',
-          enabledOperations: ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
-        },
-        {
-          id: 'shf-202',
-          salesOrderId: 'SO-77204',
-          workerId: 'usr-004',
-          workerName: 'Kavindu Perera',
-          startTime: '18:00',
-          endTime: '22:00',
-          date: '2026-09-15',
-          enabledOperations: ['QC Test', 'Packing']
-        }
-      ],
-      progress: {
-        qcPassed: 0,
-        qcFailed: 0,
-        testPassed: 0,
-        testFailed: 0,
-        packed: 0,
-        aqlPassed: 0,
-        aqlFailed: 0,
-        issuesCount: 0,
-        status: 'In Progress'
-      }
+  const getSavedDraftSos = (): SalesOrder[] => {
+    const data = sessionStorage.getItem('uniflow_draft_po_sos');
+    if (data) {
+      try { return JSON.parse(data); } catch { return []; }
     }
-  ];
+    return [];
+  };
 
-  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>(initialSos);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>(getSavedDraftSos);
   const [showSoModal, setShowSoModal] = useState(false);
   const [editingSoId, setEditingSoId] = useState<string | null>(null);
 
@@ -217,11 +178,10 @@ export const CreatePOSalesOrders: React.FC = () => {
   const totalQuantity = salesOrders.reduce((sum, s) => sum + s.quantity, 0);
 
   const handleNextReview = () => {
-    if (salesOrders.length === 0) {
-      showToast('Add at least one Sales Order to proceed', 'warning');
-      return;
-    }
     sessionStorage.setItem('uniflow_draft_po_sos', JSON.stringify(salesOrders));
+    if (salesOrders.length === 0) {
+      showToast('Creating PO without Sales Orders (Unassigned PO)', 'info');
+    }
     navigate('/supervisor/production-orders/new/review');
   };
 

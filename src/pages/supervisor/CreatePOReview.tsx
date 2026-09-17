@@ -9,12 +9,13 @@ import '../../styles/tokens.css';
 
 export const CreatePOReview: React.FC = () => {
   const navigate = useNavigate();
-  const { saveProductionOrder, setActiveJob, showToast } = useApp();
+  const { saveProductionOrder, refreshProductionOrders, setActiveJob, showToast } = useApp();
 
   const [draftPoGeneral, setDraftPoGeneral] = useState<any>(null);
   const [draftSos, setDraftSos] = useState<SalesOrder[]>([]);
   const [makeCurrent, setMakeCurrent] = useState(true);
   const [isCreated, setIsCreated] = useState(false);
+  const [createdPo, setCreatedPo] = useState<ProductionOrder | null>(null);
 
   useEffect(() => {
     const genData = sessionStorage.getItem('uniflow_draft_po_general');
@@ -36,13 +37,14 @@ export const CreatePOReview: React.FC = () => {
   }
 
   const totalQuantity = draftSos.reduce((sum, s) => sum + s.quantity, 0);
-  const totalShifts = draftSos.reduce((sum, s) => sum + s.shifts.length, 0);
+  const totalShifts = draftSos.reduce((sum, s) => sum + (s.shifts ? s.shifts.length : 0), 0);
 
   const handleFinalCreate = async () => {
-    const finalPo: ProductionOrder = {
+    const finalPoPayload = {
       id: draftPoGeneral.id,
       mapPo: draftPoGeneral.mapPo,
-      customer: draftPoGeneral.customer,
+      customer: draftPoGeneral.customer || 'Factory Orders',
+      styleCode: draftPoGeneral.selectedStyle,
       boxRangeStart: draftPoGeneral.boxRangeStart,
       boxRangeEnd: draftPoGeneral.boxRangeEnd,
       startDate: draftPoGeneral.startDate,
@@ -54,19 +56,38 @@ export const CreatePOReview: React.FC = () => {
       salesOrders: draftSos
     };
 
+    let serverPo: ProductionOrder | null = null;
     try {
-      await apiFetch('/api/production-orders', {
+      serverPo = await apiFetch<ProductionOrder>('/api/production-orders', {
         method: 'POST',
-        body: JSON.stringify(finalPo)
+        body: JSON.stringify(finalPoPayload)
       });
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to post PO to server', e);
+      showToast(e.message || 'Failed to deploy PO to server database', 'error');
+      // Preserve draft on creation failure
+      return;
     }
 
-    saveProductionOrder(finalPo);
-    if (makeCurrent && finalPo.salesOrders.length > 0) {
-      const firstSo = finalPo.salesOrders[0];
-      const shift = firstSo.shifts[0] || {
+    const savedPo = serverPo || (finalPoPayload as any);
+    saveProductionOrder(savedPo);
+
+    let refreshFailed = false;
+    try {
+      await refreshProductionOrders();
+    } catch (err) {
+      refreshFailed = true;
+    }
+
+    if (refreshFailed) {
+      showToast('PO saved, but list refresh failed. Retry.', 'warning');
+    } else {
+      showToast(`Production Order ${savedPo.id} created & deployed to server database!`, 'success');
+    }
+
+    if (makeCurrent && savedPo.salesOrders && savedPo.salesOrders.length > 0) {
+      const firstSo = savedPo.salesOrders[0];
+      const shift = firstSo.shifts?.[0] || {
         id: `shf-${Date.now()}`,
         salesOrderId: firstSo.id,
         workerId: 'usr-001',
@@ -74,23 +95,26 @@ export const CreatePOReview: React.FC = () => {
         startTime: '14:00',
         endTime: '18:00',
         date: new Date().toISOString().split('T')[0],
-        enabledOperations: finalPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
+        enabledOperations: savedPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
       };
       setActiveJob({
-        productionOrder: finalPo,
+        productionOrder: savedPo,
         salesOrder: firstSo,
         shift
       });
     }
 
+    // Clear draft ONLY after success
     sessionStorage.removeItem('uniflow_draft_po_general');
     sessionStorage.removeItem('uniflow_draft_po_sos');
+    sessionStorage.removeItem('uniflow_draft_po_style');
 
+    setCreatedPo(savedPo);
     setIsCreated(true);
-    showToast(`Production Order ${finalPo.id} created & deployed to server database!`, 'success');
   };
 
   if (isCreated) {
+    const poIdForNav = createdPo?.id || draftPoGeneral?.id;
     return (
       <div style={styles.successScreen}>
         <div style={styles.iconCircleSuccess}>
@@ -98,11 +122,14 @@ export const CreatePOReview: React.FC = () => {
         </div>
         <h2 style={{ fontSize: '24px', fontWeight: 800, marginTop: '12px' }}>PO Created Successfully</h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px', textAlign: 'center' }}>
-          Production Order <strong>{draftPoGeneral.id}</strong> (Map PO: {draftPoGeneral.mapPo}) with {draftSos.length} Sales Orders has been deployed to the shop floor.
+          Production Order <strong>{poIdForNav}</strong> (Map PO: {draftPoGeneral.mapPo}) with {draftSos.length} Sales Orders has been saved to the database.
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', marginTop: '24px' }}>
-          <button className="btn-primary" onClick={() => navigate('/supervisor/home')}>
+          <button className="btn-primary" onClick={() => navigate(`/supervisor/orders?poId=${encodeURIComponent(poIdForNav)}`)}>
+            View Production Order
+          </button>
+          <button className="btn-secondary" onClick={() => navigate('/supervisor/home')}>
             Return to Supervisor Home
           </button>
           <button className="btn-secondary" onClick={() => navigate('/supervisor/orders')}>

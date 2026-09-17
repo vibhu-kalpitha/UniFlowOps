@@ -172,133 +172,273 @@ export const OperatorHome: React.FC = () => {
   const displayPendingPack = Math.max(0, displayTotalQcPassed - displayPacked);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="op-home-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Greeting Header */}
-      <div style={styles.greetingRow}>
-        <div>
-          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Good Morning,</span>
-          <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {currentUser.name} 👷
-          </h2>
-          <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-            {currentUser.role.toUpperCase()} • {currentUser.lineId}
-          </span>
-        </div>
-      </div>
-
-      {/* Search / Quick Scan Bar */}
-      <button
-        onClick={openSearch}
-        style={styles.searchBar}
-        id="home-search-bar"
-      >
-        <Search size={16} color="var(--text-secondary)" />
-        <span style={{ fontSize: '14px', color: 'var(--text-muted)', flex: 1, textAlign: 'left' }}>
-          Search product or scan box QR…
-        </span>
-        <ScanLine size={16} color="var(--text-secondary)" />
-      </button>
-
-      {/* Production Overview Card */}
-      <div className="card" style={styles.poCard}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={styles.cardSubTitle}>PRODUCTION OVERVIEW</span>
-          <StatusPill label="LIVE DB DATA" variant="teal" />
-        </div>
-
-        <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-          All Production Orders & Factory Live Metrics
-        </h3>
-
-        {/* Row 1 Metrics (6 items) */}
-        <div style={styles.metricsRow1}>
-          <div style={styles.metricBoxGreen}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
+      <div style={styles.greetingRow} className="op-home-greeting-bar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--bg-surface-2)',
+            border: '2px solid var(--primary-teal)',
+            color: 'var(--primary-teal)',
+            fontWeight: 800,
+            fontSize: '15px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            {currentUser.avatarInitials || currentUser.name.charAt(0)}
           </div>
-          <div style={styles.metricBoxBlue}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
-          </div>
-          <div style={styles.metricBoxPurple}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
-          </div>
-          <div style={styles.metricBoxAmber}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
-          </div>
-          <div style={styles.metricBoxDarkRed}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
-          </div>
-          <div style={styles.metricBoxRed}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
+          <div>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Good Morning,</span>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>
+              {currentUser.name}
+            </h2>
+            <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
+              {currentUser.role.toUpperCase()} • {currentUser.lineId}
+            </span>
           </div>
         </div>
 
-        {/* Row 2 Metrics (2 items) */}
-        <div style={styles.metricsRow2}>
-          <div style={styles.metricBoxEmerald}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
+        <div className="op-desktop-status-pill" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(24, 184, 121, 0.12)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(24, 184, 121, 0.3)' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#18B879' }}></span>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: '#18B879' }}>Shift A Active</span>
           </div>
-          <div style={styles.metricBoxYellow}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(34, 211, 197, 0.12)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(34, 211, 197, 0.3)' }}>
+            <ScanLine size={14} color="var(--primary-teal)" />
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)' }}>Scanner Connected</span>
           </div>
         </div>
       </div>
 
-
-      {/* 4 Operation Action Tiles */}
-      <div>
-        <h4 style={styles.sectionHeader}>Operations</h4>
-        <div className="grid-4-desktop" style={styles.opsGrid}>
-          {/* QC Test */}
+      {/* 12-Column Desktop Grid Container */}
+      <div className="desktop-grid-12">
+        {/* Main Workspace (8 cols on desktop, 12 cols on mobile) */}
+        <div className="desktop-col-8" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Search / Quick Scan Bar */}
           <button
-            style={styles.opTileGreen}
-            onClick={() => handleOpClick('QC Test', '/operator/qc')}
+            onClick={openSearch}
+            style={styles.searchBar}
+            id="home-search-bar"
           >
-            <div style={styles.opIconGreen}>
-              <CheckCircle2 size={26} color="var(--color-green)" />
-            </div>
-            <span style={styles.opTitle}>QC Test</span>
+            <Search size={16} color="var(--text-secondary)" />
+            <span style={{ fontSize: '14px', color: 'var(--text-muted)', flex: 1, textAlign: 'left' }}>
+              Search product or scan box QR…
+            </span>
+            <ScanLine size={16} color="var(--text-secondary)" />
           </button>
 
-          {/* Packing */}
-          <button
-            style={styles.opTileBlue}
-            onClick={() => handleOpClick('Packing', '/operator/packing')}
-          >
-            <div style={styles.opIconBlue}>
-              <Package size={26} color="var(--color-blue)" />
+          {/* Production Overview Card */}
+          <div className="card" style={styles.poCard}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={styles.cardSubTitle}>PRODUCTION OVERVIEW</span>
+              <StatusPill label="LIVE DB DATA" variant="teal" />
             </div>
-            <span style={styles.opTitle}>Packing</span>
-          </button>
 
-          {/* AQL Checker */}
-          <button
-            style={styles.opTilePurple}
-            onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
-          >
-            <div style={styles.opIconPurple}>
-              <Search size={26} color="var(--color-purple)" />
-            </div>
-            <span style={styles.opTitle}>AQL Checker</span>
-          </button>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+              All Production Orders & Factory Live Metrics
+            </h3>
 
-          {/* Box Transfer */}
-          <button
-            style={styles.opTileOrange}
-            onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
-          >
-            <div style={styles.opIconOrange}>
-              <ArrowLeftRight size={26} color="var(--color-orange)" />
+            {/* Row 1 Metrics (6 items) */}
+            <div style={styles.metricsRow1}>
+              <div style={styles.metricBoxGreen}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
+              </div>
+              <div style={styles.metricBoxBlue}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
+              </div>
+              <div style={styles.metricBoxPurple}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
+              </div>
+              <div style={styles.metricBoxAmber}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
+              </div>
+              <div style={styles.metricBoxDarkRed}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
+              </div>
+              <div style={styles.metricBoxRed}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
+              </div>
             </div>
-            <span style={styles.opTitle}>Box Transfer</span>
-          </button>
+
+            {/* Row 2 Metrics (2 items) */}
+            <div style={styles.metricsRow2}>
+              <div style={styles.metricBoxEmerald}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
+              </div>
+              <div style={styles.metricBoxYellow}>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4 Operation Action Tiles */}
+          <div>
+            <h4 style={styles.sectionHeader}>Operations</h4>
+            <div className="op-ops-grid-2x2" style={styles.opsGrid}>
+              {/* QC Test */}
+              <button
+                className="op-card-interactive"
+                style={styles.opTileGreen}
+                onClick={() => handleOpClick('QC Test', '/operator/qc')}
+              >
+                <div style={styles.opIconGreen}>
+                  <CheckCircle2 size={26} color="var(--color-green)" />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={styles.opTitle}>QC Test</span>
+                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Inspect product quality & validate barcode ranges
+                  </span>
+                </div>
+              </button>
+
+              {/* Packing */}
+              <button
+                className="op-card-interactive"
+                style={styles.opTileBlue}
+                onClick={() => handleOpClick('Packing', '/operator/packing')}
+              >
+                <div style={styles.opIconBlue}>
+                  <Package size={26} color="var(--color-blue)" />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={styles.opTitle}>Packing</span>
+                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Pack passed items into box & seal shipping cartons
+                  </span>
+                </div>
+              </button>
+
+              {/* AQL Checker */}
+              <button
+                className="op-card-interactive"
+                style={styles.opTilePurple}
+                onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
+              >
+                <div style={styles.opIconPurple}>
+                  <Search size={26} color="var(--color-purple)" />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={styles.opTitle}>AQL Checker</span>
+                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Perform AQL sample audits on sealed boxes
+                  </span>
+                </div>
+              </button>
+
+              {/* Box Transfer */}
+              <button
+                className="op-card-interactive"
+                style={styles.opTileOrange}
+                onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
+              >
+                <div style={styles.opIconOrange}>
+                  <ArrowLeftRight size={26} color="var(--color-orange)" />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={styles.opTitle}>Box Transfer</span>
+                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Transfer completed boxes to warehouse shipping
+                  </span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Sidebar (4 cols on desktop, hidden on mobile) */}
+        <div className="desktop-col-4 op-desktop-sidebar">
+          {/* Current Assignment Summary Card */}
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
+              CURRENT ASSIGNMENT
+            </span>
+            <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+              {po?.id || 'PO-2026-904'}
+            </h4>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              {po?.customer || 'Brand Master'} • {so?.product || 'T-Shirt Classic'}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #1E4650' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Sales Order:</span>
+                <span style={{ color: 'var(--primary-teal)', fontWeight: 700 }}>{so?.id || 'SO-77201'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Production Line:</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Line 04</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Shift Assignment:</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Shift A (06:00 - 14:00)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Scanner Status & Diagnostics */}
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'rgba(24, 184, 121, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CheckCircle2 size={20} color="var(--color-green)" />
+              </div>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Scanner Active</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>USB / Bluetooth Wedge</div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => navigate('/test-scanner')}
+              style={{
+                width: '100%',
+                marginTop: '12px',
+                padding: '10px',
+                borderRadius: '10px',
+                backgroundColor: '#102F39',
+                border: '1px solid #1E4650',
+                color: 'var(--primary-teal)',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              ⚡ Run Diagnostic Test
+            </button>
+          </div>
+
+          {/* Today's Shift Performance Summary */}
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+              LINE 04 SHIFT METRICS
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' }}>
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#10B981' }}>
+                  {displayTotalQcPassed ? Math.round((displayTotalQcPassed / Math.max(1, displayTotalQcPassed + displayTotalFail)) * 100) : 100}%
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>First Pass Quality Yield</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                  {displayPacked}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cartons Completed</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

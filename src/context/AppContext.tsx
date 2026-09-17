@@ -10,6 +10,7 @@ interface AppContextType {
   setActiveJob: (job: ActiveJob | null) => void;
   productionOrders: ProductionOrder[];
   saveProductionOrder: (order: ProductionOrder) => void;
+  refreshProductionOrders: () => Promise<ProductionOrder[]>;
   packingBoxes: Record<string, PackingBox>;
   savePackingBox: (box: PackingBox) => void;
   alerts: AlertItem[];
@@ -46,6 +47,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [qcPassedCountToday, setQcPassedCountToday] = useState<number>(624);
   const [packedCountToday, setPackedCountToday] = useState<number>(598);
 
+  const refreshProductionOrders = async (): Promise<ProductionOrder[]> => {
+    try {
+      const { apiFetch } = await import('../services/api');
+      const data = await apiFetch<ProductionOrder[]>('/api/production-orders');
+      if (Array.isArray(data)) {
+        setProductionOrders(data);
+        repository.saveProductionOrders(data);
+        return data;
+      }
+    } catch (err) {
+      console.warn('Could not refresh POs from database', err);
+    }
+    return productionOrders;
+  };
+
+  useEffect(() => {
+    refreshProductionOrders();
+  }, [currentRole]);
+
   const setRole = (role: UserRole) => {
     setCurrentRoleState(role);
     repository.setCurrentRole(role);
@@ -59,7 +79,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const saveProductionOrder = (order: ProductionOrder) => {
     repository.saveProductionOrder(order);
-    setProductionOrders(repository.getProductionOrders());
+    refreshProductionOrders();
     // Also update activeJob if it belongs to this PO
     if (activeJob && activeJob.productionOrder.id === order.id) {
       const updatedSo = order.salesOrders.find(s => s.id === activeJob.salesOrder.id) || activeJob.salesOrder;
@@ -169,6 +189,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveJob,
         productionOrders,
         saveProductionOrder,
+        refreshProductionOrders,
         packingBoxes,
         savePackingBox,
         alerts,

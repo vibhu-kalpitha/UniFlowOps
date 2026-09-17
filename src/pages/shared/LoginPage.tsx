@@ -53,98 +53,105 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div style={styles.container}>
-      {/* Hanger Logo & Brand Section */}
-      <div style={styles.brandSection}>
-        <div style={styles.hangerIconWrap}>
-          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#22D3C5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 7a2 2 0 1 0-2-2" />
-            <path d="M12 7v3" />
-            <path d="M12 10L3.5 15.5a1.5 1.5 0 0 0 .7 2.8h15.6a1.5 1.5 0 0 0 .7-2.8L12 10z" />
-          </svg>
+    <div className="login-desktop-wrapper">
+      <div className="login-desktop-shell">
+        <div className="login-form-inner">
+          {/* Centralized Brand Logo & Header */}
+          <div style={styles.brandSection}>
+            <div style={styles.hangerIconWrap}>
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#22D3C5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 7a2 2 0 1 0-2-2" />
+                <path d="M12 7v3" />
+                <path d="M12 10L3.5 15.5a1.5 1.5 0 0 0 .7 2.8h15.6a1.5 1.5 0 0 0 .7-2.8L12 10z" />
+              </svg>
+            </div>
+            <h1 style={styles.title}>UniFlow <span style={{ color: '#22D3C5' }}>Ops</span></h1>
+            <p style={styles.subtitle}>UNIT FLOW OPERATOR</p>
+          </div>
+
+          {/* Demo Role Mode Box */}
+          <div style={styles.roleBox}>
+            <span style={styles.roleLabel}>DEMO ROLE MODE:</span>
+            <div style={styles.roleButtons}>
+              <button
+                type="button"
+                style={selectedRole === 'operator' ? styles.roleActive : styles.roleBtn}
+                onClick={() => handleRoleSelect('operator')}
+              >
+                Operator
+              </button>
+              <button
+                type="button"
+                style={selectedRole === 'supervisor' ? styles.roleActive : styles.roleBtn}
+                onClick={() => handleRoleSelect('supervisor')}
+              >
+                Supervisor
+              </button>
+              <button
+                type="button"
+                style={selectedRole === 'admin' ? styles.roleActive : styles.roleBtn}
+                onClick={() => handleRoleSelect('admin')}
+              >
+                Admin
+              </button>
+            </div>
+          </div>
+
+          {/* Login Form */}
+          <form onSubmit={handleLogin} style={styles.form}>
+            <div style={styles.inputGroup}>
+              <User size={18} color="#8EABB0" style={styles.fieldIcon} />
+              <input
+                type="text"
+                style={styles.lightInput}
+                placeholder="username"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+              />
+            </div>
+
+            <div style={styles.inputGroup}>
+              <Lock size={18} color="#8EABB0" style={styles.fieldIcon} />
+              <input
+                type="password"
+                style={styles.lightInput}
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+            </div>
+
+            <div style={styles.rowBetween}>
+              <button
+                type="button"
+                style={styles.checkboxBtn}
+                onClick={() => setRememberMe(!rememberMe)}
+              >
+                {rememberMe ? (
+                  <CheckSquare size={18} color="#22D3C5" />
+                ) : (
+                  <Square size={18} color="#8EABB0" />
+                )}
+                <span style={{ fontSize: '13px', color: '#ECF7F6', fontWeight: 500 }}>Remember me</span>
+              </button>
+              <span style={{ fontSize: '13px', color: '#22D3C5', cursor: 'pointer', fontWeight: 600 }}>
+                Forgot password?
+              </span>
+            </div>
+
+            <button type="submit" style={styles.loginSubmitBtn}>
+              Login
+            </button>
+          </form>
+
+          {/* Footer Branding */}
+          <div style={styles.footer}>
+            <p style={{ fontSize: '12px', color: '#8EABB0' }}>Unit Flow Operator</p>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#22D3C5', marginTop: '2px' }}>
+              Software developed by Innovus
+            </p>
+          </div>
         </div>
-        <h1 style={styles.title}>UniFlow <span style={{ color: '#22D3C5' }}>Ops</span></h1>
-        <p style={styles.subtitle}>UNIT FLOW OPERATOR</p>
-      </div>
-
-      {/* Demo Role Mode Box (Keep 3 Boxes: Operator, Supervisor, Admin) */}
-      <div style={styles.roleBox}>
-        <span style={styles.roleLabel}>DEMO ROLE MODE:</span>
-        <div style={styles.roleButtons}>
-          <button
-            type="button"
-            style={selectedRole === 'operator' ? styles.roleActive : styles.roleBtn}
-            onClick={() => handleRoleSelect('operator')}
-          >
-            Operator
-          </button>
-          <button
-            type="button"
-            style={selectedRole === 'supervisor' ? styles.roleActive : styles.roleBtn}
-            onClick={() => handleRoleSelect('supervisor')}
-          >
-            Supervisor
-          </button>
-          <button
-            type="button"
-            style={selectedRole === 'admin' ? styles.roleActive : styles.roleBtn}
-            onClick={() => handleRoleSelect('admin')}
-          >
-            Admin
-          </button>
-        </div>
-      </div>
-
-      {/* Login Form */}
-      <form onSubmit={handleLogin} style={styles.form}>
-        <div style={styles.inputGroup}>
-          <User size={18} color="#8EABB0" style={styles.fieldIcon} />
-          <input
-            type="text"
-            style={styles.lightInput}
-            placeholder="username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-          />
-        </div>
-
-        <div style={styles.inputGroup}>
-          <Lock size={18} color="#8EABB0" style={styles.fieldIcon} />
-          <input
-            type="password"
-            style={styles.lightInput}
-            placeholder="••••••••"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-          />
-        </div>
-
-        <div style={styles.rowBetween}>
-          <button
-            type="button"
-            style={styles.checkboxBtn}
-            onClick={() => setRememberMe(!rememberMe)}
-          >
-            {rememberMe ? (
-              <CheckSquare size={18} color="#22D3C5" />
-            ) : (
-              <Square size={18} color="#8EABB0" />
-            )}
-            <span style={{ fontSize: '13px', color: '#ECF7F6', fontWeight: 500 }}>Remember me</span>
-          </button>
-        </div>
-
-        <button type="submit" style={styles.loginSubmitBtn}>
-          Login
-        </button>
-      </form>
-
-      {/* Footer Branding */}
-      <div style={styles.footer}>
-        <p style={{ fontSize: '12px', color: '#8EABB0' }}>Unit Flow Operator</p>
-        <p style={{ fontSize: '13px', fontWeight: 700, color: '#22D3C5', marginTop: '2px' }}>
-          Software developed by Innovus
-        </p>
       </div>
     </div>
   );

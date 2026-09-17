@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -8,10 +8,14 @@ import '../../styles/tokens.css';
 
 export const SupervisorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, productionOrders } = useApp();
+  const { currentUser, productionOrders, refreshProductionOrders } = useApp();
 
-  const currentPos = productionOrders.filter(p => p.status === 'Current');
-  const totalSos = currentPos.reduce((sum, p) => sum + p.salesOrders.length, 0);
+  useEffect(() => {
+    refreshProductionOrders();
+  }, []);
+
+  const currentPos = productionOrders.filter(p => p.status === 'Current' || p.status === 'Draft');
+  const totalSos = currentPos.reduce((sum, p) => sum + (p.salesOrders ? p.salesOrders.length : 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -95,33 +99,52 @@ export const SupervisorHome: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {currentPos.map(po => {
-            const totalQty = po.salesOrders.reduce((sum, s) => sum + s.quantity, 0);
-            const packedQty = po.salesOrders.reduce((sum, s) => sum + s.progress.packed, 0);
+          {currentPos.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '16px', textAlign: 'center' }}>
+              No active or draft Production Orders found.
+            </p>
+          ) : (
+            currentPos.map(po => {
+              const sos = po.salesOrders || [];
+              const totalQty = sos.reduce((sum, s) => sum + (s.quantity || 0), 0);
+              const packedQty = sos.reduce((sum, s) => sum + (s.progress?.packed || 0), 0);
 
-            return (
-              <div
-                key={po.id}
-                className="card"
-                style={{ backgroundColor: 'var(--bg-surface-1)', cursor: 'pointer', margin: 0 }}
-                onClick={() => navigate('/supervisor/orders')}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {po.id}
-                  </span>
-                  <StatusPill label={po.customer} variant="teal" />
+              return (
+                <div
+                  key={po.id}
+                  className="card"
+                  style={{ backgroundColor: 'var(--bg-surface-1)', cursor: 'pointer', margin: 0 }}
+                  onClick={() => navigate(`/supervisor/orders?poId=${encodeURIComponent(po.id)}`)}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        {po.id}
+                      </span>
+                      {po.status === 'Draft' && <StatusPill label="Draft" variant="amber" />}
+                    </div>
+                    <StatusPill label={po.customer || 'Factory Orders'} variant="teal" />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    <span>Map PO: {po.mapPo}</span>
+                    <span>{sos.length} Sales Orders</span>
+                  </div>
+                  <div style={{ marginTop: '10px' }}>
+                    {sos.length > 0 ? (
+                      <ProgressBar current={packedQty} total={totalQty} height={6} />
+                    ) : (
+                      <div style={{ padding: '6px 10px', backgroundColor: 'rgba(243, 168, 51, 0.12)', border: '1px solid rgba(243, 168, 51, 0.3)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-amber)', fontWeight: 700 }}>
+                          Awaiting operator allocation / sales orders
+                        </span>
+                        <StatusPill label="Unassigned" variant="amber" />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  <span>Map PO: {po.mapPo}</span>
-                  <span>{po.salesOrders.length} Sales Orders</span>
-                </div>
-                <div style={{ marginTop: '10px' }}>
-                  <ProgressBar current={packedQty} total={totalQty} height={6} />
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
     </div>

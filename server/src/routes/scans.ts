@@ -51,6 +51,55 @@ router.post('/qc/scan', authenticateToken, (req: AuthRequest, res, next) => {
   }
 });
 
+// Helper for operator allocation check
+function checkOperatorAllocation(operatorId: string, role: string, soId: string, operation: string): boolean {
+  if (role !== 'OPERATOR') return true; // Supervisor and Admin are allowed
+  const row = db.prepare(`
+    SELECT COUNT(*) as cnt FROM (
+      SELECT id FROM so_operator_allocations WHERE sales_order_id = ? AND operator_id = ? AND active = 1
+      UNION
+      SELECT id FROM operator_work_assignments WHERE sales_order_id = ? AND operator_id = ? AND active = 1
+      UNION
+      SELECT sm.id FROM shift_members sm
+      JOIN sales_orders so ON so.shift_id = sm.shift_id
+      WHERE so.id = ? AND sm.operator_id = ? AND sm.active = 1
+    )
+  `).get(soId, operatorId, soId, operatorId, soId, operatorId) as any;
+  return row && row.cnt > 0;
+}
+
+// Helper to update SO and PO completion status
+function checkAndUpdateSOCompletion(soId: string) {
+  const so = db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(soId) as any;
+  if (!so) return;
+
+  const qcPassed = (db.prepare(`
+    SELECT COUNT(*) as cnt FROM qc_results qr
+    JOIN item_units iu ON iu.id = qr.item_id
+    WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+  `).get(so.id) as any)?.cnt || 0;
+
+  const packed = (db.prepare(`
+    SELECT COUNT(*) as cnt FROM box_items bi
+    JOIN boxes b ON b.id = bi.box_id
+    WHERE b.sales_order_id = ?
+  `).get(so.id) as any)?.cnt || 0;
+
+  if (qcPassed >= so.order_quantity && packed >= so.order_quantity) {
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE sales_orders SET status = 'COMPLETED', updated_at = ? WHERE id = ?`).run(now, so.id);
+
+    const remainingSo = db.prepare(`
+      SELECT COUNT(*) as cnt FROM sales_orders 
+      WHERE production_order_id = ? AND status != 'COMPLETED'
+    `).get(so.production_order_id) as any;
+
+    if (remainingSo && remainingSo.cnt === 0) {
+      db.prepare(`UPDATE production_orders SET status = 'COMPLETED', updated_at = ? WHERE id = ?`).run(now, so.production_order_id);
+    }
+  }
+}
+
 // 1. POST /api/qc/results
 const qcResultSchema = z.object({
   idempotencyKey: z.string().optional(),
@@ -65,6 +114,7 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
   try {
     const { idempotencyKey, itemQr, salesOrderNumber, qcResult, testResult, failureReason } = qcResultSchema.parse(req.body);
     const operatorId = req.user!.id;
+    const userRole = req.user!.role;
     const now = new Date().toISOString();
 
     if (idempotencyKey) {
@@ -76,9 +126,9 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
 
     // Resolve Sales Order safely without passing undefined
     const targetSo = salesOrderNumber || null;
-    let so = targetSo ? (db.prepare(`SELECT id FROM sales_orders WHERE so_number = ? OR id = ?`).get(targetSo, targetSo) as any) : null;
+    let so = targetSo ? (db.prepare(`SELECT * FROM sales_orders WHERE so_number = ? OR id = ?`).get(targetSo, targetSo) as any) : null;
     if (!so) {
-      so = db.prepare(`SELECT id FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+      so = db.prepare(`SELECT * FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
     }
     if (!so) {
       const defaultPoId = `po-${Date.now()}`;
@@ -93,7 +143,15 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
         VALUES (?, ?, 'SO-AUTO', 'MAP-SO-AUTO', 'Garment Product', 'ST-AUTO', 'Black', 'S - XL', 1000, 'line-04', 'shift-c', 12, 'In Progress', ?, ?)
       `).run(defaultSoId, defaultPoId, now, now);
 
-      so = { id: defaultSoId };
+      so = db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(defaultSoId) as any;
+    }
+
+    // Operator scoping check
+    if (!checkOperatorAllocation(operatorId, userRole, so.id, 'QC_TEST')) {
+      return res.status(403).json({
+        error: 'OPERATOR_UNAUTHORIZED',
+        message: `Operator ${req.user!.username} is not allocated to Sales Order ${so.so_number} for QC Test`
+      });
     }
 
     // Find or create item unit
@@ -120,9 +178,16 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
         failCount += 1;
         const failLogId = `qcfail-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         db.prepare(`
-          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(failLogId, item.id, operatorId, qcResult, testResult, failureReason || null, failCount, now);
+          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, so_id, po_id, shift_id, failure_type)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QC_FAIL')
+        `).run(failLogId, item.id, operatorId, qcResult, testResult, failureReason || null, failCount, now, idempotencyKey || null, itemQr, so.id, so.production_order_id, so.shift_id);
+
+        // Immediate Supervisor Alert
+        const alertId = `alt-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+        db.prepare(`
+          INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, reference_type, reference_id, created_at)
+          VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'QC Test Failure Alert', ?, 'qc_fail_log', ?, ?)
+        `).run(alertId, `QC failed for item ${itemQr} on SO ${so.so_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId, now);
       }
 
       if (existingQc) {
@@ -146,6 +211,8 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
 
     recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'ACCEPTED');
     auditLog(operatorId, 'QC_RESULT_SAVED', 'item_units', item.id, { qcResult, testResult, retryCount, failCount });
+
+    checkAndUpdateSOCompletion(so.id);
 
     return res.status(200).json({
       message: isPass ? (retryCount > 0 ? `QC Passed after ${retryCount} attempt(s)!` : 'QC Passed!') : `QC Failed (Attempt #${failCount})`,
@@ -272,6 +339,8 @@ router.post('/packing/items/scan', authenticateToken, (req: AuthRequest, res, ne
 
     recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'ACCEPTED');
     auditLog(operatorId, 'PACK_ITEM', 'boxes', box.id, { itemQr, count: currentItemsCount + 1 });
+
+    checkAndUpdateSOCompletion(so.id);
 
     return res.status(201).json({
       message: `Item ${itemQr} packed into box ${boxNumber}`,

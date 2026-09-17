@@ -36,6 +36,7 @@ export interface SalesOrderProgress {
 
 export interface SalesOrder {
   id: string;           // e.g. SO-77201
+  dbId?: string;
   mapSo: string;        // Free text e.g. MAP-SO-90317
   product: string;      // e.g. Running Tee
   styleCode: string;    // e.g. ST-NK-902
@@ -44,12 +45,14 @@ export interface SalesOrder {
   quantity: number;     // e.g. 2500
   lineId: string;       // e.g. Line 04 (Note: belongs on Sales Order, not PO)
   boxCapacity: number;  // e.g. 12
+  allocations?: any[];
   shifts: ShiftAssignment[];
   progress: SalesOrderProgress;
 }
 
 export interface ProductionOrder {
   id: string;                  // e.g. PO-2026-0184
+  dbId?: string;
   mapPo: string;               // Free text e.g. MAP-PO-44821
   customer: string;            // e.g. Nike
   boxRangeStart?: string;      // e.g. PNFLS092632670

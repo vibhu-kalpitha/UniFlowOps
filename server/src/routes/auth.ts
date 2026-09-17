@@ -96,4 +96,41 @@ router.get('/me', authenticateToken, (req: AuthRequest, res, next) => {
   }
 });
 
+const resetPasswordSchema = z.object({
+  userId: z.string().min(1),
+  newPassword: z.string().min(6)
+});
+
+// POST /api/auth/reset-password - ADMIN ONLY
+router.post('/reset-password', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    if (!req.user || req.user.role !== 'ADMIN') {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: 'Only ADMIN can reset user passwords'
+      });
+    }
+
+    const { userId, newPassword } = resetPasswordSchema.parse(req.body);
+
+    const user = db.prepare(`SELECT id, username, full_name FROM users WHERE id = ? OR username = ?`).get(userId, userId) as any;
+    if (!user) {
+      return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    const now = new Date().toISOString();
+
+    db.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).run(passwordHash, now, user.id);
+
+    auditLog(req.user.id, 'RESET_PASSWORD', 'users', user.id, { username: user.username });
+
+    return res.json({
+      message: `Password reset successfully for user ${user.username}`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

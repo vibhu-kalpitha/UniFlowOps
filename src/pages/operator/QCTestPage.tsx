@@ -51,7 +51,6 @@ export const QCTestPage: React.FC = () => {
     setFailureReason('');
     setHistoryData(null);
 
-    // Fetch history if available
     try {
       const hRes = await apiFetch(`/api/qc/history/${code}`);
       if (hRes) {
@@ -65,13 +64,11 @@ export const QCTestPage: React.FC = () => {
       setHistoryData(null);
     }
 
-    // 1. Range check (only if a range is configured on the PO)
     if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
       setScannedItem({ qr: code, product: so?.product || '—', size: '—', status: 'INVALID' });
       setQcResult('FAIL');
       setTestResult('FAIL');
 
-      // Auto-save failed scan log to SQLite database immediately
       apiFetch('/api/qc/results', {
         method: 'POST',
         body: JSON.stringify({
@@ -100,7 +97,6 @@ export const QCTestPage: React.FC = () => {
       };
     }
 
-    // 2. Try server validation
     try {
       const res = await apiFetch('/api/qc/scan', {
         method: 'POST',
@@ -134,7 +130,6 @@ export const QCTestPage: React.FC = () => {
         code: res.item?.qr_code || code,
       };
     } catch {
-      // Offline / API not responding — accept in-range code
       setScannedItem({ qr: code, product: so?.product || 'Garment', size: 'L', status: 'VALID' });
       setQcResult('PASS');
       setTestResult('PASS');
@@ -181,7 +176,6 @@ export const QCTestPage: React.FC = () => {
     }
 
     setSaved(true);
-    // Reset after 1.5 s
     setTimeout(() => {
       setScannedItem(null);
       setQcResult('PASS');
@@ -194,192 +188,230 @@ export const QCTestPage: React.FC = () => {
 
   /* ── render ─────────────────────────────────────────────────── */
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
-      {/* PO / SO Banner */}
+    <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Top Banner */}
       <div style={styles.banner}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <FileText size={20} color="var(--primary-teal)" />
-          <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 800 }}>
-              {po?.id || '—'} | {so?.id || '—'}
-            </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {so?.product || 'Garment'} — {so?.colour || '—'}
-              {rangeStart && rangeEnd && (
-                <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                  • Range: {rangeStart} → {rangeEnd}
-                </span>
-              )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <FileText size={20} color="var(--primary-teal)" />
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
+                QC Inspection • {po?.id || 'PO-2026-904'} | {so?.id || 'SO-77201'}
+              </h3>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {so?.product || 'Garment'} — {so?.colour || '—'}
+                {rangeStart && rangeEnd && (
+                  <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                    • Valid Range: {rangeStart} → {rangeEnd}
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <CheckCircle2 size={16} color="var(--color-green)" />
+            <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+              Scanner Active
             </span>
           </div>
         </div>
       </div>
 
-      {/* Scanner status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <CheckCircle2 size={16} color="var(--color-green)" />
-        <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
-          Scanner Connected
-        </span>
-      </div>
+      {/* Split Grid for Desktop */}
+      <div className="desktop-split-7-5">
+        {/* Left Panel: Scanner & Controls */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
+          <ScannerInput onScan={handleScanCode} placeholder="Scan garment QR code…" />
 
-      {/* Scanner input */}
-      <ScannerInput onScan={handleScanCode} placeholder="Scan garment QR code…" />
-
-      {/* ── Item Details: empty until scan ── */}
-      {!scannedItem ? (
-        <div style={styles.emptyCard}>
-          <ScanLine size={36} color="var(--text-muted)" />
-          <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
-            Waiting for scan…
-          </span>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Scan a garment QR to see item details
-          </span>
-        </div>
-      ) : (
-        <>
-          {/* Item Detail Card */}
-          <div
-            className="card"
-            style={{
-              backgroundColor: 'var(--bg-surface-1)',
-              borderColor: scannedItem.status === 'INVALID'
-                ? 'rgba(239,68,68,0.5)'
-                : scannedItem.status === 'DUPLICATE'
-                ? 'rgba(245,158,11,0.5)'
-                : 'rgba(16,185,129,0.4)',
-              borderWidth: '1.5px',
-            }}
-          >
-            <span style={styles.cardHeaderTitle}>ITEM DETAILS</span>
-
-            <div style={styles.detailRow}>
-              <span style={styles.detailLabel}>Barcode / QR</span>
-              <span style={{ ...styles.detailValue, color: 'var(--primary-teal)', fontSize: '16px' }}>
-                {scannedItem.qr}
+          {!scannedItem ? (
+            <div style={styles.emptyCard}>
+              <ScanLine size={36} color="var(--text-muted)" />
+              <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
+                Waiting for scan…
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Scan a garment QR to see item details & validate quality
               </span>
             </div>
-            <div style={styles.detailRow}>
-              <span style={styles.detailLabel}>Product</span>
-              <span style={styles.detailValue}>{scannedItem.product}</span>
-            </div>
-            <div style={styles.detailRow}>
-              <span style={styles.detailLabel}>Size</span>
-              <span style={styles.detailValue}>{scannedItem.size}</span>
-            </div>
-            <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
-              <span style={styles.detailLabel}>Validation</span>
-              {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid — In Range" variant="green" />}
-              {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Duplicate" variant="amber" />}
-              {scannedItem.status === 'INVALID' && <StatusPill label="❌ Out of Range" variant="red" />}
-            </div>
-
-            {/* Fail History Banner if this item failed before */}
-            {historyData && historyData.failCount > 0 && (
-              <div style={{
-                marginTop: '10px',
-                padding: '10px 12px',
-                borderRadius: '10px',
-                backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px'
-              }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#f87171' }}>
-                  ⚠️ Previously Failed {historyData.failCount} time(s)! (Attempt #{historyData.failCount + 1})
-                </span>
-                {historyData.history.map((h, idx) => (
-                  <div key={idx} style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Attempt #{h.attempt_number}: QC {h.qc_result} / Test {h.test_result} {h.failure_reason ? `(${h.failure_reason})` : ''}</span>
-                    <span style={{ fontSize: '10px', opacity: 0.8 }}>{new Date(h.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* QC Result */}
-          <div>
-            <span style={styles.controlLabel}>QC Result</span>
-            <div style={styles.segmentRow}>
-              <button
-                style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                onClick={() => setQcResult('PASS')}
-              >
-                <Check size={18} /> PASS
-              </button>
-              <button
-                style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                onClick={() => setQcResult('FAIL')}
-              >
-                <XCircle size={18} /> FAIL
-              </button>
-            </div>
-          </div>
-
-          {/* Test Result */}
-          <div>
-            <span style={styles.controlLabel}>Test Result</span>
-            <div style={styles.segmentRow}>
-              <button
-                style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                onClick={() => setTestResult('PASS')}
-              >
-                <Check size={18} /> PASS
-              </button>
-              <button
-                style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                onClick={() => setTestResult('FAIL')}
-              >
-                <XCircle size={18} /> FAIL
-              </button>
-            </div>
-          </div>
-
-          {/* Failure Reason input (shown if either QC or Test is set to FAIL) */}
-          {(qcResult === 'FAIL' || testResult === 'FAIL') && (
-            <div>
-              <span style={styles.controlLabel}>Failure Reason (Optional)</span>
-              <input
-                type="text"
-                value={failureReason}
-                onChange={(e) => setFailureReason(e.target.value)}
-                placeholder="e.g. Stitching error, fabric tear, out of spec..."
+          ) : (
+            <>
+              <div
+                className="card"
                 style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: '10px',
-                  backgroundColor: 'var(--bg-surface-2)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  fontSize: '13px'
+                  backgroundColor: 'var(--bg-surface-1)',
+                  borderColor: scannedItem.status === 'INVALID'
+                    ? 'rgba(239,68,68,0.5)'
+                    : scannedItem.status === 'DUPLICATE'
+                    ? 'rgba(245,158,11,0.5)'
+                    : 'rgba(16,185,129,0.4)',
+                  borderWidth: '1.5px',
                 }}
-              />
-            </div>
-          )}
+              >
+                <span style={styles.cardHeaderTitle}>ITEM DETAILS</span>
 
-          {/* Save */}
-          <button
-            className="btn-primary"
-            onClick={handleSave}
-            disabled={saved}
-            style={{
-              marginTop: '8px',
-              background: saved
-                ? 'var(--color-green)'
-                : scannedItem.status === 'INVALID'
-                ? 'var(--color-red)'
-                : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-              opacity: saved ? 0.7 : 1,
-            }}
-          >
-            {saved ? '✅ Saved!' : 'Save QC Result'}
-          </button>
-        </>
-      )}
+                <div style={styles.detailRow}>
+                  <span style={styles.detailLabel}>Barcode / QR</span>
+                  <span style={{ ...styles.detailValue, color: 'var(--primary-teal)', fontSize: '16px' }}>
+                    {scannedItem.qr}
+                  </span>
+                </div>
+                <div style={styles.detailRow}>
+                  <span style={styles.detailLabel}>Product</span>
+                  <span style={styles.detailValue}>{scannedItem.product}</span>
+                </div>
+                <div style={styles.detailRow}>
+                  <span style={styles.detailLabel}>Size</span>
+                  <span style={styles.detailValue}>{scannedItem.size}</span>
+                </div>
+                <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
+                  <span style={styles.detailLabel}>Validation</span>
+                  {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid — In Range" variant="green" />}
+                  {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Duplicate" variant="amber" />}
+                  {scannedItem.status === 'INVALID' && <StatusPill label="❌ Out of Range" variant="red" />}
+                </div>
+
+                {historyData && historyData.failCount > 0 && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px'
+                  }}>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: '#f87171' }}>
+                      ⚠️ Previously Failed {historyData.failCount} time(s)! (Attempt #{historyData.failCount + 1})
+                    </span>
+                    {historyData.history.map((h, idx) => (
+                      <div key={idx} style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Attempt #{h.attempt_number}: QC {h.qc_result} / Test {h.test_result} {h.failure_reason ? `(${h.failure_reason})` : ''}</span>
+                        <span style={{ fontSize: '10px', opacity: 0.8 }}>{new Date(h.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <span style={styles.controlLabel}>QC Result</span>
+                <div style={styles.segmentRow}>
+                  <button
+                    style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                    onClick={() => setQcResult('PASS')}
+                  >
+                    <Check size={18} /> PASS
+                  </button>
+                  <button
+                    style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                    onClick={() => setQcResult('FAIL')}
+                  >
+                    <XCircle size={18} /> FAIL
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <span style={styles.controlLabel}>Test Result</span>
+                <div style={styles.segmentRow}>
+                  <button
+                    style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                    onClick={() => setTestResult('PASS')}
+                  >
+                    <Check size={18} /> PASS
+                  </button>
+                  <button
+                    style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                    onClick={() => setTestResult('FAIL')}
+                  >
+                    <XCircle size={18} /> FAIL
+                  </button>
+                </div>
+              </div>
+
+              {(qcResult === 'FAIL' || testResult === 'FAIL') && (
+                <div>
+                  <span style={styles.controlLabel}>Failure Reason (Optional)</span>
+                  <input
+                    type="text"
+                    value={failureReason}
+                    onChange={(e) => setFailureReason(e.target.value)}
+                    placeholder="e.g. Stitching error, fabric tear, out of spec..."
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      backgroundColor: 'var(--bg-surface-2)',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-primary)',
+                      fontSize: '13px'
+                    }}
+                  />
+                </div>
+              )}
+
+              <button
+                className="btn-primary"
+                onClick={handleSave}
+                disabled={saved}
+                style={{
+                  marginTop: '8px',
+                  background: saved
+                    ? 'var(--color-green)'
+                    : scannedItem.status === 'INVALID'
+                    ? 'var(--color-red)'
+                    : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                  opacity: saved ? 0.7 : 1,
+                }}
+              >
+                {saved ? '✅ Saved!' : 'Save QC Result'}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Right Panel: Context Details & History */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
+              INSPECTION SPECIFICATIONS
+            </span>
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Production Order:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{po?.id || 'PO-2026-904'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Sales Order:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{so?.id || 'SO-77201'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Product Style:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{so?.product || 'Garment'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Barcode Range:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>
+                  {rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'Any Code'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+              QC TEST INSTRUCTIONS
+            </span>
+            <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <li>Scan the garment QR tag or enter manually.</li>
+              <li>Verify physical garment against specifications.</li>
+              <li>Mark QC & Test results appropriately before saving.</li>
+              <li>Failed items are automatically logged to the defect database.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

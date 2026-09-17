@@ -162,139 +162,186 @@ export const PackingPage: React.FC = () => {
 
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
+    <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* PO/SO Banner */}
       <div style={styles.banner}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <FileText size={20} color="var(--primary-teal)" />
-          <div>
-            <h3 style={{ fontSize: '15px', fontWeight: 800 }}>
-              {po?.id || '—'} | {so?.id || '—'}
-            </h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {so?.product || '—'} — {so?.colour || '—'}
-              {rangeStart && rangeEnd && (
-                <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                  • Range: {rangeStart} → {rangeEnd}
-                </span>
-              )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <FileText size={20} color="var(--primary-teal)" />
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
+                Packing Station • {po?.id || 'PO-2026-904'} | {so?.id || 'SO-77201'}
+              </h3>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {so?.product || 'Garment'} — {so?.colour || '—'}
+                {rangeStart && rangeEnd && (
+                  <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                    • Range: {rangeStart} → {rangeEnd}
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <CheckCircle2 size={16} color="var(--color-green)" />
+            <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+              Scanner Ready
             </span>
           </div>
         </div>
       </div>
 
-      {/* ── PHASE 1: No box scanned yet ── */}
-      {!box ? (
-        <>
-          <div style={styles.phaseBadge}>
-            <BoxSelect size={16} color="var(--primary-teal)" />
-            <span>Step 1 — Scan Box Barcode</span>
-          </div>
-          <div style={styles.emptyCard}>
-            <BoxSelect size={40} color="var(--text-muted)" />
-            <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '12px' }}>
-              Scan Box QR Code First
-            </span>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Point scanner at the box barcode to activate it
-            </span>
-          </div>
-          <ScannerInput onScan={handleScanBox} placeholder="Scan box QR / barcode…" />
-        </>
-      ) : (
-        /* ── PHASE 2: Box active — scan products ── */
-        <>
-          <div style={styles.phaseBadge}>
-            <Package size={16} color="var(--color-blue)" />
-            <span style={{ color: 'var(--color-blue)' }}>Step 2 — Scan Products into Box</span>
-          </div>
-
-          {/* Box Info */}
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <span style={styles.cardHeaderTitle}>ACTIVE BOX</span>
-                <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-                  {box.boxNumber}
-                </h3>
+      {/* Split Grid for Desktop */}
+      <div className="desktop-split-7-5">
+        {/* Left Panel: Active Scanning & Action */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
+          {!box ? (
+            <>
+              <div style={styles.phaseBadge}>
+                <BoxSelect size={16} color="var(--primary-teal)" />
+                <span>Step 1 — Scan Box Barcode</span>
               </div>
-              {isFull
-                ? <StatusPill label="Box Full ✅" variant="green" />
-                : <StatusPill label="Packing Active" variant="teal" />}
-            </div>
-
-            <div style={{ marginTop: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                <span>Items Packed</span>
-                <span style={{ fontWeight: 700, color: isFull ? 'var(--color-green)' : 'var(--primary-teal)' }}>
-                  {box.items.length} / {box.capacity}
+              <div style={styles.emptyCard}>
+                <BoxSelect size={40} color="var(--text-muted)" />
+                <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '12px' }}>
+                  Scan Box QR Code First
+                </span>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Point scanner at the box barcode to activate it
                 </span>
               </div>
-              <ProgressBar current={box.items.length} total={box.capacity} color={isFull ? 'var(--color-green)' : 'var(--primary-teal)'} />
+              <ScannerInput onScan={handleScanBox} placeholder="Scan box QR / barcode…" />
+            </>
+          ) : (
+            <>
+              <div style={styles.phaseBadge}>
+                <Package size={16} color="var(--color-blue)" />
+                <span style={{ color: 'var(--color-blue)' }}>Step 2 — Scan Products into Box</span>
+              </div>
+
+              <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={styles.cardHeaderTitle}>ACTIVE BOX</span>
+                    <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                      {box.boxNumber}
+                    </h3>
+                  </div>
+                  {isFull
+                    ? <StatusPill label="Box Full ✅" variant="green" />
+                    : <StatusPill label="Packing Active" variant="teal" />}
+                </div>
+
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                    <span>Items Packed</span>
+                    <span style={{ fontWeight: 700, color: isFull ? 'var(--color-green)' : 'var(--primary-teal)' }}>
+                      {box.items.length} / {box.capacity}
+                    </span>
+                  </div>
+                  <ProgressBar current={box.items.length} total={box.capacity} color={isFull ? 'var(--color-green)' : 'var(--primary-teal)'} />
+                </div>
+              </div>
+
+              <ScannerInput
+                onScan={handleScanProduct}
+                disabled={isFull}
+                placeholder={isFull ? 'Box full — finish this box first' : 'Scan product QR code to pack…'}
+              />
+
+              {box.items.length > 0 && (
+                <div>
+                  <span style={styles.sectionHeaderTitle}>Recently Packed</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                    {box.items.slice(0, 6).map((item, idx) => (
+                      <div key={idx} style={styles.itemRow}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <Package size={18} color="var(--primary-teal)" />
+                          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {item.qr}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                          <Clock size={12} />
+                          <span>{item.scannedAt}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {box.items.length > 6 && (
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                        +{box.items.length - 6} more items
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {box.items.length === 0 && (
+                <div style={styles.emptyCard}>
+                  <ScanLine size={32} color="var(--text-muted)" />
+                  <span style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                    No products packed yet — scan a product QR
+                  </span>
+                </div>
+              )}
+
+              <button
+                className="btn-primary"
+                style={{
+                  marginTop: '8px',
+                  background: isFull
+                    ? 'linear-gradient(135deg, var(--color-green) 0%, #20E094 100%)'
+                    : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                }}
+                onClick={handleFinishBox}
+              >
+                {isFull ? '✅ Finish & Seal Box' : 'Finish Box Early'}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Right Panel: Context Details */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
+              PACKING SPECIFICATIONS
+            </span>
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Production Order:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{po?.id || 'PO-2026-904'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Sales Order:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{so?.id || 'SO-77201'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Standard Box Capacity:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{so?.boxCapacity || 24} items / carton</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Barcode Range:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>
+                  {rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'Any Code'}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Product Scanner */}
-          <ScannerInput
-            onScan={handleScanProduct}
-            disabled={isFull}
-            placeholder={isFull ? 'Box full — finish this box first' : 'Scan product QR code to pack…'}
-          />
-
-          {/* Recently Packed */}
-          {box.items.length > 0 && (
-            <div>
-              <span style={styles.sectionHeaderTitle}>Recently Packed</span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-                {box.items.slice(0, 6).map((item, idx) => (
-                  <div key={idx} style={styles.itemRow}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <Package size={18} color="var(--primary-teal)" />
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {item.qr}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                      <Clock size={12} />
-                      <span>{item.scannedAt}</span>
-                    </div>
-                  </div>
-                ))}
-                {box.items.length > 6 && (
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                    +{box.items.length - 6} more items
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Empty state in phase 2 */}
-          {box.items.length === 0 && (
-            <div style={styles.emptyCard}>
-              <ScanLine size={32} color="var(--text-muted)" />
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                No products packed yet — scan a product QR
-              </span>
-            </div>
-          )}
-
-          {/* Finish Box */}
-          <button
-            className="btn-primary"
-            style={{
-              marginTop: '8px',
-              background: isFull
-                ? 'linear-gradient(135deg, var(--color-green) 0%, #20E094 100%)'
-                : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-            }}
-            onClick={handleFinishBox}
-          >
-            {isFull ? '✅ Finish & Seal Box' : 'Finish Box Early'}
-          </button>
-        </>
-      )}
+          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
+              PACKING GUIDELINES
+            </span>
+            <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <li>Scan the box barcode first to open an active packing session.</li>
+              <li>Only QC-passed garments inside valid PO range are accepted.</li>
+              <li>When carton capacity is reached, click Finish & Seal Box.</li>
+              <li>Sealed boxes are immediately dispatched for AQL audit.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
 
       {/* Completion Modal */}
       {showFinishModal && box && (
