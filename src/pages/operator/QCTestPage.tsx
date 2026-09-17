@@ -70,9 +70,32 @@ export const QCTestPage: React.FC = () => {
       setScannedItem({ qr: code, product: so?.product || '—', size: '—', status: 'INVALID' });
       setQcResult('FAIL');
       setTestResult('FAIL');
+
+      // Auto-save failed scan log to SQLite database immediately
+      apiFetch('/api/qc/results', {
+        method: 'POST',
+        body: JSON.stringify({
+          itemQr:          code,
+          salesOrderNumber: so?.id || 'SO-AUTO',
+          qcResult:        'FAIL',
+          testResult:      'FAIL',
+          failureReason:   `Out of Range Barcode: ${code} (PO Range: ${rangeStart} -> ${rangeEnd})`,
+        }),
+      }).then(saveRes => {
+        apiFetch(`/api/qc/history/${code}`).then(hRes => {
+          if (hRes) {
+            setHistoryData({
+              failCount: hRes.failCount || saveRes?.totalFails || 1,
+              retryCount: hRes.retryCount || 0,
+              history: hRes.history || []
+            });
+          }
+        }).catch(() => {});
+      }).catch(() => {});
+
       return {
         status: 'rejected' as const,
-        message: `❌ Out of Range! (${code}) is outside PO range: ${rangeStart} → ${rangeEnd}`,
+        message: `❌ Out of Range Barcode (${code}) auto-saved as FAIL in DB!`,
         code,
       };
     }
@@ -92,6 +115,19 @@ export const QCTestPage: React.FC = () => {
       });
       setQcResult(isDup ? 'FAIL' : 'PASS');
       setTestResult(isDup ? 'FAIL' : 'PASS');
+
+      if (isDup) {
+        apiFetch('/api/qc/results', {
+          method: 'POST',
+          body: JSON.stringify({
+            itemQr:          code,
+            salesOrderNumber: so?.id || 'SO-AUTO',
+            qcResult:        'FAIL',
+            testResult:      'FAIL',
+            failureReason:   `Duplicate Scan: ${code}`,
+          }),
+        }).catch(() => {});
+      }
       return {
         status:  isDup ? ('duplicate' as const) : ('accepted' as const),
         message: isDup ? `⚠️ Duplicate scan: ${code}` : `✅ ${code} validated successfully`,

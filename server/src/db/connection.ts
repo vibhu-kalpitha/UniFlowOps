@@ -62,6 +62,11 @@ class DbWrapper {
   public setDb(rawDb: SqlJsDatabase) {
     this._db = rawDb;
     this.exec('PRAGMA foreign_keys = ON;');
+    console.log(`[SQLite Database] Absolute DB Path: ${dbPath}`);
+    try {
+      const dbList = this.prepare('PRAGMA database_list').all();
+      console.log(`[SQLite Database] PRAGMA database_list:`, dbList);
+    } catch (_) {}
   }
 
   public exec(sql: string) {
@@ -120,13 +125,11 @@ class DbWrapper {
   public transaction<T extends (...args: any[]) => any>(fn: T): T {
     const self = this;
     return ((...args: any[]) => {
-      self.exec('BEGIN TRANSACTION;');
       try {
         const result = fn(...args);
-        self.exec('COMMIT;');
+        if (self._db) saveDbToDisk(self._db);
         return result;
       } catch (err) {
-        self.exec('ROLLBACK;');
         throw err;
       }
     }) as T;

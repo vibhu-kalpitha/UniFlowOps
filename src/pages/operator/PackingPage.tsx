@@ -24,7 +24,7 @@ interface ActiveBox {
 
 export const PackingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { activeJob, savePackingBox, incrementPacked, showToast } = useApp();
+  const { activeJob, packingBoxes, savePackingBox, incrementPacked, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
@@ -75,11 +75,22 @@ export const PackingPage: React.FC = () => {
       };
     }
 
-    // Duplicate check inside this box
-    if (box.items.some(i => i.qr === code)) {
+    // Duplicate check inside active box or ANY packed box
+    const packedInBox: any = Object.values(packingBoxes).find((b: any) =>
+      b.items?.some((i: any) => i.qr.toUpperCase() === code.trim().toUpperCase())
+    );
+    if (packedInBox) {
       return {
         status:  'duplicate' as const,
-        message: `⚠️ Already packed in this box: ${code}`,
+        message: `⚠️ Item ${code} is ALREADY PACKED in Box ${packedInBox.boxNumber}!`,
+        code,
+      };
+    }
+
+    if (box.items.some(i => i.qr.toUpperCase() === code.trim().toUpperCase())) {
+      return {
+        status:  'duplicate' as const,
+        message: `⚠️ Item ${code} is ALREADY PACKED in this Box (${box.boxNumber})!`,
         code,
       };
     }
@@ -94,7 +105,15 @@ export const PackingPage: React.FC = () => {
           salesOrderNumber: so?.id || 'SO-77201',
         }),
       });
-    } catch { /* offline: continue */ }
+    } catch (err: any) {
+      if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED')) {
+        return {
+          status:  'duplicate' as const,
+          message: `⚠️ Item ${code} is ALREADY PACKED in the database!`,
+          code,
+        };
+      }
+    }
 
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;

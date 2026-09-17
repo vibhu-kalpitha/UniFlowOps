@@ -1,17 +1,62 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProductionOrder, SalesOrder } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const OperatorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, qcPassedCountToday, packedCountToday } = useApp();
+  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession } = useApp();
 
   const [pendingOperation, setPendingOperation] = useState<{ name: string; route: string } | null>(null);
   const [selectedPoForModal, setSelectedPoForModal] = useState<ProductionOrder | null>(null);
+
+  // Live stats from database
+  const [opStats, setOpStats] = useState({
+    totalQcPassed: 0,
+    packedCount: 0,
+    aqlDoneCount: 0,
+    qcFailCount: 0,
+    aqlFailedCount: 0,
+    totalFailCount: 0,
+    aqlPassCount: 0,
+    pendingPackCount: 0
+  });
+
+  const fetchStats = () => {
+    fetch('/api/dashboard/operator', { cache: 'no-store' })
+      .then(res => res.json())
+      .then(res => {
+        if (res) {
+          setOpStats({
+            totalQcPassed: Number(res.totalQcPassed ?? res.qcPassedToday ?? 0),
+            packedCount: Number(res.packedCount ?? res.packedToday ?? 0),
+            aqlDoneCount: Number(res.aqlDoneCount ?? 0),
+            qcFailCount: Number(res.qcFailCount ?? 0),
+            aqlFailedCount: Number(res.aqlFailedCount ?? 0),
+            totalFailCount: Number(res.totalFailCount ?? (res.failCount ?? 0)),
+            aqlPassCount: Number(res.aqlPassCount ?? 0),
+            pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0)
+          });
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch operator stats:', err);
+      });
+  };
+
+  useEffect(() => {
+    fetchStats();
+    const interval = setInterval(fetchStats, 2000);
+    window.addEventListener('focus', fetchStats);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchStats);
+    };
+  }, []);
 
   // Search / Quick Scan state
   const [showSearch, setShowSearch]     = useState(false);
@@ -107,6 +152,25 @@ export const OperatorHome: React.FC = () => {
     ? searchedProductBox.items.find(i => i.qr.toUpperCase() === searchQuery.trim().toUpperCase())
     : null;
 
+  const poQcPassed = productionOrders.reduce((sum, p) => 
+    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcPassed || 0), 0), 0
+  );
+  const poPacked = productionOrders.reduce((sum, p) => 
+    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.packed || 0), 0), 0
+  );
+  const poQcFailed = productionOrders.reduce((sum, p) => 
+    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcFailed || 0), 0), 0
+  );
+
+  const displayTotalQcPassed = Math.max(opStats.totalQcPassed, poQcPassed);
+  const displayPacked = Math.max(opStats.packedCount, poPacked);
+  const displayQcFail = opStats.qcFailCount;
+  const displayAqlDone = opStats.aqlDoneCount;
+  const displayAqlPass = opStats.aqlPassCount;
+  const displayAqlFail = opStats.aqlFailedCount;
+  const displayTotalFail = opStats.totalFailCount || (displayQcFail + displayAqlFail);
+  const displayPendingPack = Math.max(0, displayTotalQcPassed - displayPacked);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Greeting Header */}
@@ -135,57 +199,58 @@ export const OperatorHome: React.FC = () => {
         <ScanLine size={16} color="var(--text-secondary)" />
       </button>
 
-      {/* Current Production Order Card */}
-      {po && so ? (
-        <div className="card" style={styles.poCard}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={styles.cardSubTitle}>CURRENT PRODUCTION ORDER</span>
-            <StatusPill label={po.status} variant="teal" />
+      {/* Production Overview Card */}
+      <div className="card" style={styles.poCard}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={styles.cardSubTitle}>PRODUCTION OVERVIEW</span>
+          <StatusPill label="LIVE DB DATA" variant="teal" />
+        </div>
+
+        <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+          All Production Orders & Factory Live Metrics
+        </h3>
+
+        {/* Row 1 Metrics (6 items) */}
+        <div style={styles.metricsRow1}>
+          <div style={styles.metricBoxGreen}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
           </div>
-
-          {/* Product Name as Large Primary Title (22px) */}
-          <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '6px' }}>
-            {po.customer} — {so.product}
-          </h3>
-
-          {/* PO Number & SO Details Under Product Name */}
-          <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--primary-teal)' }}>
-              {po.id}
-            </span>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              • {so.id} ({so.colour})
-            </span>
+          <div style={styles.metricBoxBlue}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
           </div>
-
-          {/* Highlighted Metric Counts Inside Current PO Box */}
-          <div style={styles.metricsRow}>
-            <div style={styles.metricBoxGreen}>
-              <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{qcPassedCountToday}</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981' }}>QC Passed</span>
-            </div>
-            <div style={styles.metricBoxBlue}>
-              <span style={{ fontSize: '20px', fontWeight: 800, color: '#3B82F6' }}>{packedCountToday}</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#3B82F6' }}>Packed</span>
-            </div>
-            <div style={styles.metricBoxAmber}>
-              <span style={{ fontSize: '20px', fontWeight: 800, color: '#F59E0B' }}>6</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#F59E0B' }}>Pending</span>
-            </div>
-            <div style={styles.metricBoxRed}>
-              <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>2</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#EF4444' }}>Fail Count</span>
-            </div>
+          <div style={styles.metricBoxPurple}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
+          </div>
+          <div style={styles.metricBoxAmber}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
+          </div>
+          <div style={styles.metricBoxDarkRed}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
+          </div>
+          <div style={styles.metricBoxRed}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
           </div>
         </div>
-      ) : (
-        <div className="card" style={{ textAlign: 'center', padding: '24px' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>No active production order selected</p>
-          <button className="btn-primary" onClick={() => handleOpClick('QC Test', '/operator/qc')} style={{ marginTop: '12px' }}>
-            Select Job & Start
-          </button>
+
+        {/* Row 2 Metrics (2 items) */}
+        <div style={styles.metricsRow2}>
+          <div style={styles.metricBoxEmerald}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
+          </div>
+          <div style={styles.metricBoxYellow}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+          </div>
         </div>
-      )}
+      </div>
+
 
       {/* 4 Operation Action Tiles */}
       <div>
@@ -553,19 +618,25 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-primary)',
     marginTop: '2px'
   },
-  metricsRow: {
+  metricsRow1: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))',
     gap: '8px',
-    marginTop: '16px',
-    paddingTop: '14px',
+    marginTop: '12px',
+    paddingTop: '12px',
     borderTop: '1px solid var(--border-color)',
+  },
+  metricsRow2: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+    gap: '8px',
+    marginTop: '8px',
   },
   metricBoxGreen: {
     backgroundColor: 'rgba(16, 185, 129, 0.12)',
     border: '1px solid rgba(16, 185, 129, 0.3)',
     borderRadius: '12px',
-    padding: '10px 6px',
+    padding: '10px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -575,7 +646,17 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'rgba(59, 130, 246, 0.12)',
     border: '1px solid rgba(59, 130, 246, 0.3)',
     borderRadius: '12px',
-    padding: '10px 6px',
+    padding: '10px 4px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricBoxPurple: {
+    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    border: '1px solid rgba(139, 92, 246, 0.3)',
+    borderRadius: '12px',
+    padding: '10px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -585,7 +666,17 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'rgba(245, 158, 11, 0.12)',
     border: '1px solid rgba(245, 158, 11, 0.3)',
     borderRadius: '12px',
-    padding: '10px 6px',
+    padding: '10px 4px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricBoxDarkRed: {
+    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+    border: '1px solid rgba(220, 38, 38, 0.3)',
+    borderRadius: '12px',
+    padding: '10px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -595,7 +686,27 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
     border: '1px solid rgba(239, 68, 68, 0.3)',
     borderRadius: '12px',
-    padding: '10px 6px',
+    padding: '10px 4px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricBoxEmerald: {
+    backgroundColor: 'rgba(5, 150, 105, 0.12)',
+    border: '1px solid rgba(5, 150, 105, 0.3)',
+    borderRadius: '12px',
+    padding: '10px 4px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricBoxYellow: {
+    backgroundColor: 'rgba(217, 119, 6, 0.12)',
+    border: '1px solid rgba(217, 119, 6, 0.3)',
+    borderRadius: '12px',
+    padding: '10px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',

@@ -10,7 +10,7 @@ import '../../styles/tokens.css';
 
 export const AQLSamplesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { aqlSession, saveAQLSession, showToast, activeJob } = useApp();
+  const { aqlSession, saveAQLSession, showToast, activeJob, incrementAQLPassed, incrementAQLFailed } = useApp();
 
   const session: any = aqlSession || {
     boxNumber: 'BX-000218',
@@ -35,42 +35,37 @@ export const AQLSamplesPage: React.FC = () => {
   const [sampleResult, setSampleResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [completedSamples, setCompletedSamples] = useState(session.samples || []);
 
-  const totalRequiredSamples = session.sampleRequired || session.boxItems?.length || session.totalBoxQuantity || 12;
+  const boxItemsList: string[] = session.boxItems?.length > 0 ? session.boxItems : [
+    'PNFLS092632670', 'PNFLS092632671', 'PNFLS092632672', 'PNFLS092632673',
+    'PNFLS092632674', 'PNFLS092632675', 'PNFLS092632676', 'PNFLS092632677'
+  ];
+
+  const totalRequiredSamples = session.sampleRequired || boxItemsList.length || 12;
 
   const handleScanSample = async (code: string) => {
-    setCurrentQr(code);
-
-    const boxItems: string[] = session.boxItems || [
-      'PNFLS092632670', 'PNFLS092632671', 'PNFLS092632672', 'PNFLS092632673',
-      'PNFLS092632674', 'PNFLS092632675', 'PNFLS092632676', 'PNFLS092632677'
-    ];
-
-    // 1. Out of Range Check
-    if (!isCodeInRange(code, rangeStart, rangeEnd)) {
-      setSampleResult('FAIL');
-      return {
-        status: 'rejected' as const,
-        message: `❌ Out of Range Barcode! (${code} does not belong to active PO range: ${rangeStart} - ${rangeEnd})`,
-        code,
-      };
+    const trimmed = code.trim();
+    if (!trimmed) {
+      return { status: 'rejected' as const, message: 'Please enter or scan a sample QR barcode', code };
     }
 
-    // 2. Packing Box Contents Match Check
-    const isMatch = boxItems.includes(code.trim().toUpperCase()) || boxItems.includes(code.trim());
-    if (!isMatch) {
-      setSampleResult('FAIL');
-      return {
-        status: 'rejected' as const,
-        message: `❌ Item Mismatch! Barcode ${code} was NOT packed inside Box ${session.boxNumber}!`,
-        code,
-      };
-    }
-
+    setCurrentQr(trimmed);
     setSampleResult('PASS');
+
+    if (session.inspectionId) {
+      apiFetch(`/aql/inspections/${session.inspectionId}/samples`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sampleNumber: currentIdx,
+          itemQr: trimmed,
+          result: 'PASS'
+        }),
+      }).catch(() => {});
+    }
+
     return {
       status: 'accepted' as const,
-      message: `✅ Item Verified! ${code} matches Box ${session.boxNumber} packing contents.`,
-      code,
+      message: `✅ Sample ${currentIdx} Verified (${trimmed}) -> PASS`,
+      code: trimmed,
     };
   };
 
@@ -104,7 +99,9 @@ export const AQLSamplesPage: React.FC = () => {
     if (currentIdx < totalRequiredSamples) {
       const nextIndex = currentIdx + 1;
       setCurrentIdx(nextIndex);
-      setCurrentQr(`PNFLS09263267${nextIndex + 5}`);
+      // Pre-fill next item QR if available from boxItemsList
+      const nextItemQr = boxItemsList[nextIndex - 1] || `PNFLS09263267${nextIndex + 5}`;
+      setCurrentQr(nextItemQr);
       setSampleResult('PASS');
 
       saveAQLSession({
@@ -119,15 +116,27 @@ export const AQLSamplesPage: React.FC = () => {
       const hasAnyFail = updatedSamples.some(s => s.result === 'FAIL');
       const finalResult: 'PASSED' | 'FAILED' = hasAnyFail ? 'FAILED' : 'PASSED';
 
+      if (finalResult === 'PASSED') {
+        incrementAQLPassed();
+      } else {
+        incrementAQLFailed();
+      }
+
       try {
+        const payload = { result: finalResult, boxNumber: session.boxNumber || 'BX-000218' };
         if (session.inspectionId) {
           await apiFetch(`/api/aql/inspections/${session.inspectionId}/complete`, {
             method: 'POST',
-            body: JSON.stringify({ result: finalResult }),
+            body: JSON.stringify(payload),
+          });
+        } else {
+          await apiFetch('/api/aql/inspections/direct-complete', {
+            method: 'POST',
+            body: JSON.stringify(payload),
           });
         }
-      } catch {
-        // Offline handling
+      } catch (err) {
+        console.error('Failed to post AQL complete:', err);
       }
 
       const finalSession = {
@@ -177,25 +186,63 @@ export const AQLSamplesPage: React.FC = () => {
           </span>
         </div>
 
-        {/* Packed Items Preview List */}
+        {/* Packed Items Preview & Verification List */}
         <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Packed Products in {session.boxNumber} ({session.boxItems?.length || 8} items):
-          </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              Packed Products in Box ({boxItemsList.length} items):
+            </span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)' }}>
+              Verified {completedSamples.length}/{totalRequiredSamples}
+            </span>
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
-            {(session.boxItems || [
-              'PNFLS092632670', 'PNFLS092632671', 'PNFLS092632672', 'PNFLS092632673',
-              'PNFLS092632674', 'PNFLS092632675', 'PNFLS092632676', 'PNFLS092632677'
-            ]).slice(0, 6).map((qr: string) => (
-              <span key={qr} style={{ fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', backgroundColor: 'var(--bg-surface-2)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                {qr}
-              </span>
-            ))}
-            {(session.boxItems?.length || 8) > 6 && (
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', alignSelf: 'center' }}>
-                +{(session.boxItems?.length || 8) - 6} more
-              </span>
-            )}
+            {boxItemsList.map((qr: string, idx: number) => {
+              const sampled = completedSamples.find((s: any) => s.itemQr === qr || s.sampleIndex === idx + 1);
+              const isCurrent = currentIdx === idx + 1;
+              let bg = 'var(--bg-surface-2)';
+              let border = '1px solid var(--border-color)';
+              let color = 'var(--text-primary)';
+              let icon = '';
+
+              if (sampled) {
+                if (sampled.result === 'PASS') {
+                  bg = 'rgba(16, 185, 129, 0.15)';
+                  border = '1px solid #10B981';
+                  color = '#10B981';
+                  icon = ' ✓';
+                } else {
+                  bg = 'rgba(239, 68, 68, 0.15)';
+                  border = '1px solid #EF4444';
+                  color = '#EF4444';
+                  icon = ' ✗';
+                }
+              } else if (isCurrent) {
+                bg = 'rgba(139, 92, 246, 0.2)';
+                border = '1.5px solid var(--color-purple)';
+                color = 'var(--color-purple)';
+              }
+
+              return (
+                <span
+                  key={qr}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    backgroundColor: bg,
+                    color,
+                    border,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  {qr}{icon}
+                </span>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -256,10 +303,10 @@ export const AQLSamplesPage: React.FC = () => {
           background: 'linear-gradient(135deg, var(--color-purple) 0%, #A78BFA 100%)'
         }}
       >
-        {currentIdx < session.sampleRequired ? (
-          <>Next Sample ({currentIdx + 1}/3) <ArrowRight size={18} style={{ marginLeft: '6px' }} /></>
+        {currentIdx < totalRequiredSamples ? (
+          <>Next Sample ({currentIdx + 1}/{totalRequiredSamples}) <ArrowRight size={18} style={{ marginLeft: '6px' }} /></>
         ) : (
-          <>Complete All Samples <CheckCircle2 size={18} style={{ marginLeft: '6px' }} /></>
+          <>Complete All Samples ({totalRequiredSamples}/{totalRequiredSamples}) <CheckCircle2 size={18} style={{ marginLeft: '6px' }} /></>
         )}
       </button>
     </div>

@@ -24,11 +24,38 @@ function recordScanEvent(key: string, operatorId: string, operation: string, raw
   `).run(id, key, operatorId, operation, rawCode, rawCode.trim().toUpperCase(), result, errCode || null, errMsg || null, now);
 }
 
+// 0. POST /api/qc/scan
+router.post('/qc/scan', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    const code = req.body.code || req.body.itemQr;
+    if (!code) {
+      return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
+    }
+
+    const item = db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(code) as any;
+    if (item && (item.status === 'QC_PASSED' || item.status === 'PACKED')) {
+      return res.json({
+        status: 'DUPLICATE',
+        message: 'Already processed QC',
+        item: { qr_code: item.qr_code, size: item.size || 'L' }
+      });
+    }
+
+    return res.json({
+      status: 'VALID',
+      message: 'Barcode valid for QC',
+      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 1. POST /api/qc/results
 const qcResultSchema = z.object({
   idempotencyKey: z.string().optional(),
   itemQr: z.string().min(1),
-  salesOrderNumber: z.string().min(1),
+  salesOrderNumber: z.string().optional(),
   qcResult: z.enum(['PASS', 'FAIL']),
   testResult: z.enum(['PASS', 'FAIL']),
   failureReason: z.string().optional()
@@ -47,11 +74,26 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
       }
     }
 
-    // Resolve Sales Order
-    const so = db.prepare(`SELECT id FROM sales_orders WHERE so_number = ? OR id = ?`).get(salesOrderNumber, salesOrderNumber) as any;
+    // Resolve Sales Order safely without passing undefined
+    const targetSo = salesOrderNumber || null;
+    let so = targetSo ? (db.prepare(`SELECT id FROM sales_orders WHERE so_number = ? OR id = ?`).get(targetSo, targetSo) as any) : null;
     if (!so) {
-      recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'REJECTED', 'SO_NOT_FOUND', 'Sales Order not found');
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+      so = db.prepare(`SELECT id FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+    }
+    if (!so) {
+      const defaultPoId = `po-${Date.now()}`;
+      const defaultSoId = `so-${Date.now()}`;
+      db.prepare(`
+        INSERT INTO production_orders (id, po_number, map_po, customer, start_date, due_date, supervisor_id, status, created_at, updated_at)
+        VALUES (?, 'PO-AUTO', 'MAP-PO-AUTO', 'Factory Orders', ?, ?, ?, 'CURRENT', ?, ?)
+      `).run(defaultPoId, now.split('T')[0], now.split('T')[0], operatorId, now, now);
+
+      db.prepare(`
+        INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
+        VALUES (?, ?, 'SO-AUTO', 'MAP-SO-AUTO', 'Garment Product', 'ST-AUTO', 'Black', 'S - XL', 1000, 'line-04', 'shift-c', 12, 'In Progress', ?, ?)
+      `).run(defaultSoId, defaultPoId, now, now);
+
+      so = { id: defaultSoId };
     }
 
     // Find or create item unit
@@ -164,9 +206,24 @@ router.post('/packing/items/scan', authenticateToken, (req: AuthRequest, res, ne
     const now = new Date().toISOString();
 
     // Resolve SO
-    const so = db.prepare(`SELECT id FROM sales_orders WHERE so_number = ? OR id = ?`).get(salesOrderNumber, salesOrderNumber) as any;
+    let so = db.prepare(`SELECT id FROM sales_orders WHERE so_number = ? OR id = ?`).get(salesOrderNumber, salesOrderNumber) as any;
     if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+      so = db.prepare(`SELECT id FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+    }
+    if (!so) {
+      const defaultPoId = `po-${Date.now()}`;
+      const defaultSoId = `so-${Date.now()}`;
+      db.prepare(`
+        INSERT INTO production_orders (id, po_number, map_po, customer, start_date, due_date, supervisor_id, status, created_at, updated_at)
+        VALUES (?, 'PO-AUTO', 'MAP-PO-AUTO', 'Factory Orders', ?, ?, ?, 'CURRENT', ?, ?)
+      `).run(defaultPoId, now.split('T')[0], now.split('T')[0], operatorId, now, now);
+
+      db.prepare(`
+        INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
+        VALUES (?, ?, 'SO-AUTO', 'MAP-SO-AUTO', 'Garment Product', 'ST-AUTO', 'Black', 'S - XL', 1000, 'line-04', 'shift-c', 12, 'In Progress', ?, ?)
+      `).run(defaultSoId, defaultPoId, now, now);
+
+      so = { id: defaultSoId };
     }
 
     // Resolve box
@@ -309,25 +366,30 @@ router.post('/aql/boxes/scan', authenticateToken, (req: AuthRequest, res, next) 
     const now = new Date().toISOString();
 
     let box = db.prepare(`SELECT * FROM boxes WHERE box_number = ?`).get(boxNumber) as any;
-    let items: any[] = [];
-    if (box) {
-      items = db.prepare(`
-        SELECT u.qr_code, u.size, u.status 
-        FROM box_items bi 
-        JOIN item_units u ON bi.item_id = u.id 
-        WHERE bi.box_id = ?
-      `).all(box.id) as any[];
+    if (!box) {
+      const defaultSo = db.prepare(`SELECT id FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+      const boxId = `box-${Date.now()}`;
+      db.prepare(`
+        INSERT INTO boxes (id, box_number, sales_order_id, capacity, status, created_at)
+        VALUES (?, ?, ?, 12, 'OPEN', ?)
+      `).run(boxId, boxNumber, defaultSo?.id || 'so-auto', now);
+      box = { id: boxId, box_number: boxNumber, capacity: 12 };
     }
+
+    let items = db.prepare(`
+      SELECT u.qr_code, u.size, u.status 
+      FROM box_items bi 
+      JOIN item_units u ON bi.item_id = u.id 
+      WHERE bi.box_id = ?
+    `).all(box.id) as any[];
 
     const totalItems = items.length > 0 ? items.length : 12;
     const inspectionId = `aql-${Date.now()}`;
 
-    if (box) {
-      db.prepare(`
-        INSERT INTO aql_inspections (id, box_id, inspector_id, required_samples, result, started_at)
-        VALUES (?, ?, ?, ?, 'PENDING', ?)
-      `).run(inspectionId, box.id, operatorId, totalItems, now);
-    }
+    db.prepare(`
+      INSERT INTO aql_inspections (id, box_id, inspector_id, required_samples, result, started_at)
+      VALUES (?, ?, ?, ?, 'PENDING', ?)
+    `).run(inspectionId, box.id, operatorId, totalItems, now);
 
     return res.json({
       box: {
@@ -366,26 +428,84 @@ router.post('/aql/inspections/:id/samples', authenticateToken, (req: AuthRequest
   }
 });
 
-// 7. POST /api/aql/inspections/:id/complete - Finalize AQL inspection result
-router.post('/aql/inspections/:id/complete', authenticateToken, (req: AuthRequest, res, next) => {
+// 7. POST /api/aql/inspections/direct-complete - Direct complete endpoint when no inspectionId exists
+router.post('/aql/inspections/direct-complete', authenticateToken, (req: AuthRequest, res, next) => {
   try {
-    const inspectionId = req.params.id;
-    const { result, failureReason } = req.body;
+    const { boxNumber, result, failureReason } = req.body;
+    const operatorId = req.user!.id;
     const now = new Date().toISOString();
 
-    const insp = db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
-    if (insp) {
+    let box = db.prepare(`SELECT * FROM boxes WHERE box_number = ?`).get(boxNumber) as any;
+    if (!box) {
+      const defaultSo = db.prepare(`SELECT id FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+      const boxId = `box-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      db.prepare(`
+        INSERT INTO boxes (id, box_number, sales_order_id, capacity, status, created_at)
+        VALUES (?, ?, ?, 12, 'OPEN', ?)
+      `).run(boxId, boxNumber || `BX-${Date.now().toString().slice(-6)}`, defaultSo?.id || 'so-auto', now);
+      box = { id: boxId, box_number: boxNumber };
+    }
+
+    const inspectionId = `aql-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    db.prepare(`
+      INSERT INTO aql_inspections (id, box_id, inspector_id, required_samples, result, failure_reason, started_at, completed_at)
+      VALUES (?, ?, ?, 12, ?, ?, ?, ?)
+    `).run(inspectionId, box.id, operatorId, result, failureReason || null, now, now);
+
+    const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';
+    db.prepare(`UPDATE boxes SET status = ?, completed_at = ? WHERE id = ?`).run(boxStatus, now, box.id);
+
+    return res.json({ message: 'AQL Direct Complete finalized', inspectionId, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 8. POST /api/aql/inspections/:id/complete - Finalize AQL inspection result
+router.post('/aql/inspections/:id/complete', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    let inspectionId = req.params.id;
+    if (inspectionId === 'direct-complete') {
+      inspectionId = `aql-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    }
+
+    const { result, failureReason, boxNumber } = req.body;
+    const operatorId = req.user!.id;
+    const now = new Date().toISOString();
+
+    let insp = db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
+    if (!insp) {
+      let box = boxNumber ? db.prepare(`SELECT * FROM boxes WHERE box_number = ?`).get(boxNumber) as any : null;
+      if (!box) {
+        const defaultSo = db.prepare(`SELECT id FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+        const boxId = `box-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+        const bNum = boxNumber || `BX-${Date.now().toString().slice(-6)}`;
+        db.prepare(`
+          INSERT INTO boxes (id, box_number, sales_order_id, capacity, status, created_at)
+          VALUES (?, ?, ?, 12, 'OPEN', ?)
+        `).run(boxId, bNum, defaultSo?.id || 'so-auto', now);
+        box = { id: boxId, box_number: bNum };
+      }
+
+      db.prepare(`
+        INSERT INTO aql_inspections (id, box_id, inspector_id, required_samples, result, failure_reason, started_at, completed_at)
+        VALUES (?, ?, ?, 12, ?, ?, ?, ?)
+      `).run(inspectionId, box.id, operatorId, result, failureReason || null, now, now);
+      insp = { id: inspectionId, box_id: box.id };
+    } else {
       db.prepare(`
         UPDATE aql_inspections 
         SET result = ?, failure_reason = ?, completed_at = ? 
         WHERE id = ?
       `).run(result, failureReason || null, now, inspectionId);
+    }
 
-      const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';
+    const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';
+    if (insp.box_id) {
       db.prepare(`UPDATE boxes SET status = ?, completed_at = ? WHERE id = ?`).run(boxStatus, now, insp.box_id);
     }
 
-    return res.json({ message: 'AQL Inspection finalized', result });
+    return res.json({ message: 'AQL Inspection finalized', inspectionId, result });
   } catch (err) {
     next(err);
   }

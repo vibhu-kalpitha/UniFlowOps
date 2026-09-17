@@ -8,23 +8,25 @@ export function seedDatabase(database = db) {
   const now = new Date().toISOString();
   const passwordHash = bcrypt.hashSync('demo123', 10);
 
-  // Clear existing production & scan data
-  database.exec(`
-    DELETE FROM scan_events;
-    DELETE FROM alerts;
-    DELETE FROM aql_samples;
-    DELETE FROM aql_inspections;
-    DELETE FROM box_transfer_items;
-    DELETE FROM box_transfers;
-    DELETE FROM box_items;
-    DELETE FROM boxes;
-    DELETE FROM qc_fail_log;
-    DELETE FROM qc_results;
-    DELETE FROM item_units;
-    DELETE FROM sales_orders;
-    DELETE FROM production_order_operations;
-    DELETE FROM production_orders;
-  `);
+  // Clear existing production & scan data only if explicit RESET_DB flag is set
+  if (process.env.RESET_DB === 'true') {
+    database.exec(`
+      DELETE FROM scan_events;
+      DELETE FROM alerts;
+      DELETE FROM aql_samples;
+      DELETE FROM aql_inspections;
+      DELETE FROM box_transfer_items;
+      DELETE FROM box_transfers;
+      DELETE FROM box_items;
+      DELETE FROM boxes;
+      DELETE FROM qc_fail_log;
+      DELETE FROM qc_results;
+      DELETE FROM item_units;
+      DELETE FROM sales_orders;
+      DELETE FROM production_order_operations;
+      DELETE FROM production_orders;
+    `);
+  }
 
   // 1. Users
   const users = [

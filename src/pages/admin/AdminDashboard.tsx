@@ -1,14 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { BarChart, TrendingUp, AlertTriangle, ShieldCheck, Users, Package, FileText, Settings } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useApp();
+
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    apiFetch('/api/dashboard/admin')
+      .then(res => setData(res))
+      .catch(() => {});
+  }, []);
+
+  const kpis = data?.kpis || { currentPos: 0, salesOrders: 0, itemsProcessed: 0, packedUnits: 0 };
+  const qualityRates = data?.qualityRates || { qcPassRate: 100, testPassRate: 100, aqlPassRate: 100 };
+  const exceptions = data?.exceptions || { qcFailed: 0, testFailed: 0, aqlFailed: 0, pendingPack: 0 };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -19,26 +32,26 @@ export const AdminDashboard: React.FC = () => {
           Factory Control Admin 🏢
         </h2>
         <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-          Live All-Factory Overview • UniFlow Ops
+          Live Database Overview • UniFlow Ops
         </span>
       </div>
 
       {/* 4 KPI Cards */}
       <div style={styles.kpiGrid}>
         <div style={styles.kpiCard}>
-          <span style={styles.kpiVal}>12</span>
+          <span style={styles.kpiVal}>{kpis.currentPos}</span>
           <span style={styles.kpiLbl}>Current POs</span>
         </div>
         <div style={styles.kpiCard}>
-          <span style={{ ...styles.kpiVal, color: 'var(--color-blue)' }}>37</span>
+          <span style={{ ...styles.kpiVal, color: 'var(--color-blue)' }}>{kpis.salesOrders}</span>
           <span style={styles.kpiLbl}>Sales Orders</span>
         </div>
         <div style={styles.kpiCard}>
-          <span style={{ ...styles.kpiVal, color: 'var(--color-green)' }}>8,426</span>
+          <span style={{ ...styles.kpiVal, color: 'var(--color-green)' }}>{kpis.itemsProcessed}</span>
           <span style={styles.kpiLbl}>Items Processed</span>
         </div>
         <div style={styles.kpiCard}>
-          <span style={{ ...styles.kpiVal, color: 'var(--color-purple)' }}>7,954</span>
+          <span style={{ ...styles.kpiVal, color: 'var(--color-purple)' }}>{kpis.packedUnits}</span>
           <span style={styles.kpiLbl}>Packed Units</span>
         </div>
       </div>
@@ -47,32 +60,32 @@ export const AdminDashboard: React.FC = () => {
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h4 style={{ fontSize: '15px', fontWeight: 700 }}>Quality Rates</h4>
-          <span style={{ fontSize: '11px', color: 'var(--color-green)', fontWeight: 700 }}>● Operational High</span>
+          <span style={{ fontSize: '11px', color: 'var(--color-green)', fontWeight: 700 }}>● Live DB Metrics</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
               <span>QC Inspection Pass Rate</span>
-              <span style={{ fontWeight: 800, color: 'var(--color-green)' }}>98.4%</span>
+              <span style={{ fontWeight: 800, color: 'var(--color-green)' }}>{qualityRates.qcPassRate}%</span>
             </div>
-            <ProgressBar current={984} total={1000} height={8} color="var(--color-green)" />
+            <ProgressBar current={Math.round(qualityRates.qcPassRate * 10)} total={1000} height={8} color="var(--color-green)" />
           </div>
 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
               <span>Function Test Pass Rate</span>
-              <span style={{ fontWeight: 800, color: 'var(--color-blue)' }}>97.9%</span>
+              <span style={{ fontWeight: 800, color: 'var(--color-blue)' }}>{qualityRates.testPassRate}%</span>
             </div>
-            <ProgressBar current={979} total={1000} height={8} color="var(--color-blue)" />
+            <ProgressBar current={Math.round(qualityRates.testPassRate * 10)} total={1000} height={8} color="var(--color-blue)" />
           </div>
 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
               <span>AQL Audit Pass Rate</span>
-              <span style={{ fontWeight: 800, color: 'var(--color-purple)' }}>99.1%</span>
+              <span style={{ fontWeight: 800, color: 'var(--color-purple)' }}>{qualityRates.aqlPassRate}%</span>
             </div>
-            <ProgressBar current={991} total={1000} height={8} color="var(--color-purple)" />
+            <ProgressBar current={Math.round(qualityRates.aqlPassRate * 10)} total={1000} height={8} color="var(--color-purple)" />
           </div>
         </div>
       </div>
@@ -86,19 +99,19 @@ export const AdminDashboard: React.FC = () => {
 
         <div style={styles.excGrid}>
           <div style={styles.excItem}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-red)' }}>24</span>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-red)' }}>{exceptions.qcFailed}</span>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>QC Failed</span>
           </div>
           <div style={styles.excItem}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-amber)' }}>17</span>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-amber)' }}>{exceptions.testFailed}</span>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Test Failed</span>
           </div>
           <div style={styles.excItem}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-purple)' }}>6</span>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-purple)' }}>{exceptions.aqlFailed}</span>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>AQL Failed</span>
           </div>
           <div style={styles.excItem}>
-            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-blue)' }}>472</span>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-blue)' }}>{exceptions.pendingPack}</span>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Pending Pack</span>
           </div>
         </div>

@@ -25,6 +25,8 @@ interface AppContextType {
   packedCountToday: number;
   incrementQCPassed: () => void;
   incrementPacked: () => void;
+  incrementAQLPassed: () => void;
+  incrementAQLFailed: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -129,6 +131,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const incrementAQLPassed = () => {
+    if (activeJob) {
+      const orders = repository.getProductionOrders();
+      const po = orders.find(p => p.id === activeJob.productionOrder.id);
+      if (po) {
+        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder.id);
+        if (so) {
+          so.progress.aqlPassed = (so.progress.aqlPassed || 0) + 1;
+          saveProductionOrder(po);
+        }
+      }
+    }
+  };
+
+  const incrementAQLFailed = () => {
+    if (activeJob) {
+      const orders = repository.getProductionOrders();
+      const po = orders.find(p => p.id === activeJob.productionOrder.id);
+      if (po) {
+        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder.id);
+        if (so) {
+          so.progress.aqlFailed = (so.progress.aqlFailed || 0) + 1;
+          saveProductionOrder(po);
+        }
+      }
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -153,7 +183,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         qcPassedCountToday,
         packedCountToday,
         incrementQCPassed,
-        incrementPacked
+        incrementPacked,
+        incrementAQLPassed,
+        incrementAQLFailed
       }}
     >
       {children}

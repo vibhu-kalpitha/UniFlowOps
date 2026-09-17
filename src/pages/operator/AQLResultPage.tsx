@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { CheckCircle2, AlertTriangle, ArrowRight, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const AQLResultPage: React.FC = () => {
@@ -29,15 +30,43 @@ export const AQLResultPage: React.FC = () => {
   const totalRequired = session.sampleRequired || session.samples.length || 12;
 
   const [defectReason, setDefectReason] = useState('Stitched Hem Defect');
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleFinish = () => {
-    if (isPassed) {
-      showToast(`AQL PASSED for Box ${session.boxNumber}. Saved!`, 'success');
-    } else {
-      showToast(`AQL FAILED logged for Box ${session.boxNumber} (${defectReason})`, 'error');
+  const handleFinish = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    const finalResult = isPassed ? 'PASSED' : 'FAILED';
+    const payload = {
+      result: finalResult,
+      failureReason: isPassed ? undefined : defectReason,
+      boxNumber: session.boxNumber || 'BX-000218'
+    };
+
+    try {
+      if (session.inspectionId) {
+        await apiFetch(`/aql/inspections/${session.inspectionId}/complete`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      } else {
+        await apiFetch('/aql/inspections/direct-complete', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (isPassed) {
+        showToast(`AQL PASSED for Box ${session.boxNumber}. Saved to Database!`, 'success');
+      } else {
+        showToast(`AQL FAILED logged for Box ${session.boxNumber} (${defectReason}) in Database!`, 'error');
+      }
+      saveAQLSession(null);
+      navigate('/operator/home');
+    } catch (err: any) {
+      setIsSaving(false);
+      showToast(err.message || 'Failed to save AQL result to database. Please retry.', 'error');
     }
-    saveAQLSession(null);
-    navigate('/operator/home');
   };
 
   return (
@@ -166,15 +195,18 @@ export const AQLResultPage: React.FC = () => {
       <button
         className="btn-primary"
         onClick={handleFinish}
+        disabled={isSaving}
         style={{
           marginTop: '10px',
+          opacity: isSaving ? 0.7 : 1,
+          cursor: isSaving ? 'not-allowed' : 'pointer',
           background: isPassed
             ? 'linear-gradient(135deg, var(--color-green) 0%, #20E094 100%)'
             : 'linear-gradient(135deg, var(--color-red) 0%, #F87171 100%)',
           color: isPassed ? '#041820' : '#fff'
         }}
       >
-        {isPassed ? 'Complete Inspection & Return Home' : 'Save Failure Log & Return Home'}
+        {isSaving ? 'Saving to Database...' : (isPassed ? 'Complete Inspection & Return Home' : 'Save Failure Log & Return Home')}
       </button>
     </div>
   );

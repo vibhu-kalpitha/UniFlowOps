@@ -98,6 +98,8 @@ export interface AQLSession {
   samples: AQLSampleResult[];
   status: 'BOX_SCAN' | 'SAMPLE_SCAN' | 'RESULT';
   overallResult?: 'PASSED' | 'FAILED';
+  inspectionId?: string;
+  boxItems?: string[];
 }
 
 export interface AlertItem {

@@ -1,15 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Download, BarChart2, TrendingUp, Filter } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const AdminReports: React.FC = () => {
   const { showToast } = useApp();
   const [timeRange, setTimeRange] = useState<'Today' | 'Week' | 'Month'>('Today');
+  const [reportData, setReportData] = useState<any>(null);
+
+  useEffect(() => {
+    apiFetch(`/api/reports/production?range=${timeRange.toLowerCase()}`)
+      .then(res => setReportData(res))
+      .catch(() => {});
+  }, [timeRange]);
 
   const handleExport = () => {
     showToast(`Exported production report (${timeRange}) as CSV.`, 'success');
   };
+
+  const lineBreakdown = reportData?.lineBreakdown || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -41,7 +51,9 @@ export const AdminReports: React.FC = () => {
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h4 style={{ fontSize: '15px', fontWeight: 700 }}>Production Velocity ({timeRange})</h4>
-          <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 700 }}>+14% vs Target</span>
+          <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 700 }}>
+            {reportData?.velocityVariance || 'Live Database Metric'}
+          </span>
         </div>
 
         {/* Bar chart representation */}
@@ -87,30 +99,22 @@ export const AdminReports: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            <tr style={styles.tr}>
-              <td style={styles.td}>Line 01</td>
-              <td style={styles.td}>2,050</td>
-              <td style={styles.td}>98.1%</td>
-              <td style={{ ...styles.td, color: 'var(--color-green)', fontWeight: 700 }}>94%</td>
-            </tr>
-            <tr style={styles.tr}>
-              <td style={styles.td}>Line 02</td>
-              <td style={styles.td}>1,840</td>
-              <td style={styles.td}>99.0%</td>
-              <td style={{ ...styles.td, color: 'var(--color-green)', fontWeight: 700 }}>96%</td>
-            </tr>
-            <tr style={styles.tr}>
-              <td style={styles.td}>Line 03</td>
-              <td style={styles.td}>2,110</td>
-              <td style={styles.td}>97.5%</td>
-              <td style={{ ...styles.td, color: 'var(--color-amber)', fontWeight: 700 }}>89%</td>
-            </tr>
-            <tr style={styles.tr}>
-              <td style={styles.td}>Line 04</td>
-              <td style={styles.td}>1,842</td>
-              <td style={styles.td}>98.8%</td>
-              <td style={{ ...styles.td, color: 'var(--primary-teal)', fontWeight: 700 }}>98%</td>
-            </tr>
+            {lineBreakdown.length === 0 ? (
+              <tr style={styles.tr}>
+                <td colSpan={4} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-muted)' }}>
+                  No production line records found in database.
+                </td>
+              </tr>
+            ) : (
+              lineBreakdown.map((lb: any, idx: number) => (
+                <tr key={idx} style={styles.tr}>
+                  <td style={styles.td}>{lb.lineId}</td>
+                  <td style={styles.td}>{lb.packed}</td>
+                  <td style={styles.td}>{lb.qcPassRate}</td>
+                  <td style={{ ...styles.td, color: 'var(--color-green)', fontWeight: 700 }}>{lb.efficiency}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

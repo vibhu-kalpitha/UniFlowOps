@@ -71,14 +71,30 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  // Sanitize endpoint to prevent /api/api duplication
+  let cleanEndpoint = endpoint;
+  if (cleanEndpoint.startsWith('/api/')) {
+    cleanEndpoint = cleanEndpoint.substring(4);
+  } else if (!cleanEndpoint.startsWith('/')) {
+    cleanEndpoint = `/${cleanEndpoint}`;
+  }
+
+  const url = `${API_BASE}${cleanEndpoint}`;
+
   try {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    const res = await fetch(url, {
       ...options,
       headers
     });
 
     if (res.status === 401) {
       setStoredToken(null);
+    }
+
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await res.text();
+      throw new Error(`Server returned non-JSON response (${res.status}): ${text.slice(0, 100)}`);
     }
 
     const data = await res.json();
