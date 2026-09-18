@@ -48,6 +48,15 @@ export const AQLSamplesPage: React.FC = () => {
       return { status: 'rejected' as const, message: 'Please enter or scan a sample QR barcode', code };
     }
 
+    if (rangeStart && rangeEnd && !isCodeInRange(trimmed, rangeStart, rangeEnd)) {
+      setSampleResult('FAIL');
+      return {
+        status: 'rejected' as const,
+        message: `❌ Out of Serial Range! Sample (${trimmed}) is out of PO range: ${rangeStart} → ${rangeEnd}`,
+        code: trimmed,
+      };
+    }
+
     setCurrentQr(trimmed);
     setSampleResult('PASS');
 

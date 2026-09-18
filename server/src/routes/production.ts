@@ -78,18 +78,20 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
   const salesOrders = soRows.map(so => {
     // Check if user is OPERATOR and if they are allocated
     if (reqUser && reqUser.role === 'OPERATOR') {
-      const isAllocated = db.prepare(`
-        SELECT COUNT(*) as cnt FROM (
-          SELECT id FROM so_operator_allocations WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-          UNION
-          SELECT id FROM operator_work_assignments WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-          UNION
-          SELECT sm.id FROM shift_members sm WHERE sm.shift_id = ? AND sm.operator_id = ? AND sm.active = 1
-        )
-      `).get(so.id, reqUser.id, so.id, reqUser.id, so.shift_id, reqUser.id) as any;
+      const totalAssigned = (db.prepare(`
+        SELECT COUNT(*) as cnt FROM operator_work_assignments
+        WHERE sales_order_id = ? AND active = 1
+      `).get(so.id) as any)?.cnt || 0;
 
-      if (!isAllocated || isAllocated.cnt === 0) {
-        return null;
+      if (totalAssigned > 0) {
+        const isAllocated = db.prepare(`
+          SELECT COUNT(*) as cnt FROM operator_work_assignments
+          WHERE sales_order_id = ? AND operator_id = ? AND active = 1
+        `).get(so.id, reqUser.id) as any;
+
+        if (!isAllocated || isAllocated.cnt === 0) {
+          return null;
+        }
       }
     }
 
@@ -421,27 +423,19 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
       return res.status(404).json({ error: 'OPERATOR_NOT_FOUND', message: 'Operator not found' });
     }
 
-    const allocId = `alloc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    const workAssignId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     const now = new Date().toISOString();
 
-    db.transaction(() => {
-      db.prepare(`
-        INSERT INTO so_operator_allocations (id, sales_order_id, shift_id, operator_id, operation, created_by, active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(allocId, so.id, shiftId, opUser.id, operation, req.user!.id, now, now);
+    db.prepare(`
+      INSERT INTO operator_work_assignments (id, operator_id, sales_order_id, operation, assigned_date, source, active, created_at)
+      VALUES (?, ?, ?, ?, ?, 'SUPERVISOR', 1, ?)
+    `).run(workAssignId, opUser.id, so.id, operation, now.split('T')[0], now);
 
-      const workAssignId = `owa-${Date.now()}`;
-      db.prepare(`
-        INSERT INTO operator_work_assignments (id, operator_id, sales_order_id, operation, assigned_date, source, active, created_at)
-        VALUES (?, ?, ?, ?, ?, 'SUPERVISOR', 1, ?)
-      `).run(workAssignId, opUser.id, so.id, operation, now.split('T')[0], now);
-    })();
-
-    auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'so_operator_allocations', allocId, { soId: so.id, operatorId: opUser.id, operation });
+    auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, operation });
 
     return res.status(201).json({
       message: `Operator ${opUser.full_name} allocated to SO ${so.so_number} for ${operation}`,
-      allocation: { id: allocId, salesOrderId: so.id, operatorId: opUser.id, shiftId, operation }
+      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId, operation }
     });
   } catch (err) {
     next(err);
@@ -458,11 +452,10 @@ router.get('/sales-orders/:id/allocations', authenticateToken, (req, res, next) 
     }
 
     const allocs = db.prepare(`
-      SELECT oa.*, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
-      FROM so_operator_allocations oa
-      JOIN users u ON u.id = oa.operator_id
-      LEFT JOIN shifts s ON s.id = oa.shift_id
-      WHERE oa.sales_order_id = ? AND oa.active = 1
+      SELECT owa.id, owa.sales_order_id, owa.operator_id, owa.operation, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username
+      FROM operator_work_assignments owa
+      JOIN users u ON u.id = owa.operator_id
+      WHERE owa.sales_order_id = ? AND owa.active = 1
     `).all(so.id);
 
     return res.json(allocs);
@@ -475,9 +468,8 @@ router.get('/sales-orders/:id/allocations', authenticateToken, (req, res, next) 
 router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), (req: AuthRequest, res, next) => {
   try {
     const { allocId } = req.params;
-    const now = new Date().toISOString();
 
-    db.prepare(`UPDATE so_operator_allocations SET active = 0, updated_at = ? WHERE id = ?`).run(now, allocId);
+    db.prepare(`UPDATE operator_work_assignments SET active = 0 WHERE id = ?`).run(allocId);
     auditLog(req.user!.id, 'DEACTIVATE_ALLOCATION', 'so_operator_allocations', allocId);
 
     return res.json({ message: 'Allocation deactivated successfully' });

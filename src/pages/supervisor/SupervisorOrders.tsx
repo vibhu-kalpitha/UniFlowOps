@@ -31,7 +31,7 @@ export const SupervisorOrders: React.FC = () => {
       <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Supervisor Order Oversight</h2>
 
       {/* PO Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
         {productionOrders.map(po => {
           const sos = po.salesOrders || [];
           const totalQty = sos.reduce((sum, s) => sum + (s.quantity || 0), 0);

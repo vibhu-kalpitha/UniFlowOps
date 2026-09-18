@@ -98,7 +98,7 @@ export const SupervisorHome: React.FC = () => {
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="grid-3-desktop" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {currentPos.length === 0 ? (
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '16px', textAlign: 'center' }}>
               No active or draft Production Orders found.

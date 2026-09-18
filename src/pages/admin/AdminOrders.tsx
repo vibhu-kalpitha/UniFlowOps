@@ -11,7 +11,7 @@ export const AdminOrders: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Factory Production Orders</h2>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
         {productionOrders.map(po => {
           const totalQty = po.salesOrders.reduce((sum, s) => sum + s.quantity, 0);
           const packedQty = po.salesOrders.reduce((sum, s) => sum + s.progress.packed, 0);

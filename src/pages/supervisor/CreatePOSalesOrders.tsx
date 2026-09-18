@@ -224,7 +224,7 @@ export const CreatePOSalesOrders: React.FC = () => {
       </button>
 
       {/* SO Cards List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
         {salesOrders.map(so => (
           <div key={so.id} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

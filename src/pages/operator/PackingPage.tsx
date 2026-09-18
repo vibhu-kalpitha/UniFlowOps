@@ -32,12 +32,24 @@ export const PackingPage: React.FC = () => {
   const rangeStart = po?.boxRangeStart || '';
   const rangeEnd   = po?.boxRangeEnd   || '';
 
+  const targetSoQty = so?.quantity || 10;
+  const packedQty = so?.progress?.packed || 0;
+  const remainingPackQty = Math.max(0, targetSoQty - packedQty);
+
   // Phase 1: scan box QR
   const [box, setBox] = useState<ActiveBox | null>(null);
   const [showFinishModal, setShowFinishModal] = useState(false);
 
   /* ── Phase 1: Box barcode scan ─────────────────────────────── */
   const handleScanBox = async (code: string) => {
+    if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
+      return {
+        status: 'rejected' as const,
+        message: `❌ Out of Serial Range! Box barcode (${code}) is out of PO range: ${rangeStart} → ${rangeEnd}`,
+        code,
+      };
+    }
+
     const newBox: ActiveBox = {
       boxNumber: code,
       capacity:  so?.boxCapacity || 12,
@@ -195,6 +207,33 @@ export const PackingPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Active Scanning & Action */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
+          {/* SO Order Packing Progress & Remaining Counter */}
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-blue)', letterSpacing: '0.05em' }}>
+                PACKING QUANTITY PROGRESS
+              </span>
+              <StatusPill label={`Remaining: ${remainingPackQty}`} variant={remainingPackQty === 0 ? 'green' : 'blue'} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
+              </div>
+              <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: '#3B82F6', display: 'block' }}>Packed</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: '#3B82F6' }}>{packedQty}</span>
+              </div>
+              <div style={{ backgroundColor: 'rgba(34, 211, 197, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>{remainingPackQty}</span>
+              </div>
+            </div>
+
+            <ProgressBar current={packedQty} total={targetSoQty} height={8} color="var(--color-blue)" />
+          </div>
+
           {!box ? (
             <>
               <div style={styles.phaseBadge}>
@@ -305,7 +344,7 @@ export const PackingPage: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
-              PACKING SPECIFICATIONS
+              INSPECTION SPECIFICATIONS
             </span>
             <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
@@ -331,7 +370,7 @@ export const PackingPage: React.FC = () => {
 
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              PACKING GUIDELINES
+              QC TEST INSTRUCTIONS
             </span>
             <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               <li>Scan the box barcode first to open an active packing session.</li>

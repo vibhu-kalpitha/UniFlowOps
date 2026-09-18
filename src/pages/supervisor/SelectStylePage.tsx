@@ -52,7 +52,7 @@ export const SelectStylePage: React.FC = () => {
       </div>
 
       {/* Style Selection Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
         {defaultStyles.map(st => {
           const isSelected = st.code === selectedStyleCode;
           return (

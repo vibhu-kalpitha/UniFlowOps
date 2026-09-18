@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { ArrowRight, BoxSelect, ScanLine, Package, Search } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
+import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { apiFetch } from '../../services/api';
+import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
 
 interface ScannedBoxInfo {
@@ -20,11 +22,27 @@ export const AQLBoxScanPage: React.FC = () => {
   const { packingBoxes, saveAQLSession, activeJob } = useApp();
 
   const po = activeJob?.productionOrder;
+  const so = activeJob?.salesOrder;
+
+  const targetSoQty = so?.quantity || 10;
+  const aqlPassedQty = so?.progress?.aqlPassed || 0;
+  const remainingAqlQty = Math.max(0, targetSoQty - aqlPassedQty);
 
   const [scannedBox, setScannedBox] = useState<ScannedBoxInfo | null>(null);
 
   /* ── Scan box handler ─────────────────────────────────────── */
   const handleScanBox = async (code: string) => {
+    const rangeStart = po?.boxRangeStart;
+    const rangeEnd   = po?.boxRangeEnd;
+
+    if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
+      return {
+        status: 'rejected' as const,
+        message: `❌ Out of Serial Range! Box barcode (${code}) is out of PO range: ${rangeStart} → ${rangeEnd}`,
+        code,
+      };
+    }
+
     const localBox = packingBoxes[code];
     const localItems: string[] = localBox?.items ? localBox.items.map(i => i.qr) : [];
 
@@ -114,6 +132,33 @@ export const AQLBoxScanPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Box Scanner & Detected Box Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
+          {/* AQL Inspection Progress & Remaining Counter */}
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
+                AQL INSPECTION QUANTITY PROGRESS
+              </span>
+              <StatusPill label={`Remaining: ${remainingAqlQty}`} variant={remainingAqlQty === 0 ? 'green' : 'purple'} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
+              </div>
+              <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--color-purple)', display: 'block' }}>AQL Audited</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-purple)' }}>{aqlPassedQty}</span>
+              </div>
+              <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--color-amber)', display: 'block' }}>Remaining</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-amber)' }}>{remainingAqlQty}</span>
+              </div>
+            </div>
+
+            <ProgressBar current={aqlPassedQty} total={targetSoQty} height={8} color="var(--color-purple)" />
+          </div>
+
           {(po?.boxRangeStart || po?.boxRangeEnd) && (
             <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', padding: '6px 10px', backgroundColor: 'rgba(22,184,174,0.08)', borderRadius: '8px', border: '1px solid rgba(22,184,174,0.2)' }}>
               PO Range: {po?.boxRangeStart} → {po?.boxRangeEnd}
@@ -203,9 +248,17 @@ export const AQLBoxScanPage: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
-              AQL 2.5 AUDIT STANDARD
+              INSPECTION SPECIFICATIONS
             </span>
             <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Production Order:</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{po?.id || 'PO-2026-904'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Sales Order:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{so?.id || 'SO-77201'}</span>
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Acceptance Quality Limit:</span>
                 <span style={{ fontWeight: 700, color: 'var(--color-purple)' }}>ISO 2859-1 Level II</span>
@@ -223,7 +276,7 @@ export const AQLBoxScanPage: React.FC = () => {
 
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              AQL AUDIT INSTRUCTIONS
+              QC TEST INSTRUCTIONS
             </span>
             <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               <li>Scan the sealed carton barcode to begin audit.</li>

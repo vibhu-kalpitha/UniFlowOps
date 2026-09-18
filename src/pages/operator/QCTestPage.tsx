@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
+import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, Zap } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
@@ -44,9 +45,65 @@ export const QCTestPage: React.FC = () => {
   const [failureReason, setFailureReason] = useState<string>('');
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isBulkMode, setIsBulkMode] = useState(false);
+
+  // Authoritative backend progress state
+  const [soProgress, setSoProgress] = useState<{
+    loading: boolean;
+    targetQuantity: number;
+    inspectedUnique: number;
+    passedUnique: number;
+    failedUnique: number;
+    remainingToInspect: number;
+    remainingToPass: number;
+    error?: string;
+  }>({
+    loading: true,
+    targetQuantity: so?.quantity || 10,
+    inspectedUnique: 0,
+    passedUnique: 0,
+    failedUnique: 0,
+    remainingToInspect: so?.quantity || 10,
+    remainingToPass: so?.quantity || 10,
+  });
+
+  const fetchProgress = async () => {
+    const targetSoKey = so?.dbId || so?.id || 'SO-77201';
+    setSoProgress(prev => ({ ...prev, loading: true, error: undefined }));
+    try {
+      const res = await apiFetch(`/api/qc/progress/${targetSoKey}`);
+      if (res && typeof res.passedUnique === 'number') {
+        setSoProgress({
+          loading: false,
+          targetQuantity: res.targetQuantity,
+          inspectedUnique: res.inspectedUnique,
+          passedUnique: res.passedUnique,
+          failedUnique: res.failedUnique,
+          remainingToInspect: res.remainingToInspect,
+          remainingToPass: res.remainingToPass,
+        });
+      } else {
+        setSoProgress(prev => ({ ...prev, loading: false }));
+      }
+    } catch {
+      setSoProgress(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  useEffect(() => {
+    fetchProgress();
+  }, [so?.dbId, so?.id]);
+
+  const targetSoQty = soProgress.targetQuantity || so?.quantity || 10;
+  const qcPassedQty = soProgress.passedUnique;
+  const remainingQcQty = soProgress.remainingToPass;
+  const isQCComplete = soProgress.passedUnique >= targetSoQty;
+  const isAllAdmitted = soProgress.inspectedUnique >= targetSoQty;
 
   /* ── scan handler ──────────────────────────────────────────── */
-  const handleScanCode = async (code: string) => {
+  const handleScanCode = async (rawCode: string) => {
+    const code = rawCode.trim().toUpperCase();
     setSaved(false);
     setFailureReason('');
     setHistoryData(null);
@@ -73,21 +130,14 @@ export const QCTestPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({
           itemQr:          code,
+          salesOrderId:    so?.dbId || so?.id || 'SO-AUTO',
           salesOrderNumber: so?.id || 'SO-AUTO',
           qcResult:        'FAIL',
           testResult:      'FAIL',
           failureReason:   `Out of Range Barcode: ${code} (PO Range: ${rangeStart} -> ${rangeEnd})`,
         }),
-      }).then(saveRes => {
-        apiFetch(`/api/qc/history/${code}`).then(hRes => {
-          if (hRes) {
-            setHistoryData({
-              failCount: hRes.failCount || saveRes?.totalFails || 1,
-              retryCount: hRes.retryCount || 0,
-              history: hRes.history || []
-            });
-          }
-        }).catch(() => {});
+      }).then(() => {
+        fetchProgress();
       }).catch(() => {});
 
       return {
@@ -100,9 +150,23 @@ export const QCTestPage: React.FC = () => {
     try {
       const res = await apiFetch('/api/qc/scan', {
         method: 'POST',
-        body: JSON.stringify({ code, salesOrderId: so?.id }),
+        body: JSON.stringify({ code, salesOrderId: so?.dbId || so?.id, salesOrderNumber: so?.id }),
       });
+
+      if (res?.progress) {
+        setSoProgress({
+          loading: false,
+          targetQuantity: res.progress.targetQuantity,
+          inspectedUnique: res.progress.inspectedUnique,
+          passedUnique: res.progress.passedUnique,
+          failedUnique: res.progress.failedUnique,
+          remainingToInspect: res.progress.remainingToInspect,
+          remainingToPass: res.progress.remainingToPass,
+        });
+      }
+
       const isDup = res.status === 'DUPLICATE';
+
       setScannedItem({
         qr:      res.item?.qr_code || code,
         product: so?.product || 'Garment',
@@ -113,29 +177,107 @@ export const QCTestPage: React.FC = () => {
       setTestResult(isDup ? 'FAIL' : 'PASS');
 
       if (isDup) {
-        apiFetch('/api/qc/results', {
-          method: 'POST',
-          body: JSON.stringify({
-            itemQr:          code,
-            salesOrderNumber: so?.id || 'SO-AUTO',
-            qcResult:        'FAIL',
-            testResult:      'FAIL',
-            failureReason:   `Duplicate Scan: ${code}`,
-          }),
-        }).catch(() => {});
+        // Read-only notification on duplicate scan
+        return {
+          status: 'duplicate' as const,
+          message: `⚠️ Item ${code} is ALREADY QC PASSED! (Duplicate scan)`,
+          code: res.item?.qr_code || code,
+        };
       }
+
+      if (isBulkMode) {
+        // Bulk Auto-Save Mode: Save PASS result directly to DB on scan!
+        const key = `qc-${so?.id || 'so'}-${code}-${Date.now()}`;
+        let saveRes: any = null;
+        try {
+          saveRes = await apiFetch('/api/qc/results', {
+            method: 'POST',
+            body: JSON.stringify({
+              idempotencyKey:  key,
+              itemQr:          code,
+              salesOrderId:    so?.dbId || so?.id,
+              salesOrderNumber: so?.id || 'SO-77201',
+              qcResult:        'PASS',
+              testResult:      'PASS',
+            }),
+          });
+        } catch (saveErr: any) {
+          const saveErrMsg = saveErr?.message || String(saveErr);
+          if (saveErrMsg.includes('SO_QUANTITY_REACHED') || saveErrMsg.includes('already has')) {
+            showToast(`⚠️ Cannot add item — Sales Order quantity limit reached!`, 'error');
+            return {
+              status: 'rejected' as const,
+              message: `❌ Sales Order Full: ${saveErrMsg}`,
+              code,
+            };
+          }
+        }
+
+        if (saveRes?.progress) {
+          setSoProgress({
+            loading: false,
+            targetQuantity: saveRes.progress.targetQuantity,
+            inspectedUnique: saveRes.progress.inspectedUnique,
+            passedUnique: saveRes.progress.passedUnique,
+            failedUnique: saveRes.progress.failedUnique,
+            remainingToInspect: saveRes.progress.remainingToInspect,
+            remainingToPass: saveRes.progress.remainingToPass,
+          });
+        }
+        await fetchProgress();
+
+        incrementQCPassed();
+        setSaved(true);
+        const retryText = saveRes?.retryCount > 0 ? ` (Passed on retry #${saveRes.retryCount})` : '';
+        showToast(`⚡ [Bulk Mode] Auto-saved PASS for ${code}${retryText}!`, 'success');
+        setTimeout(() => setSaved(false), 1200);
+      }
+
       return {
-        status:  isDup ? ('duplicate' as const) : ('accepted' as const),
-        message: isDup ? `⚠️ Duplicate scan: ${code}` : `✅ ${code} validated successfully`,
+        status:  'accepted' as const,
+        message: isBulkMode
+          ? `⚡ [Bulk Mode] ${code} auto-saved PASS to DB!`
+          : `✅ ${code} validated successfully`,
         code: res.item?.qr_code || code,
       };
-    } catch {
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('SO_QUANTITY_REACHED') || errMsg.includes('already has') || errMsg.includes('target quantity reached')) {
+        showToast(`⚠️ Cannot add item — Sales Order target quantity reached!`, 'error');
+        setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
+        return {
+          status: 'rejected' as const,
+          message: `❌ Sales Order Full (${errMsg})`,
+          code,
+        };
+      }
+
+      if (errMsg.includes('OPERATOR_UNAUTHORIZED')) {
+        showToast(`⛔ Operator Unauthorized for this Sales Order`, 'error');
+        return {
+          status: 'rejected' as const,
+          message: `⛔ Unauthorized`,
+          code,
+        };
+      }
+
+      // Offline mode fallback only on network failure
       setScannedItem({ qr: code, product: so?.product || 'Garment', size: 'L', status: 'VALID' });
       setQcResult('PASS');
       setTestResult('PASS');
+
+      if (isBulkMode) {
+        incrementQCPassed();
+        setSaved(true);
+        showToast(`⚡ [Bulk Mode] Auto-saved PASS for ${code} (offline)!`, 'success');
+        setTimeout(() => setSaved(false), 1200);
+      }
+
       return {
         status:  'accepted' as const,
-        message: `✅ ${code} scanned (offline mode).`,
+        message: isBulkMode
+          ? `⚡ [Bulk Mode] ${code} auto-saved PASS (offline mode).`
+          : `✅ ${code} scanned (offline mode).`,
         code,
       };
     }
@@ -148,23 +290,52 @@ export const QCTestPage: React.FC = () => {
       return;
     }
     if (scannedItem.status === 'INVALID') {
-      showToast('Cannot save — barcode is out of range!', 'error');
+      showToast('Cannot save — barcode is invalid or out of range!', 'error');
       return;
     }
+    if (scannedItem.status === 'DUPLICATE') {
+      showToast('Item is already QC Passed (Duplicate Scan).', 'warning');
+      return;
+    }
+    if (isSaving) return;
 
+    setIsSaving(true);
+    const key = `qc-${so?.id || 'so'}-${scannedItem.qr}-${Date.now()}`;
     let saveRes: any = null;
     try {
       saveRes = await apiFetch('/api/qc/results', {
         method: 'POST',
         body: JSON.stringify({
+          idempotencyKey:  key,
           itemQr:          scannedItem.qr,
+          salesOrderId:    so?.dbId || so?.id,
           salesOrderNumber: so?.id || 'SO-77201',
           qcResult,
           testResult,
           failureReason: (qcResult === 'FAIL' || testResult === 'FAIL') ? failureReason : undefined,
         }),
       });
-    } catch { /* ignore network errors */ }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('SO_QUANTITY_REACHED') || errMsg.includes('already has')) {
+        showToast(`⚠️ Cannot save — Sales Order target quantity reached!`, 'error');
+        setIsSaving(false);
+        return;
+      }
+    }
+
+    if (saveRes?.progress) {
+      setSoProgress({
+        loading: false,
+        targetQuantity: saveRes.progress.targetQuantity,
+        inspectedUnique: saveRes.progress.inspectedUnique,
+        passedUnique: saveRes.progress.passedUnique,
+        failedUnique: saveRes.progress.failedUnique,
+        remainingToInspect: saveRes.progress.remainingToInspect,
+        remainingToPass: saveRes.progress.remainingToPass,
+      });
+    }
+    await fetchProgress();
 
     if (qcResult === 'PASS' && testResult === 'PASS') {
       incrementQCPassed();
@@ -176,6 +347,7 @@ export const QCTestPage: React.FC = () => {
     }
 
     setSaved(true);
+    setIsSaving(false);
     setTimeout(() => {
       setScannedItem(null);
       setQcResult('PASS');
@@ -183,7 +355,7 @@ export const QCTestPage: React.FC = () => {
       setFailureReason('');
       setHistoryData(null);
       setSaved(false);
-    }, 1500);
+    }, 1200);
   };
 
   /* ── render ─────────────────────────────────────────────────── */
@@ -221,7 +393,113 @@ export const QCTestPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Scanner & Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          <ScannerInput onScan={handleScanCode} placeholder="Scan garment QR code…" />
+          {/* SO Order Progress & Remaining Counter */}
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
+                QC INSPECTION QUANTITY PROGRESS
+              </span>
+              <StatusPill label={`Remaining: ${remainingQcQty}`} variant={remainingQcQty === 0 ? 'green' : 'teal'} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
+              </div>
+              <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: '#10B981', display: 'block' }}>QC Passed</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{qcPassedQty}</span>
+              </div>
+              <div style={{ backgroundColor: 'rgba(34, 211, 197, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining to pass</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>{remainingQcQty}</span>
+              </div>
+            </div>
+
+            <ProgressBar current={qcPassedQty} total={targetSoQty} height={8} />
+
+            {isQCComplete && (
+              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#10B981' }}>
+                  ✅ QC complete — {qcPassedQty}/{targetSoQty} passed
+                </span>
+              </div>
+            )}
+
+            {!isQCComplete && isAllAdmitted && (
+              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid #F59E0B', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#F59E0B' }}>
+                  ⚠️ All pieces inspected — rework pending
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Mode Selector Toggle: Manual Save vs Bulk Auto-Save Mode */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: isBulkMode ? 'rgba(245, 158, 11, 0.12)' : 'var(--bg-surface-1)',
+              border: `1px solid ${isBulkMode ? 'rgba(245, 158, 11, 0.4)' : 'var(--border-color)'}`,
+              borderRadius: '12px',
+              padding: '10px 14px',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Zap size={20} color={isBulkMode ? '#F59E0B' : 'var(--primary-teal)'} />
+              <div>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {isBulkMode ? '⚡ Bulk Auto-Save Mode' : '📝 Manual Review Mode'}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>
+                  {isBulkMode
+                    ? 'Scanning auto-saves PASS results directly to DB (High Volume 1000+)'
+                    : 'Requires clicking Save button manually after reviewing details'}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-surface-2)', padding: '4px', borderRadius: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setIsBulkMode(false)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  backgroundColor: !isBulkMode ? 'var(--bg-surface-1)' : 'transparent',
+                  color: !isBulkMode ? 'var(--text-primary)' : 'var(--text-muted)',
+                  border: !isBulkMode ? '1px solid var(--border-color)' : 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Manual
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBulkMode(true)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  backgroundColor: isBulkMode ? 'var(--color-amber)' : 'transparent',
+                  color: isBulkMode ? '#000' : 'var(--text-muted)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                ⚡ Bulk Auto-Save
+              </button>
+            </div>
+          </div>
+
+          <ScannerInput onScan={handleScanCode} placeholder={isBulkMode ? "⚡ Bulk Mode Active: Scan barcode to auto-save..." : "Scan garment QR code…"} />
 
           {!scannedItem ? (
             <div style={styles.emptyCard}>

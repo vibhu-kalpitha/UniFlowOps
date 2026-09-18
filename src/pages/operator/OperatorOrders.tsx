@@ -35,7 +35,7 @@ export const OperatorOrders: React.FC = () => {
       </div>
 
       {/* PO Card List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
         {filteredOrders.length === 0 ? (
           <div style={styles.emptyState}>
             <p style={{ color: 'var(--text-secondary)' }}>No {activeTab.toLowerCase()} orders found.</p>

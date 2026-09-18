@@ -119,6 +119,10 @@
     align-items: start;
   }
 
+  .desktop-col-12 {
+    grid-column: span 12 / span 12 !important;
+  }
+
   .desktop-col-8 {
     grid-column: span 8 / span 8 !important;
   }
@@ -127,33 +131,19 @@
     grid-column: span 4 / span 4 !important;
   }
 
-  .desktop-split-7-5 {
-    display: grid !important;
-    grid-template-columns: 7fr 5fr !important;
-    gap: 24px !important;
-    align-items: start;
-  }
-
-  .desktop-split-8-4 {
-    display: grid !important;
-    grid-template-columns: 8fr 4fr !important;
-    gap: 24px !important;
-    align-items: start;
-  }
-
-  .desktop-grid-2 {
+  .grid-2-desktop, .desktop-grid-2 {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 20px !important;
   }
 
-  .desktop-grid-3 {
+  .grid-3-desktop, .desktop-grid-3 {
     display: grid !important;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     gap: 20px !important;
   }
 
-  .desktop-grid-4 {
+  .grid-4-desktop, .desktop-grid-4 {
     display: grid !important;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
     gap: 18px !important;
@@ -340,8 +330,21 @@
     margin: 0 auto;
   }
 
+  .desktop-split-7-5 {
+    display: grid !important;
+    grid-template-columns: 7fr 5fr !important;
+    gap: 24px !important;
+    align-items: start !important;
+    width: 100% !important;
+  }
+
   .workflow-controls-panel {
-    max-width: 720px;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .workflow-right-panel {
+    width: 100% !important;
   }
 
   .workflow-pass-fail-row {

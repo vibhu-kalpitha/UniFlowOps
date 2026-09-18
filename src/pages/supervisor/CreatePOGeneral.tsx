@@ -136,88 +136,90 @@ export const CreatePOGeneral: React.FC = () => {
       </div>
 
       <form onSubmit={handleNext} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {/* PO Number */}
-        <div>
-          <label style={styles.label}>Production Order No.</label>
-          <input
-            type="text"
-            className="input-field"
-            value={poId}
-            onChange={e => setPoId(e.target.value)}
-            required
-          />
-        </div>
-
-        {/* Map PO (Free Text) */}
-        <div>
-          <label style={styles.label}>Map PO (Free Text Code)</label>
-          <input
-            type="text"
-            className="input-field"
-            placeholder="e.g. MAP-PO-44821"
-            value={mapPo}
-            onChange={e => setMapPo(e.target.value)}
-            required
-          />
-        </div>
-
-        {/* Box Serial Number / Barcode Range (Letters & Numbers) */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+        <div className="grid-2-desktop" style={{ display: 'grid', gap: '14px' }}>
+          {/* PO Number */}
           <div>
-            <label style={styles.label}>Box Serial Range Start</label>
+            <label style={styles.label}>Production Order No.</label>
             <input
               type="text"
               className="input-field"
-              placeholder="e.g. BX-000100"
-              value={boxRangeStart}
-              onChange={e => setBoxRangeStart(e.target.value)}
+              value={poId}
+              onChange={e => setPoId(e.target.value)}
               required
             />
           </div>
+
+          {/* Map PO (Free Text) */}
           <div>
-            <label style={styles.label}>Box Serial Range End</label>
+            <label style={styles.label}>Map PO (Free Text Code)</label>
             <input
               type="text"
               className="input-field"
-              placeholder="e.g. BX-000500"
-              value={boxRangeEnd}
-              onChange={e => setBoxRangeEnd(e.target.value)}
+              placeholder="e.g. MAP-PO-44821"
+              value={mapPo}
+              onChange={e => setMapPo(e.target.value)}
               required
             />
           </div>
-        </div>
 
-        {/* Dates Row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          {/* Box Serial Number / Barcode Range (Letters & Numbers) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={styles.label}>Box Serial Range Start</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="e.g. BX-000100"
+                value={boxRangeStart}
+                onChange={e => setBoxRangeStart(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label style={styles.label}>Box Serial Range End</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="e.g. BX-000500"
+                value={boxRangeEnd}
+                onChange={e => setBoxRangeEnd(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          {/* Dates Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={styles.label}>Start Date</label>
+              <input
+                type="date"
+                className="input-field"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={styles.label}>Due Date</label>
+              <input
+                type="date"
+                className="input-field"
+                value={dueDate}
+                onChange={e => setDueDate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Responsible Supervisor */}
           <div>
-            <label style={styles.label}>Start Date</label>
+            <label style={styles.label}>Responsible Supervisor</label>
             <input
-              type="date"
+              type="text"
               className="input-field"
-              value={startDate}
-              onChange={e => setStartDate(e.target.value)}
+              value={supervisor}
+              onChange={e => setSupervisor(e.target.value)}
             />
           </div>
-          <div>
-            <label style={styles.label}>Due Date</label>
-            <input
-              type="date"
-              className="input-field"
-              value={dueDate}
-              onChange={e => setDueDate(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Responsible Supervisor */}
-        <div>
-          <label style={styles.label}>Responsible Supervisor</label>
-          <input
-            type="text"
-            className="input-field"
-            value={supervisor}
-            onChange={e => setSupervisor(e.target.value)}
-          />
         </div>
 
         {/* Required Operations Checkboxes */}

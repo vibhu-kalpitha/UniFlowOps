@@ -24,27 +24,87 @@ function recordScanEvent(key: string, operatorId: string, operation: string, raw
   `).run(id, key, operatorId, operation, rawCode, rawCode.trim().toUpperCase(), result, errCode || null, errMsg || null, now);
 }
 
+// Helper to resolve SO safely from ID, so_number, or map_so
+export function resolveSO(soKey?: string | null) {
+  if (!soKey) {
+    return db.prepare(`SELECT * FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+  }
+  let so = db.prepare(`SELECT * FROM sales_orders WHERE id = ? OR so_number = ? OR map_so = ?`).get(soKey, soKey, soKey) as any;
+  if (!so) {
+    so = db.prepare(`SELECT * FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
+  }
+  return so;
+}
+
+// Helper to count distinct item units admitted to QC for an SO
+export function getSOAdmittedItemCount(soId: string): number {
+  const row = db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM item_units iu
+    WHERE iu.sales_order_id = ? AND iu.id IN (
+      SELECT item_id FROM qc_results
+      UNION
+      SELECT item_id FROM qc_fail_log
+    )
+  `).get(soId) as any;
+  return row?.cnt || 0;
+}
+
+// Helper to check if item is already admitted to QC
+export function isItemAdmitted(itemId: string): boolean {
+  const row = db.prepare(`
+    SELECT 1 FROM (
+      SELECT item_id FROM qc_results WHERE item_id = ?
+      UNION
+      SELECT item_id FROM qc_fail_log WHERE item_id = ?
+    )
+  `).get(itemId, itemId) as any;
+  return !!row;
+}
+
 // 0. POST /api/qc/scan
 router.post('/qc/scan', authenticateToken, (req: AuthRequest, res, next) => {
   try {
-    const code = req.body.code || req.body.itemQr;
-    if (!code) {
+    const rawCode = req.body.code || req.body.itemQr;
+    const targetSoKey = req.body.salesOrderId || req.body.salesOrderNumber || null;
+    if (!rawCode || typeof rawCode !== 'string') {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
     }
+    const code = rawCode.trim().toUpperCase();
+    const so = resolveSO(targetSoKey);
 
-    const item = db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(code) as any;
-    if (item && (item.status === 'QC_PASSED' || item.status === 'PACKED')) {
-      return res.json({
-        status: 'DUPLICATE',
-        message: 'Already processed QC',
-        item: { qr_code: item.qr_code, size: item.size || 'L' }
-      });
+    const item = db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
+    if (item) {
+      const existingPass = db.prepare(`
+        SELECT * FROM qc_results WHERE item_id = ? AND qc_result = 'PASS' AND test_result = 'PASS'
+      `).get(item.id) as any;
+
+      if (existingPass || item.status === 'QC_PASSED' || item.status === 'PACKED') {
+        return res.json({
+          status: 'DUPLICATE',
+          message: 'Already processed QC',
+          item: { qr_code: item.qr_code, size: item.size || 'L' }
+        });
+      }
     }
 
+    // Capacity Check
+    if (so) {
+      const admittedCount = getSOAdmittedItemCount(so.id);
+      const isAlreadyAdmitted = item && isItemAdmitted(item.id);
+      if (!isAlreadyAdmitted && admittedCount >= so.order_quantity) {
+        return res.status(400).json({
+          error: 'SO_QUANTITY_REACHED',
+          message: `This sales order already has ${so.order_quantity} of ${so.order_quantity} pieces registered for QC.`
+        });
+      }
+    }
+
+    const progress = so ? calculateSOProgress(so.id) : undefined;
     return res.json({
       status: 'VALID',
       message: 'Barcode valid for QC',
-      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' }
+      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
+      progress
     });
   } catch (err) {
     next(err);
@@ -52,20 +112,29 @@ router.post('/qc/scan', authenticateToken, (req: AuthRequest, res, next) => {
 });
 
 // Helper for operator allocation check
-function checkOperatorAllocation(operatorId: string, role: string, soId: string, operation: string): boolean {
-  if (role !== 'OPERATOR') return true; // Supervisor and Admin are allowed
+export function checkOperatorAllocation(operatorId: string, role: string, soId: string, operation: string): boolean {
+  if (role === 'SUPERVISOR' || role === 'ADMIN') return true;
+
+  // Check total assigned operators for this SO
+  const totalAssignedRow = db.prepare(`
+    SELECT COUNT(*) as cnt FROM operator_work_assignments
+    WHERE sales_order_id = ? AND active = 1
+  `).get(soId) as any;
+
+  const totalAssigned = totalAssignedRow?.cnt || 0;
+
+  // If no operators are assigned to this SO yet, allow any operator to work on it
+  if (totalAssigned === 0) {
+    return true;
+  }
+
+  // If specific operators are assigned, check if THIS operator is allocated
   const row = db.prepare(`
-    SELECT COUNT(*) as cnt FROM (
-      SELECT id FROM so_operator_allocations WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-      UNION
-      SELECT id FROM operator_work_assignments WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-      UNION
-      SELECT sm.id FROM shift_members sm
-      JOIN sales_orders so ON so.shift_id = sm.shift_id
-      WHERE so.id = ? AND sm.operator_id = ? AND sm.active = 1
-    )
-  `).get(soId, operatorId, soId, operatorId, soId, operatorId) as any;
-  return row && row.cnt > 0;
+    SELECT COUNT(*) as cnt FROM operator_work_assignments
+    WHERE sales_order_id = ? AND operator_id = ? AND active = 1
+  `).get(soId, operatorId) as any;
+
+  return !!(row && row.cnt > 0);
 }
 
 // Helper to update SO and PO completion status
@@ -100,11 +169,90 @@ function checkAndUpdateSOCompletion(soId: string) {
   }
 }
 
+// Helper function for authoritative SO progress calculation
+export function calculateSOProgress(soId: string) {
+  const so = resolveSO(soId);
+  if (!so) {
+    return {
+      targetQuantity: 0,
+      inspectedUnique: 0,
+      passedUnique: 0,
+      failedUnique: 0,
+      remainingToInspect: 0,
+      remainingToPass: 0,
+      isComplete: false,
+      allAdmitted: false,
+    };
+  }
+
+  const targetQuantity = so.order_quantity || 0;
+
+  // Distinct valid SO items passed QC
+  const passedRow = db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+    JOIN item_units iu ON iu.id = qr.item_id
+    WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+  `).get(so.id) as any;
+  const passedUnique = passedRow?.cnt || 0;
+
+  // Distinct valid SO items failed (and not currently passed)
+  const failedRow = db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_fail_log qf
+    JOIN item_units iu ON iu.id = qf.item_id
+    WHERE iu.sales_order_id = ? AND iu.status != 'QC_PASSED' AND iu.status != 'PACKED'
+  `).get(so.id) as any;
+  const failedUnique = failedRow?.cnt || 0;
+
+  // Distinct items inspected overall for this SO
+  const inspectedRow = db.prepare(`
+    SELECT COUNT(DISTINCT item_id) as cnt FROM (
+      SELECT qr.item_id FROM qc_results qr
+      JOIN item_units iu ON iu.id = qr.item_id
+      WHERE iu.sales_order_id = ?
+      UNION
+      SELECT qf.item_id FROM qc_fail_log qf
+      JOIN item_units iu ON iu.id = qf.item_id
+      WHERE iu.sales_order_id = ?
+    )
+  `).get(so.id, so.id) as any;
+  const inspectedUnique = inspectedRow?.cnt || 0;
+
+  const remainingToInspect = Math.max(0, targetQuantity - inspectedUnique);
+  const remainingToPass = Math.max(0, targetQuantity - passedUnique);
+  const isComplete = passedUnique >= targetQuantity;
+  const allAdmitted = inspectedUnique >= targetQuantity;
+
+  return {
+    soId: so.id,
+    soNumber: so.so_number,
+    targetQuantity,
+    inspectedUnique,
+    passedUnique,
+    failedUnique,
+    remainingToInspect,
+    remainingToPass,
+    isComplete,
+    allAdmitted
+  };
+}
+
+// GET /api/qc/progress/:soId - Authoritative SO QC Progress Query
+router.get('/qc/progress/:soId', authenticateToken, (req: AuthRequest, res, next) => {
+  try {
+    const soId = req.params.soId;
+    const progress = calculateSOProgress(soId);
+    return res.json(progress);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 1. POST /api/qc/results
 const qcResultSchema = z.object({
   idempotencyKey: z.string().optional(),
   itemQr: z.string().min(1),
   salesOrderNumber: z.string().optional(),
+  salesOrderId: z.string().optional(),
   qcResult: z.enum(['PASS', 'FAIL']),
   testResult: z.enum(['PASS', 'FAIL']),
   failureReason: z.string().optional()
@@ -112,38 +260,29 @@ const qcResultSchema = z.object({
 
 router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
   try {
-    const { idempotencyKey, itemQr, salesOrderNumber, qcResult, testResult, failureReason } = qcResultSchema.parse(req.body);
+    const parsed = qcResultSchema.parse(req.body);
+    const idempotencyKey = parsed.idempotencyKey;
+    const itemQr = parsed.itemQr.trim().toUpperCase();
+    const targetSoKey = parsed.salesOrderId || parsed.salesOrderNumber || null;
+    const qcResult = parsed.qcResult;
+    const testResult = parsed.testResult;
+    const failureReason = parsed.failureReason;
+
     const operatorId = req.user!.id;
     const userRole = req.user!.role;
     const now = new Date().toISOString();
 
+    const so = resolveSO(targetSoKey);
+    if (!so) {
+      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    }
+
     if (idempotencyKey) {
       const existing = checkIdempotency(idempotencyKey, operatorId, 'QC_TEST', itemQr);
       if (existing && existing.result === 'ACCEPTED') {
-        return res.json({ status: 'DUPLICATE_PROCESSED', message: 'Scan already processed idempotently.' });
+        const progress = calculateSOProgress(so.id);
+        return res.json({ status: 'DUPLICATE_PROCESSED', message: 'Scan already processed idempotently.', progress });
       }
-    }
-
-    // Resolve Sales Order safely without passing undefined
-    const targetSo = salesOrderNumber || null;
-    let so = targetSo ? (db.prepare(`SELECT * FROM sales_orders WHERE so_number = ? OR id = ?`).get(targetSo, targetSo) as any) : null;
-    if (!so) {
-      so = db.prepare(`SELECT * FROM sales_orders ORDER BY created_at DESC LIMIT 1`).get() as any;
-    }
-    if (!so) {
-      const defaultPoId = `po-${Date.now()}`;
-      const defaultSoId = `so-${Date.now()}`;
-      db.prepare(`
-        INSERT INTO production_orders (id, po_number, map_po, customer, start_date, due_date, supervisor_id, status, created_at, updated_at)
-        VALUES (?, 'PO-AUTO', 'MAP-PO-AUTO', 'Factory Orders', ?, ?, ?, 'CURRENT', ?, ?)
-      `).run(defaultPoId, now.split('T')[0], now.split('T')[0], operatorId, now, now);
-
-      db.prepare(`
-        INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-        VALUES (?, ?, 'SO-AUTO', 'MAP-SO-AUTO', 'Garment Product', 'ST-AUTO', 'Black', 'S - XL', 1000, 'line-04', 'shift-c', 12, 'In Progress', ?, ?)
-      `).run(defaultSoId, defaultPoId, now, now);
-
-      so = db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(defaultSoId) as any;
     }
 
     // Operator scoping check
@@ -154,21 +293,60 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
       });
     }
 
-    // Find or create item unit
-    let item = db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(itemQr) as any;
+    // Capacity & Item Admission Logic
+    let item = db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(itemQr) as any;
     if (!item) {
+      // Check capacity before creating & admitting a new item
+      const admittedCount = getSOAdmittedItemCount(so.id);
+      if (admittedCount >= so.order_quantity) {
+        return res.status(400).json({
+          error: 'SO_QUANTITY_REACHED',
+          message: `This sales order already has ${so.order_quantity} of ${so.order_quantity} pieces registered for QC.`
+        });
+      }
+
       const itemId = `itm-${itemQr}`;
       db.prepare(`
         INSERT INTO item_units (id, qr_code, sales_order_id, size, status, created_at, updated_at)
         VALUES (?, ?, ?, 'L', 'CREATED', ?, ?)
       `).run(itemId, itemQr, so.id, now, now);
-      item = { id: itemId, qr_code: itemQr, sales_order_id: so.id };
+      item = { id: itemId, qr_code: itemQr, sales_order_id: so.id, status: 'CREATED' };
+    } else {
+      // Check if item is already admitted to this SO or another SO
+      const isAlreadyAdmitted = isItemAdmitted(item.id);
+      if (!isAlreadyAdmitted) {
+        const admittedCount = getSOAdmittedItemCount(so.id);
+        if (admittedCount >= so.order_quantity) {
+          return res.status(400).json({
+            error: 'SO_QUANTITY_REACHED',
+            message: `This sales order already has ${so.order_quantity} of ${so.order_quantity} pieces registered for QC.`
+          });
+        }
+      }
+      db.prepare(`UPDATE item_units SET sales_order_id = ?, updated_at = ? WHERE id = ?`).run(so.id, now, item.id);
+      item.sales_order_id = so.id;
     }
 
     const isPass = qcResult === 'PASS' && testResult === 'PASS';
-    const finalItemStatus = isPass ? 'QC_PASSED' : 'QC_FAILED';
-
     const existingQc = db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
+
+    // Check if item is already QC_PASSED or PACKED
+    const isAlreadyPassed = item.status === 'QC_PASSED' || item.status === 'PACKED' || (existingQc && existingQc.qc_result === 'PASS' && existingQc.test_result === 'PASS');
+
+    if (isAlreadyPassed && isPass) {
+      // Duplicate scan on an already passed item — return ALREADY_PROCESSED / DUPLICATE without altering status
+      recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'DUPLICATE');
+      const progress = calculateSOProgress(so.id);
+      return res.status(200).json({
+        message: `Item ${itemQr} is already QC Passed (Duplicate Scan).`,
+        itemQr,
+        status: item.status || 'QC_PASSED',
+        isDuplicate: true,
+        progress
+      });
+    }
+
+    const finalItemStatus = isPass ? 'QC_PASSED' : 'QC_FAILED';
     const existingFails = (db.prepare(`SELECT COUNT(*) as cnt FROM qc_fail_log WHERE item_id = ?`).get(item.id) as any)?.cnt || 0;
     let failCount = existingFails;
     let retryCount = 0;
@@ -214,12 +392,15 @@ router.post('/qc/results', authenticateToken, (req: AuthRequest, res, next) => {
 
     checkAndUpdateSOCompletion(so.id);
 
+    const progress = calculateSOProgress(so.id);
+
     return res.status(200).json({
       message: isPass ? (retryCount > 0 ? `QC Passed after ${retryCount} attempt(s)!` : 'QC Passed!') : `QC Failed (Attempt #${failCount})`,
       itemQr,
       status: finalItemStatus,
       retryCount,
-      totalFails: failCount
+      totalFails: failCount,
+      progress
     });
   } catch (err) {
     next(err);

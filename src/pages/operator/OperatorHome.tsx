@@ -9,7 +9,7 @@ import '../../styles/tokens.css';
 
 export const OperatorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession } = useApp();
+  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession, scannerConnected, setScannerConnected } = useApp();
 
   const [pendingOperation, setPendingOperation] = useState<{ name: string; route: string } | null>(null);
   const [selectedPoForModal, setSelectedPoForModal] = useState<ProductionOrder | null>(null);
@@ -207,17 +207,32 @@ export const OperatorHome: React.FC = () => {
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#18B879' }}></span>
             <span style={{ fontSize: '12px', fontWeight: 700, color: '#18B879' }}>Shift A Active</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(34, 211, 197, 0.12)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(34, 211, 197, 0.3)' }}>
-            <ScanLine size={14} color="var(--primary-teal)" />
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)' }}>Scanner Connected</span>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: scannerConnected ? 'rgba(34, 211, 197, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              border: scannerConnected ? '1px solid rgba(34, 211, 197, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+              cursor: 'pointer'
+            }}
+            onClick={() => setScannerConnected(!scannerConnected)}
+            title="Click to toggle scanner connection"
+          >
+            <ScanLine size={14} color={scannerConnected ? 'var(--primary-teal)' : '#EF4444'} />
+            <span style={{ fontSize: '12px', fontWeight: 700, color: scannerConnected ? 'var(--primary-teal)' : '#EF4444' }}>
+              {scannerConnected ? 'Scanner Connected' : 'Scanner Disconnected'}
+            </span>
           </div>
         </div>
       </div>
 
       {/* 12-Column Desktop Grid Container */}
       <div className="desktop-grid-12">
-        {/* Main Workspace (8 cols on desktop, 12 cols on mobile) */}
-        <div className="desktop-col-8" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Main Workspace (Full 12 cols) */}
+        <div className="desktop-col-12" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Search / Quick Scan Bar */}
           <button
             onClick={openSearch}
@@ -354,89 +369,6 @@ export const OperatorHome: React.FC = () => {
                   </span>
                 </div>
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Sidebar (4 cols on desktop, hidden on mobile) */}
-        <div className="desktop-col-4 op-desktop-sidebar">
-          {/* Current Assignment Summary Card */}
-          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
-              CURRENT ASSIGNMENT
-            </span>
-            <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-              {po?.id || 'PO-2026-904'}
-            </h4>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              {po?.customer || 'Brand Master'} • {so?.product || 'T-Shirt Classic'}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #1E4650' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Sales Order:</span>
-                <span style={{ color: 'var(--primary-teal)', fontWeight: 700 }}>{so?.id || 'SO-77201'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Production Line:</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Line 04</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Shift Assignment:</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Shift A (06:00 - 14:00)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Scanner Status & Diagnostics */}
-          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'rgba(24, 184, 121, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 size={20} color="var(--color-green)" />
-              </div>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Scanner Active</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>USB / Bluetooth Wedge</div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => navigate('/test-scanner')}
-              style={{
-                width: '100%',
-                marginTop: '12px',
-                padding: '10px',
-                borderRadius: '10px',
-                backgroundColor: '#102F39',
-                border: '1px solid #1E4650',
-                color: 'var(--primary-teal)',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              ⚡ Run Diagnostic Test
-            </button>
-          </div>
-
-          {/* Today's Shift Performance Summary */}
-          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              LINE 04 SHIFT METRICS
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' }}>
-              <div>
-                <div style={{ fontSize: '24px', fontWeight: 800, color: '#10B981' }}>
-                  {displayTotalQcPassed ? Math.round((displayTotalQcPassed / Math.max(1, displayTotalQcPassed + displayTotalFail)) * 100) : 100}%
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>First Pass Quality Yield</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-                  {displayPacked}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cartons Completed</div>
-              </div>
             </div>
           </div>
         </div>
