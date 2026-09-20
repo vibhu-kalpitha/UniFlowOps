@@ -2,7 +2,9 @@ node_modules
 dist
 dist-server
 .env
-server/data/*.db
+*.db
+*.sqlite
+*.sqlite3
 server/data/*.db-shm
 server/data/*.db-wal
 *.log

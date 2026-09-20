@@ -1,16 +1,15 @@
-import { db, ensureDbConnected } from './connection';
-import { runMigrations } from './migrate';
+import { db, ensureDbConnected } from './connection.js';
+import { runMigrations } from './migrate.js';
 import bcrypt from 'bcryptjs';
 
-export function seedDatabase(database = db) {
-  runMigrations(database);
+export async function seedDatabase() {
+  await runMigrations();
 
-  const now = new Date().toISOString();
+  const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
   const passwordHash = bcrypt.hashSync('demo123', 10);
 
-  // Clear existing production & scan data only if explicit RESET_DB flag is set
   if (process.env.RESET_DB === 'true') {
-    database.exec(`
+    await db.exec(`
       DELETE FROM scan_events;
       DELETE FROM alerts;
       DELETE FROM aql_samples;
@@ -22,6 +21,8 @@ export function seedDatabase(database = db) {
       DELETE FROM qc_fail_log;
       DELETE FROM qc_results;
       DELETE FROM item_units;
+      DELETE FROM so_operator_allocations;
+      DELETE FROM operator_work_assignments;
       DELETE FROM sales_orders;
       DELETE FROM production_order_operations;
       DELETE FROM production_orders;
@@ -36,17 +37,17 @@ export function seedDatabase(database = db) {
     { id: 'usr-004', employee_no: 'EMP-104', username: 'kavindu', full_name: 'Kavindu Perera', role: 'OPERATOR', phone: '+94774567890' }
   ];
 
-  const insertUser = database.prepare(`
-    INSERT INTO users (id, employee_no, username, password_hash, full_name, role, phone, active, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-    ON CONFLICT(username) DO UPDATE SET
-      password_hash = excluded.password_hash,
-      full_name = excluded.full_name,
-      role = excluded.role,
-      updated_at = excluded.updated_at
-  `);
-
-  users.forEach(u => insertUser.run(u.id, u.employee_no, u.username, passwordHash, u.full_name, u.role, u.phone, now, now));
+  for (const u of users) {
+    await db.execute(`
+      INSERT INTO users (id, employee_no, username, password_hash, full_name, role, phone, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        password_hash = VALUES(password_hash),
+        full_name = VALUES(full_name),
+        role = VALUES(role),
+        updated_at = VALUES(updated_at)
+    `, [u.id, u.employee_no, u.username, passwordHash, u.full_name, u.role, u.phone, now, now]);
+  }
 
   // 2. Production Lines
   const lines = [
@@ -56,12 +57,13 @@ export function seedDatabase(database = db) {
     { id: 'line-04', code: 'LINE-04', name: 'Line 04' }
   ];
 
-  const insertLine = database.prepare(`
-    INSERT OR REPLACE INTO production_lines (id, code, name, active)
-    VALUES (?, ?, ?, 1)
-  `);
-
-  lines.forEach(l => insertLine.run(l.id, l.code, l.name));
+  for (const l of lines) {
+    await db.execute(`
+      INSERT INTO production_lines (id, code, name, active)
+      VALUES (?, ?, ?, 1)
+      ON DUPLICATE KEY UPDATE name = VALUES(name), active = 1
+    `, [l.id, l.code, l.name]);
+  }
 
   // 3. Fixed Shifts A-D
   const shifts = [
@@ -71,12 +73,13 @@ export function seedDatabase(database = db) {
     { id: 'shift-d', code: 'D', name: 'Shift D', start_time: '18:00', end_time: '22:00' }
   ];
 
-  const insertShift = database.prepare(`
-    INSERT OR REPLACE INTO shifts (id, code, name, start_time, end_time, active)
-    VALUES (?, ?, ?, ?, ?, 1)
-  `);
-
-  shifts.forEach(s => insertShift.run(s.id, s.code, s.name, s.start_time, s.end_time));
+  for (const s of shifts) {
+    await db.execute(`
+      INSERT INTO shifts (id, code, name, start_time, end_time, active)
+      VALUES (?, ?, ?, ?, ?, 1)
+      ON DUPLICATE KEY UPDATE name = VALUES(name), start_time = VALUES(start_time), end_time = VALUES(end_time), active = 1
+    `, [s.id, s.code, s.name, s.start_time, s.end_time]);
+  }
 
   // 4. Shift Members
   const shiftMembers = [
@@ -84,17 +87,20 @@ export function seedDatabase(database = db) {
     { id: 'sm-2', shift_id: 'shift-d', operator_id: 'usr-004' }  // Kavindu -> Shift D
   ];
 
-  const insertShiftMember = database.prepare(`
-    INSERT INTO shift_members (id, shift_id, operator_id, effective_from, active)
-    VALUES (?, ?, ?, ?, 1)
-    ON CONFLICT(id) DO UPDATE SET shift_id = excluded.shift_id
-  `);
+  for (const sm of shiftMembers) {
+    await db.execute(`
+      INSERT INTO shift_members (id, shift_id, operator_id, effective_from, active)
+      VALUES (?, ?, ?, ?, 1)
+      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1
+    `, [sm.id, sm.shift_id, sm.operator_id, now]);
+  }
 
-  shiftMembers.forEach(sm => insertShiftMember.run(sm.id, sm.shift_id, sm.operator_id, now));
-
-  console.log('✅ SQLite Cleaned: Production orders, boxes, and scan logs cleared.');
+  console.log('✅ MySQL Seeding Completed.');
 }
 
 if (process.argv[1]?.endsWith('seed.ts') || process.argv[1]?.endsWith('seed.js')) {
-  ensureDbConnected().then(() => seedDatabase());
+  ensureDbConnected().then(() => seedDatabase()).then(() => process.exit(0)).catch(err => {
+    console.error('Seed error:', err);
+    process.exit(1);
+  });
 }

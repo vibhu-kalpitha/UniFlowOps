@@ -1,172 +1,126 @@
-import fs from 'fs';
-import path from 'path';
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import mysql, { Pool, PoolConnection } from 'mysql2/promise';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const dbPath = path.resolve(process.env.DATABASE_PATH || './server/data/uniflow.db');
+let pool: Pool | null = null;
 
-// Ensure directory exists
-const dir = path.dirname(dbPath);
-if (!fs.existsSync(dir)) {
-  fs.mkdirSync(dir, { recursive: true });
+export function getPool(): Pool {
+  if (!pool) {
+    pool = mysql.createPool({
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      database: process.env.DB_NAME || 'uniflow_ops',
+      user: process.env.DB_USER || 'uniflow_ops_app',
+      password: process.env.DB_PASSWORD || '',
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      namedPlaceholders: false,
+      dateStrings: true,
+    });
+  }
+  return pool;
 }
 
-// Synchronous Atomic Disk Export & Write with Windows EPERM Fallback
-function saveDbToDiskAtomic(rawDb: SqlJsDatabase): void {
-  const data = rawDb.export();
-  const buffer = Buffer.from(data);
-  const tempPath = `${dbPath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-  try {
-    fs.writeFileSync(tempPath, buffer);
-    try {
-      fs.renameSync(tempPath, dbPath);
-    } catch (renameErr: any) {
-      // On Windows, if destination file is locked/open, renameSync throws EPERM/EBUSY.
-      // copyFileSync + unlinkSync works on Windows without throwing EPERM.
-      fs.copyFileSync(tempPath, dbPath);
-    }
-  } catch (err) {
-    console.error(`[SQLite Persistence Error] Failed to persist database to disk:`, err);
-    throw new Error(`Database persistence failure: ${(err as Error).message}`);
-  } finally {
-    if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath); } catch (_) {}
-    }
-  }
+export interface StatementRunner {
+  all(...params: any[]): Promise<any[]>;
+  get(...params: any[]): Promise<any>;
+  run(...params: any[]): Promise<{ changes: number; lastInsertRowid: number }>;
 }
 
-class DbWrapper {
-  private _db: SqlJsDatabase | null = null;
-  private _transactionDepth = 0;
-  private _initPromise: Promise<SqlJsDatabase> | null = null;
+export class DbConnection {
+  private client: Pool | PoolConnection;
 
-  public async getDb(): Promise<SqlJsDatabase> {
-    if (this._db) return this._db;
-    if (this._initPromise) return this._initPromise;
-
-    this._initPromise = (async () => {
-      const SQL = await initSqlJs();
-      let instance: SqlJsDatabase;
-      if (fs.existsSync(dbPath)) {
-        const filebuffer = fs.readFileSync(dbPath);
-        instance = new SQL.Database(filebuffer);
-      } else {
-        instance = new SQL.Database();
-        saveDbToDiskAtomic(instance);
-      }
-      this._db = instance;
-      this._db.exec('PRAGMA foreign_keys = ON;');
-      console.log(`[SQLite Database] Single Authoritative Instance Loaded: ${dbPath}`);
-      return instance;
-    })();
-
-    return this._initPromise;
+  constructor(client?: Pool | PoolConnection) {
+    this.client = client || getPool();
   }
 
-  public setDb(rawDb: SqlJsDatabase) {
-    this._db = rawDb;
-    this._db.exec('PRAGMA foreign_keys = ON;');
+  public async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    const flatParams = params.flat();
+    const [rows] = await this.client.query(sql, flatParams);
+    return rows as T[];
   }
 
-  public get isInitialized(): boolean {
-    return this._db !== null;
+  public async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | null> {
+    const rows = await this.query<T>(sql, params);
+    return rows.length > 0 ? rows[0] : null;
   }
 
-  public saveDisk(): void {
-    if (!this._db) throw new Error('DB not initialized');
-    if (this._transactionDepth === 0) {
-      saveDbToDiskAtomic(this._db);
-    }
+  public async execute(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid: number }> {
+    const flatParams = params.flat();
+    const [result] = await this.client.query(sql, flatParams);
+    const res = result as any;
+    return {
+      changes: res.affectedRows || 0,
+      lastInsertRowid: res.insertId || 0
+    };
   }
 
-  public exec(sql: string) {
-    if (!this._db) throw new Error('DB not initialized');
-    this._db.exec(sql);
-    if (this._transactionDepth === 0) {
-      saveDbToDiskAtomic(this._db);
-    }
-  }
-
-  public pragma(str: string) {
-    if (!this._db) return;
-    try {
-      this._db.exec(`PRAGMA ${str};`);
-    } catch {}
-  }
-
-  public prepare(sql: string) {
+  public prepare(sql: string): StatementRunner {
     const self = this;
     return {
-      all(...params: any[]): any[] {
-        if (!self._db) throw new Error('DB not initialized');
-        const stmt = self._db.prepare(sql);
-        if (params.length > 0) stmt.bind(params.flat());
-        const results: any[] = [];
-        while (stmt.step()) {
-          results.push(stmt.getAsObject());
-        }
-        stmt.free();
-        return results;
+      async all(...params: any[]): Promise<any[]> {
+        return self.query(sql, params);
       },
-
-      get(...params: any[]): any {
-        if (!self._db) throw new Error('DB not initialized');
-        const stmt = self._db.prepare(sql);
-        if (params.length > 0) stmt.bind(params.flat());
-        let result: any = undefined;
-        if (stmt.step()) {
-          result = stmt.getAsObject();
-        }
-        stmt.free();
-        return result;
+      async get(...params: any[]): Promise<any> {
+        return self.queryOne(sql, params);
       },
-
-      run(...params: any[]): { changes: number; lastInsertRowid: number } {
-        if (!self._db) throw new Error('DB not initialized');
-        const stmt = self._db.prepare(sql);
-        const bound = params.flat();
-        if (bound.length > 0) stmt.bind(bound);
-        stmt.step();
-        stmt.free();
-        if (self._transactionDepth === 0) {
-          saveDbToDiskAtomic(self._db);
-        }
-        return { changes: 1, lastInsertRowid: Date.now() };
+      async run(...params: any[]): Promise<{ changes: number; lastInsertRowid: number }> {
+        return self.execute(sql, params);
       }
     };
   }
 
-  public transaction<T extends (...args: any[]) => any>(fn: T): T {
-    const self = this;
-    return ((...args: any[]) => {
-      self._transactionDepth++;
+  public async exec(sql: string): Promise<void> {
+    const statements = sql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    for (const statement of statements) {
+      await this.client.query(statement);
+    }
+  }
+
+  public async transaction<T>(fn: (tx: DbConnection) => Promise<T>): Promise<T> {
+    if ('getConnection' in this.client) {
+      const conn = await (this.client as Pool).getConnection();
+      await conn.beginTransaction();
       try {
-        const result = fn(...args);
-        self._transactionDepth--;
-        if (self._transactionDepth === 0 && self._db) {
-          saveDbToDiskAtomic(self._db);
-        }
+        const txDb = new DbConnection(conn);
+        const result = await fn(txDb);
+        await conn.commit();
         return result;
       } catch (err) {
-        self._transactionDepth = Math.max(0, self._transactionDepth - 1);
+        await conn.rollback();
         throw err;
+      } finally {
+        conn.release();
       }
-    }) as T;
+    } else {
+      // Already in a connection transaction
+      return fn(this);
+    }
   }
 }
 
-export const db = new DbWrapper();
+export const db = new DbConnection();
 
-export async function ensureDbConnected() {
-  await db.getDb();
-  return db;
+export async function ensureDbConnected(): Promise<boolean> {
+  try {
+    const pool = getPool();
+    await pool.query('SELECT 1');
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 export async function resetDbConnection() {
+  if (pool) {
+    await pool.end();
+    pool = null;
+  }
   return ensureDbConnected();
 }
-
-// Auto-initialize on import
-ensureDbConnected();

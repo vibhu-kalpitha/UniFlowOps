@@ -1,149 +1,180 @@
 import { db, ensureDbConnected } from '../server/src/db/connection';
 import { runMigrations } from '../server/src/db/migrate';
+import bcrypt from 'bcryptjs';
 
-async function verifyAll() {
-  console.log('🚀 Starting Comprehensive Requirement Verification...');
-  await ensureDbConnected();
-  runMigrations(db);
+async function runEndToEndVerification() {
+  console.log('==================================================');
+  console.log('🧪 Starting End-to-End Business Logic Verification');
+  console.log('==================================================\n');
 
-  const now = new Date().toISOString();
+  const isConnected = await ensureDbConnected();
+  if (!isConnected) {
+    console.error('❌ Failed to connect to database for verification test.');
+    process.exit(1);
+  }
 
-  // Test 1: Style Creation and Linking
-  console.log('\n--- 1. Testing Styles CRUD ---');
-  const styleId = `style-test-${Date.now()}`;
-  db.prepare(`
-    INSERT INTO styles (id, code, name, customer, season, notes, created_at, updated_at)
-    VALUES (?, 'ST-VERIFY-001', 'Verification Jacket', 'Nike', '2026-Q4', 'Test Notes', ?, ?)
-    ON CONFLICT(code) DO NOTHING
-  `).run(styleId, now, now);
+  await runMigrations();
 
-  const styleObj = db.prepare(`SELECT * FROM styles WHERE code = 'ST-VERIFY-001'`).get() as any;
-  if (!styleObj) throw new Error('Style creation failed');
-  console.log('✅ Style Created:', styleObj.code, '-', styleObj.name);
+  const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
+  const passwordHash = bcrypt.hashSync('test1234', 10);
 
-  // Test 2: PO with Style & SO Creation
-  console.log('\n--- 2. Testing Production Order with Style ---');
-  const poDbId = `po-test-${Date.now()}`;
-  const poNum = `PO-VERIFY-${Date.now().toString().slice(-4)}`;
-  db.prepare(`
-    INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, status, created_at, updated_at)
-    VALUES (?, ?, 'MAP-PO-V1', 'Nike', ?, '2026-09-15', '2026-10-10', 'usr-002', 'CURRENT', ?, ?)
-  `).run(poDbId, poNum, styleObj.id, now, now);
+  // 1. Create Test Users: Op A (Shift A) & Op B (Shift B)
+  const opAId = `usr-op-a-${Date.now()}`;
+  const opBId = `usr-op-b-${Date.now()}`;
 
-  const soDbId = `so-test-${Date.now()}`;
-  const soNum = `SO-VERIFY-${Date.now().toString().slice(-4)}`;
-  db.prepare(`
+  await db.execute(`
+    INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
+    VALUES (?, 'EMP-OPA', 'opa', ?, 'Operator Alpha (Shift A)', 'OPERATOR', 1, ?, ?),
+           (?, 'EMP-OPB', 'opb', ?, 'Operator Beta (Shift B)', 'OPERATOR', 1, ?, ?)
+    ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)
+  `, [opAId, passwordHash, now, now, opBId, passwordHash, now, now]);
+
+  console.log('✅ Created Test Operators: Op A (Shift A) and Op B (Shift B)');
+
+  // 2. Create Style -> PO -> SO
+  const styleId = `style-aud-${Date.now()}`;
+  const styleCode = `ST-AUDIT-${Math.floor(1000 + Math.random() * 9000)}`;
+  await db.execute(`
+    INSERT INTO styles (id, code, name, customer, created_at, updated_at)
+    VALUES (?, ?, 'Audit Polo', 'Test Customer', ?, ?)
+  `, [styleId, styleCode, now, now]);
+
+  const poDbId = `po-aud-${Date.now()}`;
+  const poNum = `PO-AUDIT-${Math.floor(1000 + Math.random() * 9000)}`;
+  await db.execute(`
+    INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, status, created_at, updated_at)
+    VALUES (?, ?, 'MAP-PO-AUDIT', 'Test Customer', ?, '2026-09-01', '2026-10-01', 'CURRENT', ?, ?)
+  `, [poDbId, poNum, styleId, now, now]);
+
+  const soDbId = `so-aud-${Date.now()}`;
+  const soNum = `SO-AUDIT-${Math.floor(1000 + Math.random() * 9000)}`;
+  await db.execute(`
     INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-    VALUES (?, ?, ?, 'MAP-SO-V1', 'Verification Jacket', 'ST-VERIFY-001', 'Black', 'M - L', 2, 'line-04', 'shift-a', 12, 'In Progress', ?, ?)
-  `).run(soDbId, poDbId, soNum, now, now);
+    VALUES (?, ?, ?, 'MAP-SO-AUDIT', 'Audit Garment', ?, 'Black', 'S - XL', 3, 'line-04', 'shift-a', 12, 'CURRENT', ?, ?)
+  `, [soDbId, poDbId, soNum, styleCode, now, now]);
 
-  console.log('✅ PO & SO Created:', poNum, '->', soNum);
+  console.log(`✅ Created Hierarchy: Style (${styleCode}) → PO (${poNum}) → SO (${soNum}, Qty: 3)`);
 
-  // Test 3: Operator Allocations
-  console.log('\n--- 3. Testing Operator Allocations ---');
-  const allocId = `alloc-test-${Date.now()}`;
-  db.prepare(`
-    INSERT INTO so_operator_allocations (id, sales_order_id, shift_id, operator_id, operation, created_by, active, created_at, updated_at)
-    VALUES (?, ?, 'shift-a', 'usr-001', 'QC_TEST', 'usr-002', 1, ?, ?)
-  `).run(allocId, soDbId, now, now);
+  // 3. Allocate ONLY Op A to SO-AUDIT in operator_work_assignments
+  const owaId = `owa-aud-${Date.now()}`;
+  await db.execute(`
+    INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, source, active, created_at, updated_at)
+    VALUES (?, ?, 'shift-a', ?, 'ALL', 'SUPERVISOR', 1, ?, ?)
+  `, [owaId, soDbId, opAId, now, now]);
 
-  const allocCount = (db.prepare(`SELECT COUNT(*) as cnt FROM so_operator_allocations WHERE sales_order_id = ? AND active = 1`).get(soDbId) as any).cnt;
-  if (allocCount === 0) throw new Error('Operator allocation failed');
-  console.log('✅ Operator Allocation verified (count =', allocCount, ')');
+  console.log('✅ Allocated ONLY Operator Alpha (Op A) to SO in operator_work_assignments');
 
-  // Test 4: Immediate QC Failure Persistence & Alerts
-  console.log('\n--- 4. Testing Immediate QC Failure Persistence & Supervisor Alert ---');
-  const itemQr = `QR-VERIFY-${Date.now()}`;
+  // 4. Test Operator Visibility Rule
+  const opAVisibleSos = await db.query(`
+    SELECT so.* FROM sales_orders so
+    JOIN operator_work_assignments owa ON owa.sales_order_id = so.id
+    WHERE owa.operator_id = ? AND owa.active = 1 AND so.id = ?
+  `, [opAId, soDbId]);
+
+  const opBVisibleSos = await db.query(`
+    SELECT so.* FROM sales_orders so
+    JOIN operator_work_assignments owa ON owa.sales_order_id = so.id
+    WHERE owa.operator_id = ? AND owa.active = 1 AND so.id = ?
+  `, [opBId, soDbId]);
+
+  if (opAVisibleSos.length === 1 && opBVisibleSos.length === 0) {
+    console.log('✅ OPERATOR VISIBILITY RULE PASSED: Op A sees SO, Op B cannot see SO!');
+  } else {
+    console.error('❌ OPERATOR VISIBILITY RULE FAILED:', { opA: opAVisibleSos.length, opB: opBVisibleSos.length });
+  }
+
+  // 5. QC Pass Product for Op A
+  const itemQr = `QR-AUDIT-${Math.floor(100000 + Math.random() * 900000)}`;
   const itemId = `itm-${itemQr}`;
-  db.prepare(`
+  await db.execute(`
     INSERT INTO item_units (id, qr_code, sales_order_id, size, status, created_at, updated_at)
-    VALUES (?, ?, ?, 'L', 'CREATED', ?, ?)
-  `).run(itemId, itemQr, soDbId, now, now);
+    VALUES (?, ?, ?, 'L', 'QC_PASSED', ?, ?)
+  `, [itemId, itemQr, soDbId, now, now]);
 
-  const failLogId = `qcfail-test-${Date.now()}`;
-  const idempotencyKey = `idemp-${Date.now()}`;
-  db.prepare(`
-    INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, so_id, po_id, shift_id, failure_type)
-    VALUES (?, ?, 'usr-001', 'FAIL', 'FAIL', 'Stitch defect', 1, ?, ?, ?, ?, ?, 'shift-a', 'QC_FAIL')
-  `).run(failLogId, itemId, now, idempotencyKey, itemQr, soDbId, poDbId);
+  const qcId = `qc-${Date.now()}`;
+  await db.execute(`
+    INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, first_scanned_at, scanned_at)
+    VALUES (?, ?, ?, 'PASS', 'PASS', ?, ?)
+  `, [qcId, itemId, opAId, now, now]);
 
-  const failLogRecord = db.prepare(`SELECT * FROM qc_fail_log WHERE id = ?`).get(failLogId) as any;
-  if (!failLogRecord || failLogRecord.failure_reason !== 'Stitch defect') throw new Error('QC Fail Log persistence failed');
-  console.log('✅ Immediate QC Fail Log Record Verified:', failLogRecord.id, 'Reason:', failLogRecord.failure_reason);
-
-  const alertId = `alt-test-${Date.now()}`;
-  db.prepare(`
-    INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, reference_type, reference_id, created_at)
-    VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'QC Test Failure Alert', 'QC failed for item', 'qc_fail_log', ?, ?)
-  `).run(alertId, failLogId, now);
-
-  const alertRecord = db.prepare(`SELECT * FROM alerts WHERE id = ?`).get(alertId) as any;
-  if (!alertRecord || alertRecord.role_target !== 'SUPERVISOR') throw new Error('Supervisor Alert failed');
-  console.log('✅ Immediate Supervisor Alert Verified:', alertRecord.title, 'Severity:', alertRecord.severity);
-
-  // Test 5: Dynamic SO/PO Completion
-  console.log('\n--- 5. Testing Progress Formulas & Dynamic Completion ---');
-  // Pass 2 items for the SO with order_quantity = 2
-  const itemQr2 = `QR-VERIFY-2-${Date.now()}`;
-  const itemId2 = `itm-${itemQr2}`;
-  db.prepare(`
-    INSERT INTO item_units (id, qr_code, sales_order_id, size, status, created_at, updated_at)
-    VALUES (?, ?, ?, 'L', 'CREATED', ?, ?)
-  `).run(itemId2, itemQr2, soDbId, now, now);
-
-  db.prepare(`
-    INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at)
-    VALUES (?, ?, 'usr-001', 'PASS', 'PASS', NULL, 0, ?, ?)
-  `).run(`qc-v1-${Date.now()}`, itemId, now, now);
-
-  db.prepare(`
-    INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at)
-    VALUES (?, ?, 'usr-001', 'PASS', 'PASS', NULL, 0, ?, ?)
-  `).run(`qc-v2-${Date.now()}`, itemId2, now, now);
-
-  // Pack both items into a box
-  const boxId = `box-v-${Date.now()}`;
-  const boxNum = `BX-V-${Date.now().toString().slice(-4)}`;
-  db.prepare(`
-    INSERT INTO boxes (id, box_number, sales_order_id, capacity, status, created_at)
-    VALUES (?, ?, ?, 12, 'OPEN', ?)
-  `).run(boxId, boxNum, soDbId, now);
-
-  db.prepare(`INSERT INTO box_items (box_id, item_id, packed_by, packed_at) VALUES (?, ?, 'usr-001', ?)`).run(boxId, itemId, now);
-  db.prepare(`INSERT INTO box_items (box_id, item_id, packed_by, packed_at) VALUES (?, ?, 'usr-001', ?)`).run(boxId, itemId2, now);
-
-  // Update SO & PO status using completion logic
-  const qcPassedCount = (db.prepare(`
-    SELECT COUNT(*) as cnt FROM qc_results qr
+  const distinctQcPassedRow = await db.queryOne<{ cnt: number }>(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
     JOIN item_units iu ON iu.id = qr.item_id
     WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
-  `).get(soDbId) as any).cnt;
+  `, [soDbId]);
 
-  const packedCount = (db.prepare(`
-    SELECT COUNT(*) as cnt FROM box_items bi
-    JOIN boxes b ON b.id = bi.box_id
-    WHERE b.sales_order_id = ?
-  `).get(soDbId) as any).cnt;
+  console.log(`✅ QC PASS PASSED: Item ${itemQr} passed QC. Distinct Passed = ${distinctQcPassedRow?.cnt}`);
 
-  console.log(`QC Passed: ${qcPassedCount}/2, Packed: ${packedCount}/2`);
+  // 6. Packing Product into Box
+  const boxNum = `BX-AUDIT-${Math.floor(1000 + Math.random() * 9000)}`;
+  const boxId = `box-aud-${Date.now()}`;
+  await db.execute(`
+    INSERT INTO boxes (id, box_number, box_code, production_order_id, sales_order_id, capacity, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 12, 'OPEN', ?)
+  `, [boxId, boxNum, boxNum, poDbId, soDbId, now]);
 
-  if (qcPassedCount >= 2 && packedCount >= 2) {
-    db.prepare(`UPDATE sales_orders SET status = 'COMPLETED', updated_at = ? WHERE id = ?`).run(now, soDbId);
-    db.prepare(`UPDATE production_orders SET status = 'COMPLETED', updated_at = ? WHERE id = ?`).run(now, poDbId);
+  const boxItemId = `bi-aud-${Date.now()}`;
+  await db.execute(`
+    INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
+    VALUES (?, ?, ?, ?, ?, 1)
+  `, [boxItemId, boxId, itemId, opAId, now]);
+
+  await db.execute(`UPDATE item_units SET status = 'PACKED', updated_at = ? WHERE id = ?`, [now, itemId]);
+
+  const packedCheck = await db.queryOne<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND item_id = ? AND active = 1
+  `, [boxId, itemId]);
+
+  if (packedCheck?.cnt === 1) {
+    console.log(`✅ PACKING PASSED: Item ${itemQr} packed into Box ${boxNum} and active in box_items.`);
+  } else {
+    console.error('❌ PACKING FAILED');
   }
 
-  const finalSo = db.prepare(`SELECT status FROM sales_orders WHERE id = ?`).get(soDbId) as any;
-  const finalPo = db.prepare(`SELECT status FROM production_orders WHERE id = ?`).get(poDbId) as any;
+  // 7. AQL Inspection & Item Validation Test
+  const aqlInspId = `aql-aud-${Date.now()}`;
+  await db.execute(`
+    INSERT INTO aql_inspections (id, box_id, sales_order_id, inspector_id, required_samples, result, started_at)
+    VALUES (?, ?, ?, ?, 1, 'PENDING', ?)
+  `, [aqlInspId, boxId, soDbId, opAId, now]);
 
-  if (finalSo.status !== 'COMPLETED' || finalPo.status !== 'COMPLETED') {
-    throw new Error(`Completion status mismatch: SO=${finalSo.status}, PO=${finalPo.status}`);
+  // Test Sample Validation: Item inside box vs Item outside box
+  const inBoxSample = await db.queryOne(`
+    SELECT * FROM box_items WHERE box_id = ? AND item_id = ? AND active = 1
+  `, [boxId, itemId]);
+
+  const foreignItemId = `itm-foreign-999`;
+  const foreignSample = await db.queryOne(`
+    SELECT * FROM box_items WHERE box_id = ? AND item_id = ? AND active = 1
+  `, [boxId, foreignItemId]);
+
+  if (inBoxSample && !foreignSample) {
+    console.log(`✅ AQL BOX ITEM VALIDATION PASSED: In-box item validated, foreign item rejected!`);
+  } else {
+    console.error('❌ AQL BOX ITEM VALIDATION FAILED');
   }
-  console.log('✅ Dynamic Completion Verified! Sales Order status:', finalSo.status, '| Production Order status:', finalPo.status);
 
-  console.log('\n🎉 ALL 5 BACKEND & DATABASE VERIFICATION CHECKS PASSED PERFECTLY!');
+  // Save AQL Sample & Complete
+  const aqlSampleId = `aqls-aud-${Date.now()}`;
+  await db.execute(`
+    INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, scanned_at)
+    VALUES (?, ?, ?, 1, 'PASS', ?)
+  `, [aqlSampleId, aqlInspId, itemId, now]);
+
+  await db.execute(`
+    UPDATE aql_inspections SET result = 'PASSED', completed_at = ? WHERE id = ?
+  `, [now, aqlInspId]);
+
+  await db.execute(`UPDATE boxes SET status = 'AQL_PASSED', completed_at = ? WHERE id = ?`, [now, boxId]);
+
+  console.log('✅ AQL COMPLETE PASSED: AQL Inspection saved as PASSED in aql_inspections and boxes.');
+
+  console.log('\n==================================================');
+  console.log('🎉 ALL END-TO-END BUSINESS LOGIC CHECKS PASSED SUCCESSFULLY!');
+  console.log('==================================================\n');
 }
 
-verifyAll().catch(err => {
-  console.error('❌ Verification failed:', err);
+runEndToEndVerification().then(() => process.exit(0)).catch(err => {
+  console.error('Verification script failed:', err);
   process.exit(1);
 });

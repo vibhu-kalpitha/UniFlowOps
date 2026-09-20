@@ -1,67 +1,48 @@
 import { Router as ExpressRouter } from 'express';
-import { z } from 'zod';
-import { db } from '../db/connection';
-import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
+import { db } from '../db/connection.js';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth.js';
 
 const router = ExpressRouter();
 
 // GET /api/operators/me/current-work
-router.get('/current-work', authenticateToken, requireRole('OPERATOR'), (req: AuthRequest, res, next) => {
+router.get('/current-work', authenticateToken, requireRole('OPERATOR'), async (req: AuthRequest, res, next) => {
   try {
     const operatorId = req.user!.id;
 
-    // Resolve current shift based on factory time (Asia/Colombo)
-    // Factory timezone check
-    const now = new Date();
-    const currentHour = now.getHours().toString().padStart(2, '0');
-    const currentMinute = now.getMinutes().toString().padStart(2, '0');
-    const currentTimeStr = `${currentHour}:${currentMinute}`;
-
-    // Find shift operator belongs to
-    const memberRow = db.prepare(`
-      SELECT sm.*, s.code as shift_code, s.start_time, s.end_time
-      FROM shift_members sm
-      JOIN shifts s ON s.id = sm.shift_id
-      WHERE sm.operator_id = ? AND sm.active = 1
-      LIMIT 1
-    `).get(operatorId) as any;
-
-    if (!memberRow) {
-      return res.json({
-        hasAssignment: false,
-        message: 'Operator not assigned to any Shift A-D member group.'
-      });
-    }
-
-    // Find active PO & SO assigned to this shift & line 04
-    const soRow = db.prepare(`
-      SELECT so.*, po.po_number, po.map_po, po.customer, po.status as po_status, pl.name as line_name
+    // Find active PO & SO explicitly assigned to THIS operator in operator_work_assignments
+    const soRow = await db.prepare(`
+      SELECT so.*, po.po_number, po.map_po, po.customer, po.status as po_status, pl.name as line_name, owa.shift_id as owa_shift_id
       FROM sales_orders so
       JOIN production_orders po ON po.id = so.production_order_id
-      JOIN production_lines pl ON pl.id = so.line_id
-      WHERE so.shift_id = ? AND po.status = 'CURRENT'
+      JOIN operator_work_assignments owa ON owa.sales_order_id = so.id
+      LEFT JOIN production_lines pl ON pl.id = so.line_id
+      WHERE owa.operator_id = ? AND owa.active = 1 AND po.status = 'CURRENT'
       ORDER BY so.created_at DESC
       LIMIT 1
-    `).get(memberRow.shift_id) as any;
+    `).get(operatorId) as any;
 
     if (!soRow) {
       return res.json({
         hasAssignment: false,
-        message: 'No active production order assigned to your shift.'
+        message: 'No active production order allocated to you in operator_work_assignments.'
       });
     }
 
-    const qcPassed = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM qc_results qr
+    const shiftRow = soRow.owa_shift_id ? await db.prepare(`SELECT * FROM shifts WHERE id = ?`).get(soRow.owa_shift_id) as any : null;
+
+    const qcPassedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
       JOIN item_units iu ON iu.id = qr.item_id
       WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
-    `).get(soRow.id) as any)?.cnt || 0;
+    `).get(soRow.id) as any;
+    const qcPassed = qcPassedRow?.cnt || 0;
 
-    const packed = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM box_items bi
+    const packedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
       JOIN boxes b ON b.id = bi.box_id
-      WHERE b.sales_order_id = ?
-    `).get(soRow.id) as any)?.cnt || 0;
+      WHERE b.sales_order_id = ? AND bi.active = 1
+    `).get(soRow.id) as any;
+    const packed = packedRow?.cnt || 0;
 
     return res.json({
       hasAssignment: true,
@@ -82,7 +63,7 @@ router.get('/current-work', authenticateToken, requireRole('OPERATOR'), (req: Au
           colour: soRow.colour,
           sizeRange: soRow.size_range,
           quantity: soRow.order_quantity,
-          lineId: soRow.line_name,
+          lineId: soRow.line_name || 'Line 04',
           boxCapacity: soRow.box_capacity,
           progress: {
             qcPassed,
@@ -91,10 +72,10 @@ router.get('/current-work', authenticateToken, requireRole('OPERATOR'), (req: Au
           }
         },
         shift: {
-          id: memberRow.id,
-          shiftCode: memberRow.shift_code,
-          startTime: memberRow.start_time,
-          endTime: memberRow.end_time
+          id: shiftRow?.id || 'shift-c',
+          shiftCode: shiftRow?.code || 'C',
+          startTime: shiftRow?.start_time || '14:00',
+          endTime: shiftRow?.end_time || '18:00'
         }
       }
     });
@@ -104,20 +85,18 @@ router.get('/current-work', authenticateToken, requireRole('OPERATOR'), (req: Au
 });
 
 // GET /api/operators/me/assignments
-router.get('/assignments', authenticateToken, requireRole('OPERATOR'), (req: AuthRequest, res, next) => {
+router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (req: AuthRequest, res, next) => {
   try {
     const operatorId = req.user!.id;
-    const memberRow = db.prepare(`SELECT shift_id FROM shift_members WHERE operator_id = ? AND active = 1 LIMIT 1`).get(operatorId) as any;
 
-    const shiftId = memberRow?.shift_id || 'shift-c';
-
-    const soRows = db.prepare(`
-      SELECT so.*, po.po_number, po.customer, pl.name as line_name
-      FROM sales_orders so
+    const soRows = await db.prepare(`
+      SELECT so.*, po.po_number, po.customer, pl.name as line_name, owa.shift_id as owa_shift_id
+      FROM operator_work_assignments owa
+      JOIN sales_orders so ON so.id = owa.sales_order_id
       JOIN production_orders po ON po.id = so.production_order_id
-      JOIN production_lines pl ON pl.id = so.line_id
-      WHERE po.status = 'CURRENT'
-    `).all() as any[];
+      LEFT JOIN production_lines pl ON pl.id = so.line_id
+      WHERE owa.operator_id = ? AND owa.active = 1 AND po.status = 'CURRENT'
+    `).all(operatorId) as any[];
 
     const assignments = soRows.map(so => ({
       poNumber: so.po_number,
@@ -126,8 +105,8 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), (req: Aut
       product: so.product,
       colour: so.colour,
       quantity: so.order_quantity,
-      lineId: so.line_name,
-      shiftId: so.shift_id
+      lineId: so.line_name || 'Line 04',
+      shiftId: so.owa_shift_id || so.shift_id
     }));
 
     return res.json(assignments);

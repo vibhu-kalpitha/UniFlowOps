@@ -8,17 +8,17 @@ import os from 'os';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-import { ensureDbConnected } from './db/connection';
-import { runMigrations } from './db/migrate';
-import { seedDatabase } from './db/seed';
+import { ensureDbConnected } from './db/connection.js';
+import { runMigrations } from './db/migrate.js';
+import { seedDatabase } from './db/seed.js';
 
-import authRoutes from './routes/auth';
-import productionRoutes from './routes/production';
-import operatorRoutes from './routes/operators';
-import shiftRoutes from './routes/shifts';
-import scanRoutes from './routes/scans';
-import dashboardRoutes from './routes/dashboard';
-import { errorHandler } from './middleware/errorHandler';
+import authRoutes from './routes/auth.js';
+import productionRoutes from './routes/production.js';
+import operatorRoutes from './routes/operators.js';
+import shiftRoutes from './routes/shifts.js';
+import scanRoutes from './routes/scans.js';
+import dashboardRoutes from './routes/dashboard.js';
+import { errorHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
 
@@ -79,9 +79,13 @@ function getLanIps(): string[] {
 }
 
 export async function startServer() {
-  await ensureDbConnected();
-  runMigrations();
-  seedDatabase();
+  const isConnected = await ensureDbConnected();
+  if (isConnected) {
+    await runMigrations();
+    await seedDatabase();
+  } else {
+    console.warn('⚠️ Warning: MySQL database connection not established on server startup. Retrying when requests arrive.');
+  }
 
   return new Promise<import('http').Server>((resolve) => {
     const server = app.listen(PORT, HOST, () => {
@@ -96,7 +100,7 @@ export async function startServer() {
           console.log(`➜ Network: http://${ip}:${PORT}/ (Android Wi-Fi PWA)`);
         });
       }
-      console.log(`➜ Database: SQLite (${process.env.DATABASE_PATH || './server/data/uniflow.db'})`);
+      console.log(`➜ Database: MySQL (${process.env.DB_NAME || 'uniflow_ops'} @ ${process.env.DB_HOST || 'localhost'})`);
       console.log(`➜ Timezone: ${process.env.FACTORY_TIMEZONE || 'Asia/Colombo'}`);
       console.log('==================================================\n');
       resolve(server);

@@ -1,17 +1,17 @@
 import { Router as ExpressRouter } from 'express';
 import { z } from 'zod';
-import { db } from '../db/connection';
-import { authenticateToken, requireRole, AuthRequest, AuthUser } from '../middleware/auth';
-import { auditLog } from '../middleware/errorHandler';
+import { db } from '../db/connection.js';
+import { authenticateToken, requireRole, AuthRequest, AuthUser } from '../middleware/auth.js';
+import { auditLog } from '../middleware/errorHandler.js';
 
 const router = ExpressRouter();
 
 // Styles API
 
 // GET /api/production/styles (or /api/styles)
-router.get('/styles', authenticateToken, (req, res, next) => {
+router.get('/styles', authenticateToken, async (req, res, next) => {
   try {
-    const styles = db.prepare(`SELECT * FROM styles ORDER BY code ASC`).all();
+    const styles = await db.prepare(`SELECT * FROM styles ORDER BY code ASC`).all();
     return res.json(styles);
   } catch (err) {
     next(err);
@@ -27,24 +27,24 @@ const createStyleSchema = z.object({
 });
 
 // POST /api/production/styles (SUPERVISOR / ADMIN)
-router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), (req: AuthRequest, res, next) => {
+router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { code, name, customer, season, notes } = createStyleSchema.parse(req.body);
-    const existing = db.prepare(`SELECT * FROM styles WHERE code = ?`).get(code) as any;
+    const existing = await db.prepare(`SELECT * FROM styles WHERE code = ?`).get(code) as any;
     if (existing) {
       return res.status(409).json({ error: 'STYLE_EXISTS', message: `Style with code ${code} already exists`, style: existing });
     }
 
     const id = `style-${Date.now()}`;
     const now = new Date().toISOString();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO styles (id, code, name, customer, season, notes, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, code, name, customer || null, season || null, notes || null, now, now);
 
-    auditLog(req.user!.id, 'CREATE_STYLE', 'styles', id, { code, name });
+    await auditLog(req.user!.id, 'CREATE_STYLE', 'styles', id, { code, name });
 
-    const created = db.prepare(`SELECT * FROM styles WHERE id = ?`).get(id);
+    const created = await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(id);
     return res.status(201).json(created);
   } catch (err) {
     next(err);
@@ -52,8 +52,8 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
 });
 
 // Helper to map DB PO to API contract
-function formatProductionOrder(po: any, reqUser?: AuthUser) {
-  const opsRows = db.prepare(`SELECT operation FROM production_order_operations WHERE production_order_id = ?`).all(po.id) as any[];
+async function formatProductionOrder(po: any, reqUser?: AuthUser) {
+  const opsRows = await db.prepare(`SELECT operation FROM production_order_operations WHERE production_order_id = ?`).all(po.id) as any[];
   const selectedOperations = opsRows.map(r => {
     switch (r.operation) {
       case 'QC_TEST': return 'QC Test';
@@ -64,7 +64,7 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
     }
   });
 
-  const style = po.style_id ? db.prepare(`SELECT * FROM styles WHERE id = ?`).get(po.style_id) as any : null;
+  const style = po.style_id ? await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(po.style_id) as any : null;
 
   let soQuery = `
     SELECT so.*, pl.name as line_name, s.name as shift_name
@@ -73,59 +73,56 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
     LEFT JOIN shifts s ON s.id = so.shift_id
     WHERE so.production_order_id = ?
   `;
-  const soRows = db.prepare(soQuery).all(po.id) as any[];
+  const soRows = await db.prepare(soQuery).all(po.id) as any[];
 
-  const salesOrders = soRows.map(so => {
-    // Check if user is OPERATOR and if they are allocated
+  const salesOrders = (await Promise.all(soRows.map(async so => {
+    // Strictly enforce Operator Visibility Rule using operator_work_assignments ONLY
     if (reqUser && reqUser.role === 'OPERATOR') {
-      const totalAssigned = (db.prepare(`
+      const isAllocated = await db.prepare(`
         SELECT COUNT(*) as cnt FROM operator_work_assignments
-        WHERE sales_order_id = ? AND active = 1
-      `).get(so.id) as any)?.cnt || 0;
+        WHERE sales_order_id = ? AND operator_id = ? AND active = 1
+      `).get(so.id, reqUser.id) as any;
 
-      if (totalAssigned > 0) {
-        const isAllocated = db.prepare(`
-          SELECT COUNT(*) as cnt FROM operator_work_assignments
-          WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-        `).get(so.id, reqUser.id) as any;
-
-        if (!isAllocated || isAllocated.cnt === 0) {
-          return null;
-        }
+      if (!isAllocated || isAllocated.cnt === 0) {
+        return null;
       }
     }
 
     // Progress metrics
-    const qcPassed = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM qc_results qr
+    const qcPassedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
       JOIN item_units iu ON iu.id = qr.item_id
       WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
-    `).get(so.id) as any)?.cnt || 0;
+    `).get(so.id) as any;
+    const qcPassed = qcPassedRow?.cnt || 0;
 
-    const qcFailed = (db.prepare(`
+    const qcFailedRow = await db.prepare(`
       SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log qf
       JOIN item_units iu ON iu.id = qf.item_id
       WHERE iu.sales_order_id = ?
-    `).get(so.id) as any)?.cnt || 0;
+    `).get(so.id) as any;
+    const qcFailed = qcFailedRow?.cnt || 0;
 
-    const packed = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM box_items bi
+    const packedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
       JOIN boxes b ON b.id = bi.box_id
-      WHERE b.sales_order_id = ?
-    `).get(so.id) as any)?.cnt || 0;
+      WHERE b.sales_order_id = ? AND bi.active = 1
+    `).get(so.id) as any;
+    const packed = packedRow?.cnt || 0;
 
-    const aqlPassed = (db.prepare(`
+    const aqlPassedRow = await db.prepare(`
       SELECT COUNT(*) as cnt FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
       WHERE b.sales_order_id = ? AND ai.result = 'PASSED'
-    `).get(so.id) as any)?.cnt || 0;
+    `).get(so.id) as any;
+    const aqlPassed = aqlPassedRow?.cnt || 0;
 
-    const allocations = db.prepare(`
-      SELECT oa.*, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
-      FROM so_operator_allocations oa
-      JOIN users u ON u.id = oa.operator_id
-      LEFT JOIN shifts s ON s.id = oa.shift_id
-      WHERE oa.sales_order_id = ? AND oa.active = 1
+    const allocations = await db.prepare(`
+      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      FROM operator_work_assignments owa
+      JOIN users u ON u.id = owa.operator_id
+      LEFT JOIN shifts s ON s.id = owa.shift_id
+      WHERE owa.sales_order_id = ? AND owa.active = 1
     `).all(so.id) as any[];
 
     const shifts = allocations.map(m => ({
@@ -135,9 +132,9 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
       workerName: m.operator_name,
       shiftId: m.shift_id,
       shiftName: m.shift_name,
-      operation: m.operation,
+      operation: m.operation || 'ALL',
       date: new Date().toISOString().split('T')[0],
-      enabledOperations: [m.operation]
+      enabledOperations: [m.operation || 'ALL']
     }));
 
     return {
@@ -167,7 +164,7 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
         status: so.status
       }
     };
-  }).filter(Boolean);
+  }))).filter(Boolean);
 
   return {
     id: po.po_number,
@@ -175,7 +172,7 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
     mapPo: po.map_po,
     customer: po.customer,
     styleId: style ? style.id : null,
-    styleCode: style ? style.code : (salesOrders[0]?.styleCode || 'ST-900'),
+    styleCode: style ? style.code : ((salesOrders[0] as any)?.styleCode || 'ST-900'),
     styleName: style ? style.name : 'Standard Style',
     startDate: po.start_date,
     dueDate: po.due_date,
@@ -188,22 +185,20 @@ function formatProductionOrder(po: any, reqUser?: AuthUser) {
 }
 
 // GET /api/production-orders
-router.get('/production-orders', authenticateToken, (req: AuthRequest, res, next) => {
+router.get('/production-orders', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const poRows = db.prepare(`SELECT * FROM production_orders ORDER BY created_at DESC`).all();
+    const poRows = await db.prepare(`SELECT * FROM production_orders ORDER BY created_at DESC`).all();
     const role = req.user?.role;
 
-    const orders = poRows
-      .map(po => formatProductionOrder(po, req.user))
-      .filter(po => {
-        if (!po) return false;
-        // Supervisors and Admins see ALL production orders, even if they have 0 sales orders
-        if (role === 'SUPERVISOR' || role === 'ADMIN') {
-          return true;
-        }
-        // Operators see only POs that have allocated sales orders
-        return po.salesOrders && po.salesOrders.length > 0;
-      });
+    const formattedOrders = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
+
+    const orders = formattedOrders.filter(po => {
+      if (!po) return false;
+      if (role === 'SUPERVISOR' || role === 'ADMIN') {
+        return true;
+      }
+      return po.salesOrders && po.salesOrders.length > 0;
+    });
 
     return res.json(orders);
   } catch (err) {
@@ -212,13 +207,14 @@ router.get('/production-orders', authenticateToken, (req: AuthRequest, res, next
 });
 
 // GET /api/production-orders/:id
-router.get('/production-orders/:id', authenticateToken, (req: AuthRequest, res, next) => {
+router.get('/production-orders/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const po = db.prepare(`SELECT * FROM production_orders WHERE po_number = ? OR id = ?`).get(req.params.id, req.params.id);
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE po_number = ? OR id = ?`).get(req.params.id, req.params.id);
     if (!po) {
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production order not found' });
     }
-    return res.json(formatProductionOrder(po, req.user));
+    const formatted = await formatProductionOrder(po, req.user);
+    return res.json(formatted);
   } catch (err) {
     next(err);
   }
@@ -240,10 +236,10 @@ const addSoStandaloneSchema = z.object({
 });
 
 // POST /api/production-orders/:id/sales-orders (SUPERVISOR / ADMIN)
-router.post('/production-orders/:id/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), (req: AuthRequest, res, next) => {
+router.post('/production-orders/:id/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const poParam = req.params.id;
-    const po = db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
     if (!po) {
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: `Parent Production Order '${poParam}' not found` });
     }
@@ -262,7 +258,7 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
     const shiftId = body.shiftId || 'shift-c';
     const qty = body.orderQuantity || body.quantity || 1000;
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', ?, ?)
     `).run(
@@ -282,9 +278,9 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
       now
     );
 
-    auditLog(req.user!.id, 'CREATE_SO', 'sales_orders', soDbId, { poId: po.id, soNumber });
+    await auditLog(req.user!.id, 'CREATE_SO', 'sales_orders', soDbId, { poId: po.id, soNumber });
 
-    const updatedPo = formatProductionOrder(po, req.user);
+    const updatedPo = await formatProductionOrder(po, req.user);
     return res.status(201).json({
       message: `Sales Order ${soNumber} attached to PO ${po.po_number}`,
       soDbId,
@@ -314,7 +310,7 @@ const createPoSchema = z.object({
 });
 
 // POST /api/production-orders (SUPERVISOR / ADMIN)
-router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), (req: AuthRequest, res, next) => {
+router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const body = createPoSchema.parse(req.body);
     const now = new Date().toISOString();
@@ -323,10 +319,10 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
     let styleId = body.styleId || null;
     if (!styleId && body.styleCode) {
-      let existingStyle = db.prepare(`SELECT id FROM styles WHERE code = ?`).get(body.styleCode) as any;
+      let existingStyle = await db.prepare(`SELECT id FROM styles WHERE code = ?`).get(body.styleCode) as any;
       if (!existingStyle) {
         const newStyleId = `style-${Date.now()}`;
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO styles (id, code, name, customer, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?)
         `).run(newStyleId, body.styleCode, body.styleName || `Style ${body.styleCode}`, body.customer, now, now);
@@ -336,31 +332,22 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       }
     }
 
-    db.transaction(() => {
-      // 1. Insert PO
-      db.prepare(`
+    await db.transaction(async (tx) => {
+      await tx.prepare(`
         INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(poDbId, body.id, body.mapPo, body.customer, styleId, body.startDate, body.dueDate, req.user!.id, body.remarks || '', statusUpper, now, now);
 
-      // 2. Insert Operations
-      const insertOp = db.prepare(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, ?)`);
-      body.selectedOperations.forEach(opStr => {
+      for (const opStr of body.selectedOperations) {
         let code = 'QC_TEST';
         if (opStr === 'Packing') code = 'PACKING';
         else if (opStr === 'AQL Checker') code = 'AQL';
         else if (opStr === 'Box Transfer') code = 'BOX_TRANSFER';
-        insertOp.run(poDbId, code);
-      });
+        await tx.prepare(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, ?)`).run(poDbId, code);
+      }
 
-      // 3. Insert Sales Orders if provided
       if (body.salesOrders && body.salesOrders.length > 0) {
-        const insertSo = db.prepare(`
-          INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', ?, ?)
-        `);
-
-        body.salesOrders.forEach(so => {
+        for (const so of body.salesOrders) {
           const soDbId = `so-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
           let lineId = 'line-04';
           if (so.lineId === 'Line 01') lineId = 'line-01';
@@ -370,7 +357,10 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
           let shiftId = 'shift-c';
           if (so.shiftId) shiftId = so.shiftId;
 
-          insertSo.run(
+          await tx.prepare(`
+            INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', ?, ?)
+          `).run(
             soDbId,
             poDbId,
             so.id,
@@ -386,56 +376,61 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
             now,
             now
           );
-        });
+        }
       }
-    })();
+    });
 
-    auditLog(req.user!.id, 'CREATE_PO', 'production_orders', poDbId, { poNumber: body.id, styleId });
+    await auditLog(req.user!.id, 'CREATE_PO', 'production_orders', poDbId, { poNumber: body.id, styleId });
 
-    const created = db.prepare(`SELECT * FROM production_orders WHERE id = ?`).get(poDbId);
-    return res.status(201).json(formatProductionOrder(created));
+    const created = await db.prepare(`SELECT * FROM production_orders WHERE id = ?`).get(poDbId);
+    const formattedCreated = await formatProductionOrder(created);
+    return res.status(201).json(formattedCreated);
   } catch (err) {
     next(err);
   }
 });
 
-// Sales Order Operator Allocation endpoints (SUPERVISOR / ADMIN)
+// Sales Order Operator Allocation endpoints using ONLY operator_work_assignments
 
 const allocSchema = z.object({
   operatorId: z.string().min(1),
   shiftId: z.string().min(1),
-  operation: z.enum(['QC_TEST', 'PACKING', 'AQL', 'BOX_TRANSFER'])
+  operation: z.string().optional()
 });
 
 // POST /api/production/sales-orders/:id/allocations
-router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), (req: AuthRequest, res, next) => {
+router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const soParam = req.params.id;
     const { operatorId, shiftId, operation } = allocSchema.parse(req.body);
 
-    const so = db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
+    const so = await db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
     if (!so) {
       return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
     }
 
-    const opUser = db.prepare(`SELECT id, full_name FROM users WHERE (id = ? OR username = ?) AND role = 'OPERATOR'`).get(operatorId, operatorId) as any;
+    const opUser = await db.prepare(`SELECT id, full_name FROM users WHERE (id = ? OR username = ?) AND role = 'OPERATOR'`).get(operatorId, operatorId) as any;
     if (!opUser) {
       return res.status(404).json({ error: 'OPERATOR_NOT_FOUND', message: 'Operator not found' });
     }
 
+    const shift = await db.prepare(`SELECT id FROM shifts WHERE id = ? OR code = ?`).get(shiftId, shiftId) as any;
+    const targetShiftId = shift ? shift.id : shiftId;
+
     const workAssignId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     const now = new Date().toISOString();
 
-    db.prepare(`
-      INSERT INTO operator_work_assignments (id, operator_id, sales_order_id, operation, assigned_date, source, active, created_at)
-      VALUES (?, ?, ?, ?, ?, 'SUPERVISOR', 1, ?)
-    `).run(workAssignId, opUser.id, so.id, operation, now.split('T')[0], now);
+    await db.prepare(`
+      INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'SUPERVISOR', ?, 1, ?, ?)
+      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = VALUES(updated_at)
+    `).run(workAssignId, so.id, targetShiftId, opUser.id, operation || 'ALL', now.split('T')[0], req.user!.id, now, now);
 
-    auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, operation });
+    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, shiftId: targetShiftId });
 
     return res.status(201).json({
-      message: `Operator ${opUser.full_name} allocated to SO ${so.so_number} for ${operation}`,
-      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId, operation }
+      message: `Operator ${opUser.full_name} allocated to SO ${so.so_number}`,
+      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId: targetShiftId }
     });
   } catch (err) {
     next(err);
@@ -443,18 +438,19 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
 });
 
 // GET /api/production/sales-orders/:id/allocations
-router.get('/sales-orders/:id/allocations', authenticateToken, (req, res, next) => {
+router.get('/sales-orders/:id/allocations', authenticateToken, async (req, res, next) => {
   try {
     const soParam = req.params.id;
-    const so = db.prepare(`SELECT id FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
+    const so = await db.prepare(`SELECT id FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
     if (!so) {
       return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
     }
 
-    const allocs = db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.operator_id, owa.operation, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username
+    const allocs = await db.prepare(`
+      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
       FROM operator_work_assignments owa
       JOIN users u ON u.id = owa.operator_id
+      LEFT JOIN shifts s ON s.id = owa.shift_id
       WHERE owa.sales_order_id = ? AND owa.active = 1
     `).all(so.id);
 
@@ -465,12 +461,12 @@ router.get('/sales-orders/:id/allocations', authenticateToken, (req, res, next) 
 });
 
 // DELETE /api/production/sales-orders/:id/allocations/:allocId
-router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), (req: AuthRequest, res, next) => {
+router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { allocId } = req.params;
 
-    db.prepare(`UPDATE operator_work_assignments SET active = 0 WHERE id = ?`).run(allocId);
-    auditLog(req.user!.id, 'DEACTIVATE_ALLOCATION', 'so_operator_allocations', allocId);
+    await db.prepare(`UPDATE operator_work_assignments SET active = 0, updated_at = NOW() WHERE id = ?`).run(allocId);
+    await auditLog(req.user!.id, 'DEACTIVATE_ALLOCATION', 'operator_work_assignments', allocId);
 
     return res.json({ message: 'Allocation deactivated successfully' });
   } catch (err) {
