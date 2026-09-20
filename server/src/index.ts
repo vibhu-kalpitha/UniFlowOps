@@ -30,6 +30,19 @@ const HOST = process.env.HOST || '0.0.0.0';
 app.use(cors());
 app.use(express.json());
 
+// Explicit Health Check Endpoint
+app.get('/api/health', async (req, res) => {
+  try {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      return res.status(200).json({ status: 'ok', database: 'connected' });
+    }
+    return res.status(500).json({ status: 'error', database: 'disconnected' });
+  } catch (err: any) {
+    return res.status(500).json({ status: 'error', database: 'disconnected', message: err.message });
+  }
+});
+
 // Register API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api', productionRoutes);
@@ -79,20 +92,24 @@ function getLanIps(): string[] {
 }
 
 export async function startServer() {
+  console.log('🚀 Starting UniFlow Ops Backend Server...');
   const isConnected = await ensureDbConnected();
   if (isConnected) {
+    console.log('📦 Running database migrations...');
     await runMigrations();
     await seedDatabase();
+    console.log('✅ Migrations completed successfully.');
   } else {
-    console.warn('⚠️ Warning: MySQL database connection not established on server startup. Retrying when requests arrive.');
+    console.warn('⚠️ Warning: MySQL database connection not established on server startup.');
   }
 
-  return new Promise<import('http').Server>((resolve) => {
+  return new Promise<import('http').Server>((resolve, reject) => {
     const server = app.listen(PORT, HOST, () => {
       console.log('\n==================================================');
-      console.log('⚡ UniFlow Ops Production Full-Stack Server');
+      console.log(`⚡ UniFlow Ops Full-Stack Server Running on Port ${PORT}`);
       console.log('==================================================');
       console.log(`➜ Local:   http://localhost:${PORT}/`);
+      console.log(`➜ Health:  http://localhost:${PORT}/api/health`);
 
       const lanIps = getLanIps();
       if (lanIps.length > 0) {
@@ -105,11 +122,19 @@ export async function startServer() {
       console.log('==================================================\n');
       resolve(server);
     });
+
+    server.on('error', (err) => {
+      console.error('❌ Server startup error:', err);
+      reject(err);
+    });
   });
 }
 
 if (process.env.NODE_ENV !== 'test') {
-  startServer();
+  startServer().catch(err => {
+    console.error('❌ Fatal server startup failure:', err);
+    process.exit(1);
+  });
 }
 
 export { app };
