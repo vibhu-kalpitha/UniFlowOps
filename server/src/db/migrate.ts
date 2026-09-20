@@ -6,6 +6,141 @@ import { db, ensureDbConnected } from './connection.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Helper functions for safe MySQL 8.0 information_schema inspections
+export async function columnExists(tableName: string, columnName: string): Promise<boolean> {
+  const rows = await db.query<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+  `, [tableName, columnName]);
+  return (rows[0]?.cnt || 0) > 0;
+}
+
+export async function indexExists(tableName: string, indexName: string): Promise<boolean> {
+  const rows = await db.query<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?
+  `, [tableName, indexName]);
+  return (rows[0]?.cnt || 0) > 0;
+}
+
+export async function constraintExists(tableName: string, constraintName: string): Promise<boolean> {
+  const rows = await db.query<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM information_schema.table_constraints
+    WHERE table_schema = DATABASE() AND table_name = ? AND constraint_name = ?
+  `, [tableName, constraintName]);
+  return (rows[0]?.cnt || 0) > 0;
+}
+
+export async function tableExists(tableName: string): Promise<boolean> {
+  const rows = await db.query<{ cnt: number }>(`
+    SELECT COUNT(*) as cnt FROM information_schema.tables
+    WHERE table_schema = DATABASE() AND table_name = ?
+  `, [tableName]);
+  return (rows[0]?.cnt || 0) > 0;
+}
+
+async function runSchemaAlignment002(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (002) via information_schema...');
+
+  // 1. Drop obsolete legacy table if present
+  if (await tableExists('so_operator_allocations')) {
+    await db.exec(`DROP TABLE so_operator_allocations;`);
+  }
+
+  // 2. Align operator_work_assignments table
+  if (await tableExists('operator_work_assignments')) {
+    if (!(await columnExists('operator_work_assignments', 'shift_id'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN shift_id VARCHAR(191) NULL AFTER sales_order_id;`);
+    }
+    if (!(await columnExists('operator_work_assignments', 'assigned_by'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN assigned_by VARCHAR(191) NULL AFTER source;`);
+    }
+    if (!(await columnExists('operator_work_assignments', 'updated_at'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN updated_at DATETIME(3) NULL AFTER created_at;`);
+    }
+    if (!(await constraintExists('operator_work_assignments', 'fk_owa_shift'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;`);
+    }
+    if (!(await constraintExists('operator_work_assignments', 'uq_owa_so_shift_operator')) && !(await indexExists('operator_work_assignments', 'uq_owa_so_shift_operator'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT uq_owa_so_shift_operator UNIQUE (sales_order_id, shift_id, operator_id);`);
+    }
+  }
+
+  // 3. Align boxes table
+  if (await tableExists('boxes')) {
+    if (!(await columnExists('boxes', 'box_code'))) {
+      await db.exec(`ALTER TABLE boxes ADD COLUMN box_code VARCHAR(191) NULL AFTER box_number;`);
+    }
+    if (!(await columnExists('boxes', 'production_order_id'))) {
+      await db.exec(`ALTER TABLE boxes ADD COLUMN production_order_id VARCHAR(191) NULL AFTER box_code;`);
+    }
+    await db.exec(`UPDATE boxes SET box_code = box_number WHERE box_code IS NULL;`);
+    if (!(await constraintExists('boxes', 'fk_boxes_po'))) {
+      await db.exec(`ALTER TABLE boxes ADD CONSTRAINT fk_boxes_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE;`);
+    }
+  }
+
+  // 4. Align box_items table
+  if (await tableExists('box_items')) {
+    if (!(await columnExists('box_items', 'id'))) {
+      await db.exec(`ALTER TABLE box_items ADD COLUMN id VARCHAR(191) NULL FIRST;`);
+    }
+    if (!(await columnExists('box_items', 'active'))) {
+      await db.exec(`ALTER TABLE box_items ADD COLUMN active TINYINT NOT NULL DEFAULT 1 AFTER packed_at;`);
+    }
+    await db.exec(`UPDATE box_items SET id = CONCAT('bi-', box_id, '-', item_id) WHERE id IS NULL;`);
+  }
+
+  // 5. Align aql_inspections table
+  if (await tableExists('aql_inspections')) {
+    if (!(await columnExists('aql_inspections', 'sales_order_id'))) {
+      await db.exec(`ALTER TABLE aql_inspections ADD COLUMN sales_order_id VARCHAR(191) NULL AFTER box_id;`);
+    }
+    if (!(await constraintExists('aql_inspections', 'fk_aql_so'))) {
+      await db.exec(`ALTER TABLE aql_inspections ADD CONSTRAINT fk_aql_so FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id) ON DELETE CASCADE;`);
+    }
+  }
+
+  // 6. Ensure box_transfers and box_transfer_items exist
+  if (!(await tableExists('box_transfers'))) {
+    await db.exec(`
+      CREATE TABLE box_transfers (
+        id VARCHAR(191) PRIMARY KEY,
+        source_box_id VARCHAR(191) NOT NULL,
+        destination_box_id VARCHAR(191) NOT NULL,
+        production_order_id VARCHAR(191) NULL,
+        sales_order_id VARCHAR(191) NULL,
+        transferred_by VARCHAR(191) NOT NULL,
+        item_count INT NOT NULL DEFAULT 1,
+        transferred_at DATETIME(3) NOT NULL,
+        remarks TEXT NULL,
+        INDEX idx_trf_source (source_box_id),
+        INDEX idx_trf_dest (destination_box_id),
+        FOREIGN KEY (source_box_id) REFERENCES boxes(id) ON DELETE CASCADE,
+        FOREIGN KEY (destination_box_id) REFERENCES boxes(id) ON DELETE CASCADE,
+        FOREIGN KEY (transferred_by) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  }
+
+  if (!(await tableExists('box_transfer_items'))) {
+    await db.exec(`
+      CREATE TABLE box_transfer_items (
+        id VARCHAR(191) PRIMARY KEY,
+        transfer_id VARCHAR(191) NOT NULL,
+        item_id VARCHAR(191) NOT NULL,
+        source_box_item_id VARCHAR(191) NULL,
+        destination_box_item_id VARCHAR(191) NULL,
+        transferred_at DATETIME(3) NOT NULL,
+        INDEX idx_trf_items_trf (transfer_id),
+        INDEX idx_trf_items_item (item_id),
+        FOREIGN KEY (transfer_id) REFERENCES box_transfers(id) ON DELETE CASCADE,
+        FOREIGN KEY (item_id) REFERENCES item_units(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  }
+}
+
 export async function runMigrations(): Promise<{ applied: string[]; skipped: string[] }> {
   const connected = await ensureDbConnected();
   if (!connected) {
@@ -45,13 +180,22 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
 
     console.log(`📦 Applying MySQL Migration: ${file}...`);
     const filePath = path.join(migrationsDir, file);
-    const sql = fs.readFileSync(filePath, 'utf-8');
 
-    await db.transaction(async (tx) => {
-      await tx.exec(sql);
-      const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
-      await tx.execute(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`, [file, now]);
-    });
+    if (file === '002_schema_alignment.sql') {
+      await runSchemaAlignment002();
+      if (fs.existsSync(filePath)) {
+        const sql = fs.readFileSync(filePath, 'utf-8').trim();
+        if (sql) {
+          await db.exec(sql);
+        }
+      }
+    } else {
+      const sql = fs.readFileSync(filePath, 'utf-8');
+      await db.exec(sql);
+    }
+
+    const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
+    await db.execute(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`, [file, now]);
 
     applied.push(file);
     console.log(`✅ Applied MySQL Migration: ${file}`);
