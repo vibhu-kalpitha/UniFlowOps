@@ -1,0 +1,17 @@
+services:
+  uniflow-ops:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uniflow_ops_app
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "4000:4000"
+    networks:
+      - mysql_network
+
+networks:
+  mysql_network:
+    external: true
+    name: mysql-server_default

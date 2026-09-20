@@ -1,0 +1,408 @@
+/* Desktop & Tablet-Landscape Styling Layer for UniFlow Ops */
+/* NON-NEGOTIABLE: Mobile (<768px) styles remain 100% untouched */
+
+/* ── TABLET LANDSCAPE TRANSITIONS (768px - 1023px) ────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-content {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px 20px !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .login-left-brand {
+    display: none !important;
+  }
+  .op-desktop-sidebar {
+    display: none !important;
+  }
+  .op-desktop-status-pill {
+    display: none !important;
+  }
+}
+
+/* ── DESKTOP LAYOUT LAYER (>= 1024px) ─────────────────────────────────────── */
+@media (min-width: 1024px) {
+
+  /* Global Shell & Viewport */
+  body {
+    overflow-y: auto !important;
+    background-color: var(--bg-app, #06151B) !important;
+  }
+
+  .desktop-wrapper {
+    width: 100vw;
+    min-height: 100vh;
+    height: auto !important;
+    background-color: var(--bg-app, #06151B) !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .phone-frame {
+    max-width: 100% !important;
+    min-height: 100vh;
+    height: auto !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    overflow: visible !important;
+  }
+
+  /* Sticky Top Header */
+  .app-header-container {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 500 !important;
+    height: 72px !important;
+    padding: 0 40px !important;
+    background-color: #041820 !important;
+    border-bottom: 1px solid #1E4650 !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .header-inner-container {
+    width: 100%;
+    max-width: 1440px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* App Main Content Container */
+  .app-content {
+    flex: 1;
+    width: min(100% - 64px, 1400px) !important;
+    max-width: 1400px !important;
+    margin: 0 auto !important;
+    padding: 32px 0 64px 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Navigation handling */
+  .bottom-nav-bar {
+    display: none !important;
+  }
+
+  .desktop-top-nav {
+    display: flex !important;
+  }
+
+  /* Toast Notification Alignment for Desktop */
+  .toast-container-desktop {
+    position: fixed !important;
+    top: 24px !important;
+    right: 24px !important;
+    bottom: auto !important;
+    left: auto !important;
+    z-index: 9999 !important;
+    transform: none !important;
+  }
+
+  /* ── LAYOUT PRIMITIVES & UTILITIES ───────────────────────────────────────── */
+  .desktop-container {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .desktop-grid-12 {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+    gap: 24px !important;
+    align-items: start;
+  }
+
+  .desktop-col-12 {
+    grid-column: span 12 / span 12 !important;
+  }
+
+  .desktop-col-8 {
+    grid-column: span 8 / span 8 !important;
+  }
+
+  .desktop-col-4 {
+    grid-column: span 4 / span 4 !important;
+  }
+
+  .grid-2-desktop, .desktop-grid-2 {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 20px !important;
+  }
+
+  .grid-3-desktop, .desktop-grid-3 {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 20px !important;
+  }
+
+  .grid-4-desktop, .desktop-grid-4 {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 18px !important;
+  }
+
+  .desktop-toolbar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 16px !important;
+    margin-bottom: 24px !important;
+  }
+
+  .desktop-card {
+    background-color: #0B242D !important;
+    border: 1px solid #1E4650 !important;
+    border-radius: 16px !important;
+    padding: 22px !important;
+    margin-bottom: 0 !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .desktop-card:hover {
+    border-color: rgba(34, 211, 197, 0.35) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .desktop-card-elevated {
+    background-color: #102F39 !important;
+    border: 1px solid #1E4650 !important;
+    border-radius: 16px !important;
+    padding: 22px !important;
+  }
+
+  /* Desktop Tables */
+  .desktop-table-card {
+    background-color: #0B242D;
+    border: 1px solid #1E4650;
+    border-radius: 16px;
+    padding: 20px;
+    overflow-x: auto;
+  }
+
+  .desktop-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 14px;
+    color: var(--text-primary);
+  }
+
+  .desktop-table th {
+    background-color: #102F39;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid #1E4650;
+  }
+
+  .desktop-table th:first-child {
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+  }
+
+  .desktop-table th:last-child {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+  }
+
+  .desktop-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(30, 70, 80, 0.5);
+    vertical-align: middle;
+  }
+
+  .desktop-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .desktop-table tr:hover td {
+    background-color: rgba(34, 211, 197, 0.04);
+  }
+
+  /* Modal Desktop Styling */
+  .desktop-modal-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background-color: rgba(3, 12, 16, 0.82) !important;
+    backdrop-filter: blur(8px) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 1000 !important;
+    padding: 24px !important;
+  }
+
+  .desktop-modal-container {
+    width: 100% !important;
+    max-width: 640px !important;
+    background-color: #0B242D !important;
+    border: 1px solid #1E4650 !important;
+    border-radius: 20px !important;
+    padding: 28px !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6) !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+
+  /* ── 2. DESKTOP LOGIN PAGE (>= 1024px) ──────────────────────────────────── */
+  .login-desktop-wrapper {
+    min-height: calc(100vh - 120px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+
+  .login-desktop-shell {
+    width: 100%;
+    max-width: 480px;
+    background-color: #0B242D;
+    border: 1px solid #1E4650;
+    border-radius: 24px;
+    padding: 36px 32px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .login-form-inner {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* ── 3. OPERATOR DESKTOP HOME (>= 1024px) ───────────────────────────────── */
+  .op-home-greeting-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background-color: #0B242D;
+    border: 1px solid #1E4650;
+    border-radius: 16px;
+    margin-bottom: 24px;
+  }
+
+  .op-ops-grid-2x2 {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 20px !important;
+  }
+
+  .op-card-interactive {
+    height: 130px !important;
+    padding: 20px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 16px !important;
+    text-align: left !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+  }
+
+  .op-card-interactive:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  /* ── 4. WORKFLOW PAGES (>= 1024px) ──────────────────────────────────────── */
+  .workflow-container {
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  .desktop-split-7-5 {
+    display: grid !important;
+    grid-template-columns: 7fr 5fr !important;
+    gap: 24px !important;
+    align-items: start !important;
+    width: 100% !important;
+  }
+
+  .workflow-controls-panel {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .workflow-right-panel {
+    width: 100% !important;
+  }
+
+  .workflow-pass-fail-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 14px !important;
+  }
+
+  /* ── 5. SUPERVISOR & CREATE PO WIZARD (>= 1024px) ────────────────────────── */
+  .wizard-desktop-container {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .wizard-step-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    background-color: #0B242D;
+    border: 1px solid #1E4650;
+    border-radius: 16px;
+    margin-bottom: 28px;
+  }
+
+  .form-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .ops-selectable-4col {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  /* ── 6. ADMIN DASHBOARD & SHIFT MEMBERS (>= 1024px) ───────────────────────── */
+  .admin-kpi-4col {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+
+  /* ── 7. PROFILE PAGES DESKTOP (>= 1024px) ────────────────────────────────── */
+  .profile-desktop-grid {
+    display: grid !important;
+    grid-template-columns: 340px 1fr !important;
+    gap: 24px !important;
+    align-items: start !important;
+    max-width: 1040px !important;
+    margin: 0 auto !important;
+  }
+
+  .profile-options-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+  }
+}

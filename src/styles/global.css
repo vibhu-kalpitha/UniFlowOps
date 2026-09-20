@@ -1,0 +1,272 @@
+@import './tokens.css';
+@import './desktop.css';
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: #030C10;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 15px;
+  line-height: 1.4;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Responsive App Shell Wrapper */
+.desktop-wrapper {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-app);
+}
+
+.phone-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (min-width: 769px) {
+  .desktop-wrapper {
+    background: radial-gradient(circle at 50% -10%, #0F3543 0%, #030C10 80%);
+    min-height: 100vh;
+    padding: 0;
+  }
+  .phone-frame {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  
+  .app-header-container {
+    height: 64px !important;
+    padding: 0 40px !important;
+    background: rgba(7, 27, 35, 0.92) !important;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(22, 184, 174, 0.18) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  .desktop-top-nav {
+    display: flex !important;
+  }
+
+  .app-content {
+    max-width: 1280px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 32px 40px !important;
+  }
+
+  .bottom-nav-bar {
+    display: none !important;
+  }
+
+  .card {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(22, 184, 174, 0.28) !important;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 20px rgba(22, 184, 174, 0.12) !important;
+  }
+
+  /* Responsive desktop grid helpers */
+  .grid-2-desktop {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 16px !important;
+  }
+
+  .grid-4-desktop {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 16px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .desktop-wrapper {
+    padding: 0;
+    background: var(--bg-app);
+  }
+  .phone-frame {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+  .desktop-top-nav {
+    display: none !important;
+  }
+  .bottom-nav-bar {
+    display: flex !important;
+  }
+}
+
+/* Screen Content Scroll Area */
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(var(--bottom-nav-height) + 24px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.app-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-content::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 4px;
+}
+
+/* Button & Form Controls Base */
+button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  width: 100%;
+  min-height: 48px;
+  background: linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%);
+  color: #041820;
+  font-weight: 700;
+  font-size: 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 14px var(--primary-teal-glow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn-secondary {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: var(--radius-md);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary-teal);
+  background-color: rgba(22, 184, 174, 0.08);
+}
+
+.btn-danger {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--color-red-bg);
+  color: var(--color-red);
+  border: 1px solid rgba(239, 92, 92, 0.3);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+}
+
+/* Form Inputs */
+.input-field {
+  width: 100%;
+  min-height: 44px;
+  background-color: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0 14px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-field:focus {
+  border-color: var(--primary-teal);
+  box-shadow: 0 0 0 2px rgba(22, 184, 174, 0.2);
+}
+
+.select-field {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238EABB0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+/* Common Card */
+.card {
+  background-color: var(--bg-surface-1);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card-elevated {
+  background-color: var(--bg-surface-2);
+  border-color: var(--border-light);
+}
+
+/* Pulse Scan animation */
+@keyframes scanPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(22, 184, 174, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 16px rgba(22, 184, 174, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 184, 174, 0);
+  }
+}
+
+.scan-pulse {
+  animation: scanPulse 2s infinite;
+}
