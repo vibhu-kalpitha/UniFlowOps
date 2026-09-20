@@ -29,9 +29,9 @@ COPY --from=builder /app/server/src/db/migrations ./server/src/db/migrations
 
 EXPOSE 4000
 
-# Docker Healthcheck targeting http://localhost:4000/api/health
+# Docker Healthcheck targeting http://127.0.0.1:4000/api/health
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:4000/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:4000/api/health || exit 1
 
 # Run database migrations prior to starting production server
 CMD ["sh", "-c", "node dist-server/db/migrate.js && node dist-server/index.js"]
