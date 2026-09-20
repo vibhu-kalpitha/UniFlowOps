@@ -9,14 +9,14 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { setRole, showToast } = useApp();
 
-  const [username, setUsername] = useState('chamika');
-  const [password, setPassword] = useState('demo123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [selectedRole, setSelectedRole] = useState<UserRole>('operator');
 
   const handleRoleSelect = (role: UserRole) => {
     setSelectedRole(role);
-    setPassword('demo123');
+    setPassword('');
     if (role === 'operator') {
       setUsername('chamika');
     } else if (role === 'supervisor') {
