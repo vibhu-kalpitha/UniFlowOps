@@ -156,6 +156,29 @@ async function runSchemaAlignment004(): Promise<void> {
   }
 }
 
+async function runSchemaAlignment005(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (005 Performance Indexes)...');
+  const indexSpecs = [
+    { table: 'user_sessions', index: 'idx_sessions_lookup', sql: 'ALTER TABLE user_sessions ADD INDEX idx_sessions_lookup (token_hash, active);' },
+    { table: 'production_orders', index: 'idx_po_status_sup', sql: 'ALTER TABLE production_orders ADD INDEX idx_po_status_sup (status, supervisor_id, created_at);' },
+    { table: 'sales_orders', index: 'idx_so_po_status', sql: 'ALTER TABLE sales_orders ADD INDEX idx_so_po_status (production_order_id, status);' },
+    { table: 'operator_work_assignments', index: 'idx_owa_active_lookup', sql: 'ALTER TABLE operator_work_assignments ADD INDEX idx_owa_active_lookup (sales_order_id, operator_id, active);' },
+    { table: 'qc_results', index: 'idx_qc_metrics', sql: 'ALTER TABLE qc_results ADD INDEX idx_qc_metrics (operator_id, qc_result, test_result);' },
+    { table: 'item_units', index: 'idx_item_units_so_status', sql: 'ALTER TABLE item_units ADD INDEX idx_item_units_so_status (sales_order_id, status);' },
+    { table: 'boxes', index: 'idx_boxes_so_status', sql: 'ALTER TABLE boxes ADD INDEX idx_boxes_so_status (sales_order_id, status);' },
+    { table: 'box_items', index: 'idx_box_items_active', sql: 'ALTER TABLE box_items ADD INDEX idx_box_items_active (box_id, active);' },
+    { table: 'aql_inspections', index: 'idx_aql_so_result', sql: 'ALTER TABLE aql_inspections ADD INDEX idx_aql_so_result (sales_order_id, result);' }
+  ];
+
+  for (const item of indexSpecs) {
+    if (await tableExists(item.table)) {
+      if (!(await indexExists(item.table, item.index))) {
+        await db.exec(item.sql);
+      }
+    }
+  }
+}
+
 export async function runMigrations(): Promise<{ applied: string[]; skipped: string[] }> {
   const connected = await ensureDbConnected();
   if (!connected) {
@@ -206,6 +229,8 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       }
     } else if (file === '004_so_product_qr_range.sql') {
       await runSchemaAlignment004();
+    } else if (file === '005_performance_indexes.sql') {
+      await runSchemaAlignment005();
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);
