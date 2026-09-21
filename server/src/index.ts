@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import os from 'os';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,8 +52,24 @@ app.use('/api/shifts', shiftRoutes);
 app.use('/api', scanRoutes);
 app.use('/api', dashboardRoutes);
 
-// Serve production static frontend from /dist with no-cache headers to ensure immediate updates
-const distPath = path.resolve(__dirname, '../../dist');
+// Robust static frontend dist directory resolution
+function resolveDistPath(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'dist'),
+    path.resolve(__dirname, '../dist'),
+    path.resolve(__dirname, '../../dist')
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, 'index.html'))) {
+      return candidate;
+    }
+  }
+  return path.resolve(process.cwd(), 'dist');
+}
+
+const distPath = resolveDistPath();
+
+// Serve production static frontend from dist with no-cache headers for immediate updates
 app.use(express.static(distPath, {
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -63,16 +80,17 @@ app.use(express.static(distPath, {
 
 // Fallback all non-API GET routes to index.html for SPA client routing
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) return next();
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API_NOT_FOUND', message: `API route ${req.method} ${req.path} not found` });
+  }
   const indexPath = path.join(distPath, 'index.html');
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.sendFile(indexPath, err => {
-    if (err) {
-      res.status(200).send('UniFlow Ops API Server Running. Frontend build in /dist.');
-    }
-  });
+  if (fs.existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.sendFile(indexPath);
+  }
+  return res.status(404).json({ error: 'FRONTEND_NOT_BUILT', message: `index.html not found at ${indexPath}` });
 });
 
 app.use(errorHandler);
@@ -110,6 +128,7 @@ export async function startServer() {
       console.log('==================================================');
       console.log(`➜ Local:   http://localhost:${PORT}/`);
       console.log(`➜ Health:  http://localhost:${PORT}/api/health`);
+      console.log(`➜ Static:  ${distPath}`);
 
       const lanIps = getLanIps();
       if (lanIps.length > 0) {
