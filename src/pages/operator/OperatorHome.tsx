@@ -51,7 +51,7 @@ export const OperatorHome: React.FC = () => {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 10000);
+    const interval = setInterval(fetchStats, 2000);
     window.addEventListener('focus', fetchStats);
     return () => {
       clearInterval(interval);
