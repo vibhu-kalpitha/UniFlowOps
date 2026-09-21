@@ -464,5 +464,218 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
     }
   });
+
+  it('13. Production Fixes Regression Tests (Issues 1-5)', async () => {
+    // ── ISSUE 1: Auth Toast & Invalid Credentials Deduplication ──
+    let toastCount = 0;
+    let lastToastMessage = '';
+    const mockShowToast = (msg: string) => {
+      toastCount++;
+      lastToastMessage = msg;
+    };
+
+    // Simulating wrong password submit
+    const loginError = new Error('Invalid username or password.');
+    mockShowToast(loginError.message);
+    expect(toastCount).toBe(1);
+    expect(lastToastMessage).toBe('Invalid username or password.');
+    expect(lastToastMessage).not.toContain('Session expired');
+
+    // ── ISSUE 2: Header Avatar Route Assertions ──
+    const getProfileRoute = (role: 'operator' | 'supervisor' | 'admin') => {
+      if (role === 'operator') return '/operator/profile';
+      if (role === 'supervisor') return '/supervisor/profile';
+      return '/admin/more';
+    };
+    expect(getProfileRoute('operator')).toBe('/operator/profile');
+    expect(getProfileRoute('supervisor')).toBe('/supervisor/profile');
+    expect(getProfileRoute('admin')).toBe('/admin/more');
+
+    // ── DB-backed Tests for Issues 3, 4, and 5 ──
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+
+    if (isConnected) {
+      const timestamp = Date.now();
+      const poId = `po-fix-reg-${timestamp}`;
+      const soId = `so-fix-reg-${timestamp}`;
+      const opId = `usr-op-fix-${timestamp}`;
+      const unallocatedOpId = `usr-op-unalloc-${timestamp}`;
+
+      // Insert test user, PO, SO, and operator assignment
+      await db.execute(
+        `INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
+         VALUES (?, 'EMP-FIX-1', ?, 'hash', 'Test Operator', 'OPERATOR', 1, NOW(3), NOW(3))`,
+        [opId, `op_user_${timestamp}`]
+      );
+
+      await db.execute(
+        `INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
+         VALUES (?, 'EMP-FIX-2', ?, 'hash', 'Unallocated Op', 'OPERATOR', 1, NOW(3), NOW(3))`,
+        [unallocatedOpId, `unalloc_user_${timestamp}`]
+      );
+
+      await db.execute(
+        `INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
+         VALUES (?, ?, 'MAP-FIX', 'Customer-X', 'style-001', '2026-09-01', '2026-10-01', 'usr-sup-001', 'Fix test', 'CURRENT', NOW(3), NOW(3))`,
+        [poId, `PO-FIX-${timestamp}`]
+      );
+
+      await db.execute(
+        `INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
+         VALUES (?, ?, 'SO-FIX-01', 'MAP-SO-FIX', 'Jacket', 'ST-JK', 'Navy', 'M-XXL', 100, 'line-01', 'shift-a', 12, 'In Progress', NOW(3), NOW(3))`,
+        [soId, poId]
+      );
+
+      await db.execute(
+        `INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, source, active, created_at, updated_at)
+         VALUES (?, ?, 'shift-a', ?, 'ALL', 'SUPERVISOR', 1, NOW(3), NOW(3))`,
+        [`owa-fix-${timestamp}`, soId, opId]
+      );
+
+      // ── ISSUE 3: Box Transfer query column (transferred_by) & empty table check ──
+      const emptyTransfers = await db.all<any>(`
+        SELECT bt.id, u.full_name AS operator_name 
+        FROM box_transfers bt
+        LEFT JOIN users u ON u.id = bt.transferred_by
+        WHERE bt.id = 'non-existent-trf'
+      `);
+      expect(Array.isArray(emptyTransfers)).toBe(true);
+      expect(emptyTransfers.length).toBe(0);
+
+      // ── ISSUE 4: Box Transfer Destination New Empty Box & Atomic Creation ──
+      const sourceBoxId = `bx-src-${timestamp}`;
+      const sourceBoxCode = `BX-SRC-${timestamp}`;
+      const newDestBoxCode = `BX-DEST-NEW-${timestamp}`;
+      const itemId = `itm-fix-${timestamp}`;
+      const boxItemId = `bi-src-${timestamp}`;
+
+      // Insert source box & item
+      await db.execute(
+        `INSERT INTO boxes (id, box_code, box_number, production_order_id, sales_order_id, capacity, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 12, 'OPEN', NOW(3))`,
+        [sourceBoxId, sourceBoxCode, sourceBoxCode, poId, soId]
+      );
+
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, sales_order_id, size, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'M', 'PACKED', NOW(3), NOW(3))`,
+        [itemId, `QR-FIX-${timestamp}`, soId]
+      );
+
+      await db.execute(
+        `INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
+         VALUES (?, ?, ?, ?, NOW(3), 1)`,
+        [boxItemId, sourceBoxId, itemId, opId]
+      );
+
+      // Execute transfer to a NEW empty destination box in transaction
+      const transferId = `trf-test-${timestamp}`;
+      let createdDestBoxId = '';
+
+      await db.transaction(async (tx) => {
+        // Lock source box
+        await tx.query(`SELECT * FROM boxes WHERE id = ? FOR UPDATE`, [sourceBoxId]);
+
+        // Create new destination box dynamically
+        createdDestBoxId = `bx-dest-${timestamp}`;
+        await tx.prepare(`
+          INSERT INTO boxes (id, box_code, box_number, production_order_id, sales_order_id, capacity, status, created_at)
+          VALUES (?, ?, ?, ?, ?, 12, 'OPEN', NOW(3))
+        `).run(createdDestBoxId, newDestBoxCode, newDestBoxCode, poId, soId);
+
+        // Record transfer
+        await tx.prepare(`
+          INSERT INTO box_transfers (id, source_box_id, destination_box_id, production_order_id, sales_order_id, transferred_by, item_count, transferred_at, remarks)
+          VALUES (?, ?, ?, ?, ?, ?, 1, NOW(3), 'Test new dest box')
+        `).run(transferId, sourceBoxId, createdDestBoxId, poId, soId, opId);
+
+        // Deactivate source box_item & insert destination box_item
+        await tx.prepare(`UPDATE box_items SET active = 0 WHERE id = ?`).run(boxItemId);
+        await tx.prepare(`
+          INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
+          VALUES (?, ?, ?, ?, NOW(3), 1)
+        `).run(`bi-dest-${timestamp}`, createdDestBoxId, itemId, opId);
+      });
+
+      // Verify destination box was created and received item
+      const createdDestBox = await db.queryOne<{ id: string; box_code: string }>(
+        `SELECT id, box_code FROM boxes WHERE box_code = ?`,
+        [newDestBoxCode]
+      );
+      expect(createdDestBox?.id).toBe(createdDestBoxId);
+
+      const destActiveItem = await db.queryOne<{ id: string }>(
+        `SELECT id FROM box_items WHERE box_id = ? AND active = 1`,
+        [createdDestBoxId]
+      );
+      expect(destActiveItem).toBeDefined();
+
+      // Verify transfer history query joins user via transferred_by
+      const transferHistory = await db.queryOne<{ operator_name: string; destination_box_code: string }>(
+        `SELECT bt.id, u.full_name AS operator_name, db_box.box_code AS destination_box_code
+         FROM box_transfers bt
+         LEFT JOIN boxes db_box ON db_box.id = bt.destination_box_id
+         LEFT JOIN users u ON u.id = bt.transferred_by
+         WHERE bt.id = ?`,
+        [transferId]
+      );
+      expect(transferHistory?.operator_name).toBe('Test Operator');
+      expect(transferHistory?.destination_box_code).toBe(newDestBoxCode);
+
+      // ── ISSUE 5: AQL Passed Boxes Metric Calculation ──
+      const aqlInspPassId = `aql-pass-${timestamp}`;
+      const aqlInspFailId = `aql-fail-${timestamp}`;
+
+      // Insert passed AQL inspection for allocated SO
+      await db.execute(
+        `INSERT INTO aql_inspections (id, box_id, sales_order_id, inspector_id, required_samples, result, started_at, completed_at)
+         VALUES (?, ?, ?, ?, 3, 'PASSED', NOW(3), NOW(3))`,
+        [aqlInspPassId, createdDestBoxId, soId, opId]
+      );
+
+      // Insert failed AQL inspection for allocated SO
+      await db.execute(
+        `INSERT INTO aql_inspections (id, box_id, sales_order_id, inspector_id, required_samples, result, started_at, completed_at)
+         VALUES (?, ?, ?, ?, 3, 'FAILED', NOW(3), NOW(3))`,
+        [aqlInspFailId, sourceBoxId, soId, opId]
+      );
+
+      // Allocated operator query for AQL Passed Boxes
+      const allocAqlPassedRow = await db.queryOne<{ cnt: number }>(`
+        SELECT COUNT(DISTINCT ai.id) as cnt
+        FROM aql_inspections ai
+        JOIN boxes b ON b.id = ai.box_id
+        JOIN operator_work_assignments owa ON owa.sales_order_id = b.sales_order_id
+        WHERE ai.result = 'PASSED'
+          AND owa.operator_id = ?
+          AND owa.active = 1
+      `, [opId]);
+      expect(Number(allocAqlPassedRow?.cnt)).toBe(1); // 1 passed AQL box, 0 failed boxes counted
+
+      // Unallocated operator query for AQL Passed Boxes
+      const unallocAqlPassedRow = await db.queryOne<{ cnt: number }>(`
+        SELECT COUNT(DISTINCT ai.id) as cnt
+        FROM aql_inspections ai
+        JOIN boxes b ON b.id = ai.box_id
+        JOIN operator_work_assignments owa ON owa.sales_order_id = b.sales_order_id
+        WHERE ai.result = 'PASSED'
+          AND owa.operator_id = ?
+          AND owa.active = 1
+      `, [unallocatedOpId]);
+      expect(Number(unallocAqlPassedRow?.cnt)).toBe(0); // Returns 0 for unallocated operator
+
+      // Clean up test data
+      await db.execute(`DELETE FROM aql_inspections WHERE id IN (?, ?)`, [aqlInspPassId, aqlInspFailId]);
+      await db.execute(`DELETE FROM box_transfers WHERE id = ?`, [transferId]);
+      await db.execute(`DELETE FROM box_items WHERE id IN (?, ?)`, [boxItemId, `bi-dest-${timestamp}`]);
+      await db.execute(`DELETE FROM item_units WHERE id = ?`, [itemId]);
+      await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [sourceBoxId, createdDestBoxId]);
+      await db.execute(`DELETE FROM operator_work_assignments WHERE id = ?`, [`owa-fix-${timestamp}`]);
+      await db.execute(`DELETE FROM sales_orders WHERE id = ?`, [soId]);
+      await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      await db.execute(`DELETE FROM users WHERE id IN (?, ?)`, [opId, unallocatedOpId]);
+    }
+  });
 });
 

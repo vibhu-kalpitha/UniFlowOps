@@ -58,12 +58,29 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
     // 6. Total Fail count (QC Fail + AQL Failed)
     const totalFailCount = qcFailCount + aqlFailedCount;
 
-    // 7. AQL Pass count (total AQL inspections marked PASSED)
-    const aqlPassRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections
-      WHERE result = 'PASSED'
-    `).get() as any;
-    const aqlPassCount = aqlPassRow?.cnt || 0;
+    // 7. AQL Passed Boxes = count of AQL inspections with result = 'PASSED' for SOs actively allocated to logged-in operator
+    let aqlPassCount = 0;
+    const operatorId = req.user?.id;
+    const isOperatorRole = req.user?.role === 'OPERATOR';
+
+    if (isOperatorRole && operatorId) {
+      const aqlPassRow = await db.prepare(`
+        SELECT COUNT(DISTINCT ai.id) as cnt
+        FROM aql_inspections ai
+        JOIN boxes b ON b.id = ai.box_id
+        JOIN operator_work_assignments owa ON owa.sales_order_id = b.sales_order_id
+        WHERE ai.result = 'PASSED'
+          AND owa.operator_id = ?
+          AND owa.active = 1
+      `).get(operatorId) as any;
+      aqlPassCount = Number(aqlPassRow?.cnt || 0);
+    } else {
+      const aqlPassRow = await db.prepare(`
+        SELECT COUNT(DISTINCT id) as cnt FROM aql_inspections
+        WHERE result = 'PASSED'
+      `).get() as any;
+      aqlPassCount = Number(aqlPassRow?.cnt || 0);
+    }
 
     // 8. Pending Pack count (items that passed QC but are not packed into a box yet)
     const pendingPackRow = await db.prepare(`

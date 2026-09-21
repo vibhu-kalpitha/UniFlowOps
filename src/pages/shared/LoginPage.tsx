@@ -48,7 +48,7 @@ export const LoginPage: React.FC = () => {
         navigate('/admin/dashboard');
       }
     } catch (err: any) {
-      showToast(err.message || 'Login failed. Check credentials.', 'error');
+      showToast('Invalid username or password.', 'error');
     }
   };
 
