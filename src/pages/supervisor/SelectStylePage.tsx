@@ -84,13 +84,12 @@ export const SelectStylePage: React.FC = () => {
 
   const handleNext = () => {
     if (!selectedStyleId) {
-      showToast('Please select a style to proceed', 'warning');
+      showToast('Please select an existing style or create one first.', 'warning');
       return;
     }
     const selectedObj = styles.find(s => s.id === selectedStyleId);
     if (selectedObj) {
       sessionStorage.setItem('uniflow_draft_po_style_id', selectedObj.id);
-      sessionStorage.setItem('uniflow_draft_po_style', `${selectedObj.code} - ${selectedObj.name}`);
       showToast(`Selected ${selectedObj.code}. Proceeding to PO General Info`, 'success');
     }
     navigate('/supervisor/production-orders/new/general');

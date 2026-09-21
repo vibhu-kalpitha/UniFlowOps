@@ -33,17 +33,6 @@ export const AQLBoxScanPage: React.FC = () => {
 
   /* ── Scan box handler ─────────────────────────────────────── */
   const handleScanBox = async (code: string) => {
-    const rangeStart = po?.boxRangeStart;
-    const rangeEnd   = po?.boxRangeEnd;
-
-    if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
-      return {
-        status: 'rejected' as const,
-        message: `❌ Out of Serial Range! Box barcode (${code}) is out of PO range: ${rangeStart} → ${rangeEnd}`,
-        code,
-      };
-    }
-
     const localBox = packingBoxes[code];
     const localItems: string[] = localBox?.items ? localBox.items.map(i => i.qr) : [];
 
@@ -159,12 +148,6 @@ export const AQLBoxScanPage: React.FC = () => {
 
             <ProgressBar current={aqlPassedQty} total={targetSoQty} height={8} color="var(--color-purple)" />
           </div>
-
-          {(po?.boxRangeStart || po?.boxRangeEnd) && (
-            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', padding: '6px 10px', backgroundColor: 'rgba(22,184,174,0.08)', borderRadius: '8px', border: '1px solid rgba(22,184,174,0.2)' }}>
-              PO Range: {po?.boxRangeStart} → {po?.boxRangeEnd}
-            </div>
-          )}
 
           <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
           <ScannerInput onScan={handleScanBox} placeholder="Scan packing box QR / barcode…" />

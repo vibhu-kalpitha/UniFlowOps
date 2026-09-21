@@ -46,6 +46,9 @@ export interface SalesOrder {
   quantity: number;     // e.g. 2500
   lineId: string;       // e.g. Line 04 (Note: belongs on Sales Order, not PO)
   boxCapacity: number;  // e.g. 12
+  productQrPrefix?: string;     // e.g. PNFLS092632
+  productSerialStart?: number; // e.g. 670
+  productSerialEnd?: number;   // e.g. 1869
   allocations?: any[];
   shifts: ShiftAssignment[];
   progress: SalesOrderProgress;
@@ -56,8 +59,6 @@ export interface ProductionOrder {
   dbId?: string;
   mapPo: string;               // Free text e.g. MAP-PO-44821
   customer: string;            // e.g. Nike
-  boxRangeStart?: string;      // e.g. PNFLS092632670
-  boxRangeEnd?: string;        // e.g. PNFLS092632690
   startDate: string;           // e.g. 2026-09-10
   dueDate: string;             // e.g. 2026-09-25
   supervisorId: string;        // e.g. Nimal Perera

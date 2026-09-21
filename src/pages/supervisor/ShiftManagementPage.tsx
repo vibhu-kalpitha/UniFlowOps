@@ -78,7 +78,7 @@ export const ShiftManagementPage: React.FC = () => {
     return true;
   };
 
-  const handleSavePlan = () => {
+  const handleSavePlan = async () => {
     if (!validateOverlaps(shifts)) {
       showToast('Please resolve shift overlaps before saving.', 'error');
       return;
@@ -86,18 +86,30 @@ export const ShiftManagementPage: React.FC = () => {
 
     if (!selectedPo || !selectedSo) return;
 
-    const updatedSo = {
-      ...selectedSo,
-      shifts
-    };
+    try {
+      const { apiFetch } = await import('../../services/api');
+      const soTargetId = selectedSo.dbId || selectedSo.id;
+      await apiFetch(`/api/production/sales-orders/${encodeURIComponent(soTargetId)}/allocations/sync`, {
+        method: 'POST',
+        body: JSON.stringify({ shifts })
+      });
 
-    const updatedPo = {
-      ...selectedPo,
-      salesOrders: selectedPo.salesOrders.map(s => (s.id === selectedSo.id ? updatedSo : s))
-    };
+      const updatedSo = { ...selectedSo, shifts };
+      const updatedPo = {
+        ...selectedPo,
+        salesOrders: selectedPo.salesOrders.map(s => (s.id === selectedSo.id ? updatedSo : s))
+      };
+      saveProductionOrder(updatedPo);
 
-    saveProductionOrder(updatedPo);
-    showToast(`Shift Plan saved for ${selectedSo.id}! Total ${shifts.length} shift windows active.`, 'success');
+      const { refreshProductionOrders } = (window as any).uniflowRefreshPOs || {};
+      if (typeof refreshProductionOrders === 'function') {
+        await refreshProductionOrders();
+      }
+
+      showToast(`Shift Plan & operator allocations saved for ${selectedSo.id}!`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to persist allocations to database.', 'error');
+    }
   };
 
   // Real-time active worker calculation

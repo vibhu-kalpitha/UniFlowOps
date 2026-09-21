@@ -37,25 +37,39 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
+    console.warn(`[AUTH REJECTED] 401 - Missing Authorization bearer token. Path: ${req.originalUrl}, IP: ${req.ip}`);
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Authentication required' });
   }
 
   let payload: AuthUser;
   try {
     payload = jwt.verify(token, JWT_SECRET) as AuthUser;
-  } catch (err) {
+  } catch (err: any) {
+    console.warn(`[AUTH REJECTED] 401 - Invalid or expired JWT token: ${err.message}. Path: ${req.originalUrl}, IP: ${req.ip}`);
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid or expired authentication token' });
   }
 
   try {
     const tokenHash = hashToken(token);
     const session = await db.queryOne<{ id: string; active: number; expires_at: string; revoked_at: string | null; logout_at: string | null }>(
-      `SELECT id, active, expires_at, revoked_at, logout_at FROM user_sessions WHERE token_hash = ? AND active = 1 AND revoked_at IS NULL AND logout_at IS NULL AND expires_at > NOW(3)`,
+      `SELECT id, active, expires_at, revoked_at, logout_at FROM user_sessions WHERE token_hash = ?`,
       [tokenHash]
     );
 
     if (!session) {
+      console.warn(`[AUTH REJECTED] 401 - Session record missing for user ${payload.username} (${payload.id}). Path: ${req.originalUrl}`);
       return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session expired, revoked, or invalid' });
+    }
+
+    if (session.active !== 1 || session.revoked_at || session.logout_at) {
+      console.warn(`[AUTH REJECTED] 401 - Session revoked/inactive (Session ID: ${session.id}) for user ${payload.username}. Path: ${req.originalUrl}`);
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session expired, revoked, or invalid' });
+    }
+
+    const user = await db.queryOne<{ active: number }>(`SELECT active FROM users WHERE id = ?`, [payload.id]);
+    if (!user || user.active !== 1) {
+      console.warn(`[AUTH REJECTED] 401 - User account disabled/inactive: ${payload.username} (${payload.id}). Path: ${req.originalUrl}`);
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'User account disabled or inactive' });
     }
 
     // Safely update last_seen_at
@@ -66,7 +80,8 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
     req.user = payload;
     req.sessionId = session.id;
     next();
-  } catch (err) {
+  } catch (err: any) {
+    console.warn(`[AUTH REJECTED] 401 - Session verification error: ${err.message}. Path: ${req.originalUrl}`);
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session verification failed' });
   }
 }

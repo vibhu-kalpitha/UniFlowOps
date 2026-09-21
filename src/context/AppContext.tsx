@@ -4,6 +4,7 @@ import { repository } from '../services/repository';
 
 interface AppContextType {
   isAuthenticated: boolean;
+  authLoading: boolean;
   currentRole: UserRole | null;
   currentUser: User | null;
   loginUser: (token: string, userObj: any) => void;
@@ -41,6 +42,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return Boolean(localStorage.getItem('uniflow_token') && repository.getCurrentRole());
   });
+  const [authLoading, setAuthLoading] = useState<boolean>(() => {
+    return Boolean(localStorage.getItem('uniflow_token'));
+  });
 
   const [activeJob, setActiveJobState] = useState<ActiveJob | null>(repository.getActiveJob());
   const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(repository.getProductionOrders());
@@ -70,6 +74,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentRoleState(roleStr);
     setCurrentUserState(formattedUser);
     setIsAuthenticated(true);
+    setAuthLoading(false);
   };
 
   const logoutUser = async () => {
@@ -90,12 +95,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentUserState(null);
       setIsAuthenticated(false);
       setActiveJobState(null);
+      setAuthLoading(false);
     }
   };
 
   useEffect(() => {
     const handleUnauthorized = () => {
       logoutUser();
+      showToast('Session expired, please log in again.', 'warning');
     };
     window.addEventListener('uniflow_unauthorized', handleUnauthorized);
     return () => {
@@ -110,8 +117,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAuthenticated(false);
       setCurrentRoleState(null);
       setCurrentUserState(null);
+      setAuthLoading(false);
       return;
     }
+    setAuthLoading(true);
     import('../services/api').then(({ apiFetch }) => {
       apiFetch('/api/auth/me')
         .then(res => {
@@ -130,10 +139,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setCurrentRoleState(roleStr);
             setCurrentUserState(formattedUser);
             setIsAuthenticated(true);
+          } else {
+            logoutUser();
+            showToast('Session expired, please log in again.', 'warning');
           }
         })
         .catch(() => {
           logoutUser();
+          showToast('Session expired, please log in again.', 'warning');
+        })
+        .finally(() => {
+          setAuthLoading(false);
         });
     });
   }, []);
@@ -284,6 +300,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         isAuthenticated,
+        authLoading,
         currentRole,
         currentUser: currentUser!,
         loginUser,

@@ -45,7 +45,16 @@ const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin
   allowedRole,
   children
 }) => {
-  const { isAuthenticated, currentRole } = useApp();
+  const { isAuthenticated, currentRole, authLoading } = useApp();
+
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: '#071B23', color: '#ECF7F6' }}>
+        <div>Restoring session...</div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
@@ -60,7 +69,7 @@ const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin
 // Main App Routes with AppShell
 const AppRoutes: React.FC = () => {
   const location = useLocation();
-  const { isAuthenticated, currentRole } = useApp();
+  const { isAuthenticated, currentRole, authLoading } = useApp();
 
   const isLoginPage = location.pathname === '/login';
 
@@ -69,6 +78,14 @@ const AppRoutes: React.FC = () => {
     if (currentRole === 'supervisor') return '/supervisor/home';
     return '/admin/dashboard';
   };
+
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', backgroundColor: '#071B23', color: '#ECF7F6' }}>
+        <div>Restoring session...</div>
+      </div>
+    );
+  }
 
   return (
     <AppShell hideNav={isLoginPage}>

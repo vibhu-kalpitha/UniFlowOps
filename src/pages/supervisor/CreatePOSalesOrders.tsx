@@ -33,6 +33,11 @@ export const CreatePOSalesOrders: React.FC = () => {
   const [lineId, setLineId] = useState('Line 04');
   const [boxCapacity, setBoxCapacity] = useState(12);
 
+  // Product QR Serial Range
+  const [productQrPrefix, setProductQrPrefix] = useState('PNFLS092632');
+  const [productSerialStart, setProductSerialStart] = useState<number | ''>(670);
+  const [productSerialEnd, setProductSerialEnd] = useState<number | ''>(1869);
+
   // Shifts Form State
   const [shifts, setShifts] = useState<ShiftAssignment[]>([
     {
@@ -53,6 +58,9 @@ export const CreatePOSalesOrders: React.FC = () => {
     setEditingSoId(null);
     setSoId(`SO-${Math.floor(77200 + Math.random() * 900)}`);
     setMapSo(`MAP-SO-${Math.floor(90000 + Math.random() * 9000)}`);
+    setProductQrPrefix('PNFLS092632');
+    setProductSerialStart(670);
+    setProductSerialEnd(1869);
     setShifts([
       {
         id: `shf-${Date.now()}-1`,
@@ -131,6 +139,30 @@ export const CreatePOSalesOrders: React.FC = () => {
   };
 
   const handleSaveSoModal = () => {
+    if (!productQrPrefix.trim()) {
+      showToast('Please specify Product QR Prefix', 'warning');
+      return;
+    }
+    if (productSerialStart === '' || isNaN(Number(productSerialStart))) {
+      showToast('Please specify Product Serial Start integer', 'warning');
+      return;
+    }
+    if (productSerialEnd === '' || isNaN(Number(productSerialEnd))) {
+      showToast('Please specify Product Serial End integer', 'warning');
+      return;
+    }
+    const startNum = Number(productSerialStart);
+    const endNum = Number(productSerialEnd);
+    if (startNum > endNum) {
+      showToast('Product Serial Start cannot be greater than Product Serial End', 'error');
+      return;
+    }
+    const rangeCapacity = endNum - startNum + 1;
+    if (rangeCapacity < quantity) {
+      showToast(`Product serial range (${rangeCapacity}) must cover at least Order Quantity (${quantity}).`, 'error');
+      return;
+    }
+
     if (!validateShifts(shifts)) {
       showToast('Please resolve shift overlaps before saving.', 'error');
       return;
@@ -146,6 +178,9 @@ export const CreatePOSalesOrders: React.FC = () => {
       quantity,
       lineId,
       boxCapacity,
+      productQrPrefix: productQrPrefix.trim().toUpperCase(),
+      productSerialStart: startNum,
+      productSerialEnd: endNum,
       shifts,
       progress: {
         qcPassed: 0,
@@ -334,6 +369,57 @@ export const CreatePOSalesOrders: React.FC = () => {
                     <option value="Line 04">Line 04</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Product QR Range Section */}
+              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary-teal)', display: 'block', marginBottom: '8px' }}>
+                  Product QR Range (QC Validation)
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={styles.label}>Product QR Prefix</label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g. PNFLS092632"
+                      value={productQrPrefix}
+                      onChange={e => setProductQrPrefix(e.target.value.toUpperCase())}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Product Serial Start</label>
+                    <input
+                      type="number"
+                      className="input-field"
+                      placeholder="e.g. 670"
+                      value={productSerialStart}
+                      onChange={e => setProductSerialStart(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Product Serial End</label>
+                    <input
+                      type="number"
+                      className="input-field"
+                      placeholder="e.g. 1869"
+                      value={productSerialEnd}
+                      onChange={e => setProductSerialEnd(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    />
+                  </div>
+                </div>
+
+                {/* Live Range Preview */}
+                {productQrPrefix && productSerialStart !== '' && productSerialEnd !== '' && (
+                  <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface-2)', padding: '6px 10px', borderRadius: '8px' }}>
+                    <strong>Valid Range Preview:</strong> {productQrPrefix}{productSerialStart} → {productQrPrefix}{productSerialEnd}
+                    {typeof productSerialStart === 'number' && typeof productSerialEnd === 'number' && (
+                      <span style={{ marginLeft: '10px', fontWeight: 600, color: 'var(--primary-teal)' }}>
+                        ({productSerialEnd - productSerialStart + 1} serials available)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Work Shifts Section */}

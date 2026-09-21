@@ -37,9 +37,6 @@ export const QCTestPage: React.FC = () => {
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
-  const rangeStart = po?.boxRangeStart || '';
-  const rangeEnd   = po?.boxRangeEnd   || '';
-
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [qcResult,   setQcResult]   = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
@@ -122,32 +119,6 @@ export const QCTestPage: React.FC = () => {
       setHistoryData(null);
     }
 
-    if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
-      setScannedItem({ qr: code, product: so?.product || '—', size: '—', status: 'INVALID' });
-      setQcResult('FAIL');
-      setTestResult('FAIL');
-
-      apiFetch('/api/qc/results', {
-        method: 'POST',
-        body: JSON.stringify({
-          itemQr:          code,
-          salesOrderId:    so?.dbId || so?.id || 'SO-AUTO',
-          salesOrderNumber: so?.id || 'SO-AUTO',
-          qcResult:        'FAIL',
-          testResult:      'FAIL',
-          failureReason:   `Out of Range Barcode: ${code} (PO Range: ${rangeStart} -> ${rangeEnd})`,
-        }),
-      }).then(() => {
-        fetchProgress();
-      }).catch(() => {});
-
-      return {
-        status: 'rejected' as const,
-        message: `❌ Out of Range Barcode (${code}) auto-saved as FAIL in DB!`,
-        code,
-      };
-    }
-
     try {
       const res = await apiFetch('/api/qc/scan', {
         method: 'POST',
@@ -212,6 +183,16 @@ export const QCTestPage: React.FC = () => {
               code,
             };
           }
+          if (saveErr?.error === 'QR_OUT_OF_RANGE' || saveErrMsg.includes('does not belong')) {
+            const expMsg = saveErr?.expectedRange ? ` (Expected range: ${saveErr.expectedRange})` : '';
+            showToast(`Out of range — this QR does not belong to the selected Sales Order.${expMsg}`, 'error');
+            setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
+            return {
+              status: 'rejected' as const,
+              message: `Out of range — this QR does not belong to the selected Sales Order.${expMsg}`,
+              code,
+            };
+          }
         }
 
         if (saveRes?.progress) {
@@ -243,6 +224,29 @@ export const QCTestPage: React.FC = () => {
       };
     } catch (err: any) {
       const errMsg = err?.message || String(err);
+      if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
+        const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
+        const redMsg = `Out of range — this QR does not belong to the selected Sales Order.${expMsg}`;
+        showToast(redMsg, 'error');
+        setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
+        return {
+          status: 'rejected' as const,
+          message: redMsg,
+          code,
+        };
+      }
+
+      if (err?.error === 'QR_RANGE_NOT_CONFIGURED' || errMsg.includes('not configured')) {
+        const notConfigMsg = `Product QR range not configured for Sales Order ${so?.id || ''}. Please contact supervisor.`;
+        showToast(notConfigMsg, 'error');
+        setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
+        return {
+          status: 'rejected' as const,
+          message: notConfigMsg,
+          code,
+        };
+      }
+
       if (errMsg.includes('SO_QUANTITY_REACHED') || errMsg.includes('already has') || errMsg.includes('target quantity reached')) {
         showToast(`⚠️ Cannot add item — Sales Order target quantity reached!`, 'error');
         setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
@@ -318,6 +322,12 @@ export const QCTestPage: React.FC = () => {
       });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
+      if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
+        const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
+        showToast(`Out of range — this QR does not belong to the selected Sales Order.${expMsg}`, 'error');
+        setIsSaving(false);
+        return;
+      }
       if (errMsg.includes('SO_QUANTITY_REACHED') || errMsg.includes('already has')) {
         showToast(`⚠️ Cannot save — Sales Order target quantity reached!`, 'error');
         setIsSaving(false);
@@ -373,9 +383,9 @@ export const QCTestPage: React.FC = () => {
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                 {so?.product || 'Garment'} — {so?.colour || '—'}
-                {rangeStart && rangeEnd && (
+                {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null && (
                   <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                    • Valid Range: {rangeStart} → {rangeEnd}
+                    • Valid Product Range: {so.productQrPrefix}{so.productSerialStart} → {so.productQrPrefix}{so.productSerialEnd}
                   </span>
                 )}
               </span>
@@ -671,9 +681,11 @@ export const QCTestPage: React.FC = () => {
                 <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{so?.product || 'Garment'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Barcode Range:</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Product QR Range:</span>
                 <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>
-                  {rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'Any Code'}
+                  {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null
+                    ? `${so.productQrPrefix}${so.productSerialStart} → ${so.productQrPrefix}${so.productSerialEnd}`
+                    : 'Not configured'}
                 </span>
               </div>
             </div>

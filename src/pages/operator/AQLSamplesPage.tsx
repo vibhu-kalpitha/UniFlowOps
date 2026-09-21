@@ -28,8 +28,6 @@ export const AQLSamplesPage: React.FC = () => {
   };
 
   const po = activeJob?.productionOrder;
-  const rangeStart = po?.boxRangeStart || 'PNFLS092632670';
-  const rangeEnd = po?.boxRangeEnd || 'PNFLS092632690';
 
   const [currentIdx, setCurrentIdx] = useState(session.currentSampleIndex || 1);
   const [currentQr, setCurrentQr] = useState('PNFLS092632677');
@@ -47,15 +45,6 @@ export const AQLSamplesPage: React.FC = () => {
     const trimmed = code.trim();
     if (!trimmed) {
       return { status: 'rejected' as const, message: 'Please enter or scan a sample QR barcode', code };
-    }
-
-    if (rangeStart && rangeEnd && !isCodeInRange(trimmed, rangeStart, rangeEnd)) {
-      setSampleResult('FAIL');
-      return {
-        status: 'rejected' as const,
-        message: `❌ Out of Serial Range! Sample (${trimmed}) is out of PO range: ${rangeStart} → ${rangeEnd}`,
-        code: trimmed,
-      };
     }
 
     setCurrentQr(trimmed);
@@ -191,9 +180,6 @@ export const AQLSamplesPage: React.FC = () => {
               {session.boxNumber}
             </h3>
           </div>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)' }}>
-            PO Range: {rangeStart} - {rangeEnd}
-          </span>
         </div>
 
         {/* Packed Items Preview & Verification List */}

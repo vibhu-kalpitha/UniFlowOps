@@ -149,6 +149,9 @@ async function formatProductionOrder(po: any, reqUser?: AuthUser) {
       shiftId: so.shift_id,
       shiftName: so.shift_name,
       boxCapacity: so.box_capacity,
+      productQrPrefix: so.product_qr_prefix || undefined,
+      productSerialStart: so.product_serial_start != null ? Number(so.product_serial_start) : undefined,
+      productSerialEnd: so.product_serial_end != null ? Number(so.product_serial_end) : undefined,
       allocations,
       shifts,
       progress: {
@@ -181,6 +184,40 @@ async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     selectedOperations,
     salesOrders
   };
+}
+
+export async function checkQrRangeOverlap(
+  prefix: string,
+  start: number,
+  end: number,
+  excludeSoId?: string
+): Promise<{ overlap: boolean; overlappingSoNumber?: string }> {
+  if (!prefix || start == null || end == null) return { overlap: false };
+  const normPrefix = prefix.trim().toUpperCase();
+
+  let query = `
+    SELECT id, so_number, product_qr_prefix, product_serial_start, product_serial_end 
+    FROM sales_orders 
+    WHERE UPPER(TRIM(product_qr_prefix)) = ? AND product_serial_start IS NOT NULL AND product_serial_end IS NOT NULL
+  `;
+  const params: any[] = [normPrefix];
+  if (excludeSoId) {
+    query += ` AND id != ? AND so_number != ?`;
+    params.push(excludeSoId, excludeSoId);
+  }
+
+  const existingRows = await db.prepare(query).all(...params) as any[];
+
+  for (const r of existingRows) {
+    const existStart = Number(r.product_serial_start);
+    const existEnd = Number(r.product_serial_end);
+
+    if (Math.max(start, existStart) <= Math.min(end, existEnd)) {
+      return { overlap: true, overlappingSoNumber: r.so_number || r.id };
+    }
+  }
+
+  return { overlap: false };
 }
 
 // GET /api/production-orders
@@ -231,7 +268,13 @@ const addSoStandaloneSchema = z.object({
   orderQuantity: z.number().optional(),
   lineId: z.string().optional(),
   shiftId: z.string().optional(),
-  boxCapacity: z.number().optional()
+  boxCapacity: z.number().optional(),
+  productQrPrefix: z.string().optional(),
+  product_qr_prefix: z.string().optional(),
+  productSerialStart: z.number().optional(),
+  product_serial_start: z.number().optional(),
+  productSerialEnd: z.number().optional(),
+  product_serial_end: z.number().optional()
 });
 
 // POST /api/production-orders/:id/sales-orders (SUPERVISOR / ADMIN)
@@ -256,9 +299,26 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
     const shiftId = body.shiftId || 'shift-c';
     const qty = body.orderQuantity || body.quantity || 1000;
 
+    const prefix = body.productQrPrefix || body.product_qr_prefix || null;
+    const start = body.productSerialStart != null ? Number(body.productSerialStart) : (body.product_serial_start != null ? Number(body.product_serial_start) : null);
+    const end = body.productSerialEnd != null ? Number(body.productSerialEnd) : (body.product_serial_end != null ? Number(body.product_serial_end) : null);
+
+    if (prefix && start != null && end != null) {
+      if (start > end) {
+        return res.status(400).json({ error: 'INVALID_QR_RANGE', message: 'Product Serial Start cannot be greater than Product Serial End' });
+      }
+      if ((end - start + 1) < qty) {
+        return res.status(400).json({ error: 'INSUFFICIENT_QR_RANGE', message: `Product serial range (${end - start + 1}) must cover at least order quantity (${qty}).` });
+      }
+      const overlapRes = await checkQrRangeOverlap(prefix, start, end, soNumber);
+      if (overlapRes.overlap) {
+        return res.status(409).json({ error: 'QR_RANGE_OVERLAP', message: `Product QR range overlaps with existing Sales Order ${overlapRes.overlappingSoNumber}.` });
+      }
+    }
+
     await db.prepare(`
-      INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
+      INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
     `).run(
       soDbId,
       po.id,
@@ -271,7 +331,10 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
       qty,
       lineId,
       shiftId,
-      body.boxCapacity || 12
+      body.boxCapacity || 12,
+      prefix ? prefix.trim().toUpperCase() : null,
+      start,
+      end
     );
 
     await auditLog(req.user!.id, 'CREATE_SO', 'sales_orders', soDbId, { poId: po.id, soNumber });
@@ -294,6 +357,7 @@ const createPoSchema = z.object({
   mapPo: z.string().min(1),
   customer: z.string().min(1),
   styleId: z.string().optional(),
+  style_id: z.string().optional(),
   styleCode: z.string().optional(),
   styleName: z.string().optional(),
   startDate: z.string(),
@@ -305,6 +369,68 @@ const createPoSchema = z.object({
   salesOrders: z.array(z.any()).optional()
 });
 
+async function syncSalesOrderAllocations(
+  tx: any,
+  soDbId: string,
+  requestedAssignments: any[],
+  assignedByUserId: string
+) {
+  if (!requestedAssignments || !Array.isArray(requestedAssignments) || requestedAssignments.length === 0) return;
+
+  const activeOpAssignments: Array<{ operatorId: string; shiftId: string; operation: string }> = [];
+
+  for (const item of requestedAssignments) {
+    const rawOp = item.workerId || item.operatorId || item.userId || item.username || item.workerName;
+    if (!rawOp) continue;
+
+    const opUser = await tx.prepare(`
+      SELECT id FROM users WHERE (id = ? OR username = ? OR full_name = ?) AND role = 'OPERATOR'
+    `).get(rawOp, rawOp, rawOp) as any;
+
+    if (!opUser) continue;
+
+    const rawShift = item.shiftId || item.shiftCode || 'shift-c';
+    const shiftRow = await tx.prepare(`
+      SELECT id FROM shifts WHERE id = ? OR code = ? OR name = ?
+    `).get(rawShift, rawShift, rawShift) as any;
+
+    const shiftId = shiftRow ? shiftRow.id : 'shift-c';
+    const operation = item.operation || (Array.isArray(item.enabledOperations) ? item.enabledOperations[0] : 'ALL') || 'ALL';
+
+    activeOpAssignments.push({
+      operatorId: opUser.id,
+      shiftId,
+      operation
+    });
+  }
+
+  const activeOpIds = activeOpAssignments.map(a => a.operatorId);
+
+  if (activeOpIds.length > 0) {
+    const placeholders = activeOpIds.map(() => '?').join(',');
+    await tx.prepare(`
+      UPDATE operator_work_assignments 
+      SET active = 0, updated_at = NOW(3)
+      WHERE sales_order_id = ? AND active = 1 AND operator_id NOT IN (${placeholders})
+    `).run(soDbId, ...activeOpIds);
+  } else {
+    await tx.prepare(`
+      UPDATE operator_work_assignments 
+      SET active = 0, updated_at = NOW(3)
+      WHERE sales_order_id = ? AND active = 1
+    `).run(soDbId);
+  }
+
+  for (const assign of activeOpAssignments) {
+    const owaId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await tx.prepare(`
+      INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
+      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
+    `).run(owaId, soDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
+  }
+}
+
 // POST /api/production-orders (SUPERVISOR / ADMIN)
 router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
@@ -312,18 +438,51 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     const poDbId = `po-${Date.now()}`;
     const statusUpper = (body.status || 'CURRENT').toUpperCase();
 
-    let styleId = body.styleId || null;
-    if (!styleId && body.styleCode) {
-      let existingStyle = await db.prepare(`SELECT id FROM styles WHERE code = ?`).get(body.styleCode) as any;
-      if (!existingStyle) {
-        const newStyleId = `style-${Date.now()}`;
-        await db.prepare(`
-          INSERT INTO styles (id, code, name, customer, created_at, updated_at)
-          VALUES (?, ?, ?, ?, NOW(3), NOW(3))
-        `).run(newStyleId, body.styleCode, body.styleName || `Style ${body.styleCode}`, body.customer);
-        styleId = newStyleId;
-      } else {
-        styleId = existingStyle.id;
+    const styleId = body.styleId || body.style_id;
+    if (!styleId) {
+      return res.status(400).json({
+        error: 'STYLE_REQUIRED',
+        message: 'Please select an existing style or create one first.'
+      });
+    }
+
+    const existingStyle = await db.prepare(`SELECT id FROM styles WHERE id = ?`).get(styleId) as any;
+    if (!existingStyle) {
+      return res.status(400).json({
+        error: 'STYLE_NOT_FOUND',
+        message: 'Selected style does not exist in catalog'
+      });
+    }
+
+    if (body.salesOrders && body.salesOrders.length > 0) {
+      for (const so of body.salesOrders) {
+        const prefix = so.productQrPrefix || so.product_qr_prefix;
+        const start = so.productSerialStart != null ? Number(so.productSerialStart) : (so.product_serial_start != null ? Number(so.product_serial_start) : null);
+        const end = so.productSerialEnd != null ? Number(so.productSerialEnd) : (so.product_serial_end != null ? Number(so.product_serial_end) : null);
+        const qty = so.quantity || so.orderQuantity || 1;
+
+        if (prefix && start != null && end != null) {
+          if (start > end) {
+            return res.status(400).json({
+              error: 'INVALID_QR_RANGE',
+              message: `Product Serial Start (${start}) cannot be greater than Product Serial End (${end}) for Sales Order ${so.id || so.soNumber}.`
+            });
+          }
+          const rangeCount = end - start + 1;
+          if (rangeCount < qty) {
+            return res.status(400).json({
+              error: 'INSUFFICIENT_QR_RANGE',
+              message: `Product serial range (${rangeCount}) must cover at least order quantity (${qty}) for Sales Order ${so.id || so.soNumber}.`
+            });
+          }
+          const overlapRes = await checkQrRangeOverlap(prefix, start, end, so.id || so.soNumber);
+          if (overlapRes.overlap) {
+            return res.status(409).json({
+              error: 'QR_RANGE_OVERLAP',
+              message: `Product QR range overlaps with existing Sales Order ${overlapRes.overlappingSoNumber}.`
+            });
+          }
+        }
       }
     }
 
@@ -352,9 +511,13 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
           let shiftId = 'shift-c';
           if (so.shiftId) shiftId = so.shiftId;
 
+          const prefix = so.productQrPrefix || so.product_qr_prefix || null;
+          const start = so.productSerialStart != null ? Number(so.productSerialStart) : (so.product_serial_start != null ? Number(so.product_serial_start) : null);
+          const end = so.productSerialEnd != null ? Number(so.productSerialEnd) : (so.product_serial_end != null ? Number(so.product_serial_end) : null);
+
           await tx.prepare(`
-            INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
+            INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
           `).run(
             soDbId,
             poDbId,
@@ -367,8 +530,15 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
             so.quantity || 1000,
             lineId,
             shiftId,
-            so.boxCapacity || 12
+            so.boxCapacity || 12,
+            prefix ? prefix.trim().toUpperCase() : null,
+            start,
+            end
           );
+
+          // Persist operator assignments to operator_work_assignments for THIS SO
+          const assignmentsToSync = so.shifts || so.allocations || so.operators || [];
+          await syncSalesOrderAllocations(tx, soDbId, assignmentsToSync, req.user!.id);
         }
       }
     });
@@ -420,9 +590,48 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
 
     await auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, shiftId: targetShiftId });
 
+    const allocs = await db.prepare(`
+      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      FROM operator_work_assignments owa
+      JOIN users u ON u.id = owa.operator_id
+      LEFT JOIN shifts s ON s.id = owa.shift_id
+      WHERE owa.sales_order_id = ? AND owa.active = 1
+    `).all(so.id);
+
     return res.status(201).json({
       message: `Operator ${opUser.full_name} allocated to SO ${so.so_number}`,
-      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId: targetShiftId }
+      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId: targetShiftId },
+      allocations: allocs
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/production/sales-orders/:id/allocations/sync (SUPERVISOR / ADMIN)
+router.post('/sales-orders/:id/allocations/sync', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const soParam = req.params.id;
+    const so = await db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
+    if (!so) {
+      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    }
+
+    const requestedShifts = req.body.shifts || req.body.allocations || (req.body.operatorId ? [req.body] : []);
+    await syncSalesOrderAllocations(db, so.id, requestedShifts, req.user!.id);
+
+    const allocs = await db.prepare(`
+      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      FROM operator_work_assignments owa
+      JOIN users u ON u.id = owa.operator_id
+      LEFT JOIN shifts s ON s.id = owa.shift_id
+      WHERE owa.sales_order_id = ? AND owa.active = 1
+    `).all(so.id);
+
+    return res.status(200).json({
+      message: `Allocations synced for SO ${so.so_number}`,
+      salesOrderId: so.id,
+      allocations: allocs
     });
   } catch (err) {
     next(err);
