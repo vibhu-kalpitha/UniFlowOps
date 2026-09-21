@@ -147,9 +147,7 @@ router.post('/reset-password', authenticateToken, requireRole('ADMIN'), async (r
     }
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
-    const now = new Date().toISOString();
-
-    await db.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).run(passwordHash, now, user.id);
+    await db.prepare(`UPDATE users SET password_hash = ?, updated_at = NOW(3) WHERE id = ?`).run(passwordHash, user.id);
 
     await auditLog(req.user!.id, 'RESET_PASSWORD', 'users', user.id, { username: user.username });
 

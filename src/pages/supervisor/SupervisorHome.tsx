@@ -1,17 +1,28 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { apiFetch } from '../../services/api';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { PlusCircle, Clock, AlertTriangle, ChevronRight, CheckCircle2, FileText, Users } from 'lucide-react';
+import { PlusCircle, Clock, AlertTriangle } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const SupervisorHome: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, productionOrders, refreshProductionOrders } = useApp();
+  const [processedToday, setProcessedToday] = useState<number>(0);
 
   useEffect(() => {
     refreshProductionOrders();
+    apiFetch('/dashboard/supervisor')
+      .then(data => {
+        if (data && typeof data.processedToday === 'number') {
+          setProcessedToday(data.processedToday);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load supervisor metrics:', err);
+      });
   }, []);
 
   const currentPos = productionOrders.filter(p => p.status === 'Current' || p.status === 'Draft');
@@ -33,7 +44,7 @@ export const SupervisorHome: React.FC = () => {
       </div>
 
       {/* Quick Stats Banner */}
-      <div className="grid-4-desktop" style={styles.statsGrid}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
         <div style={styles.statCard}>
           <span style={styles.statNum}>{currentPos.length}</span>
           <span style={styles.statLabel}>Active POs</span>
@@ -43,12 +54,8 @@ export const SupervisorHome: React.FC = () => {
           <span style={styles.statLabel}>Sales Orders</span>
         </div>
         <div style={styles.statCard}>
-          <span style={{ ...styles.statNum, color: 'var(--color-green)' }}>3,120</span>
-          <span style={styles.statLabel}>Processed Today</span>
-        </div>
-        <div style={styles.statCard}>
-          <span style={{ ...styles.statNum, color: 'var(--color-purple)' }}>76%</span>
-          <span style={styles.statLabel}>Target Progress</span>
+          <span style={{ ...styles.statNum, color: 'var(--color-green)' }}>{processedToday}</span>
+          <span style={styles.statLabel}>Items Processed Today</span>
         </div>
       </div>
 

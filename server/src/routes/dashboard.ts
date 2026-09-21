@@ -95,27 +95,31 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
 // GET /api/dashboard/supervisor
 router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req, res, next) => {
   try {
-    const currentPosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders WHERE status = 'CURRENT'`).get() as any;
+    const currentPosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders WHERE status = 'CURRENT' OR status = 'DRAFT'`).get() as any;
     const currentPosCount = currentPosRow?.cnt || 0;
 
-    const totalSosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM sales_orders`).get() as any;
+    const totalSosRow = await db.prepare(`
+      SELECT COUNT(*) as cnt FROM sales_orders so
+      JOIN production_orders po ON po.id = so.production_order_id
+      WHERE po.status = 'CURRENT' OR po.status = 'DRAFT'
+    `).get() as any;
     const totalSosCount = totalSosRow?.cnt || 0;
 
-    const processedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM item_units`).get() as any;
+    const processedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT item_id) as cnt FROM (
+        SELECT item_id FROM qc_results WHERE DATE(scanned_at) = CURDATE()
+        UNION
+        SELECT item_id FROM box_items WHERE DATE(packed_at) = CURDATE()
+        UNION
+        SELECT id as item_id FROM item_units WHERE DATE(created_at) = CURDATE()
+      ) as today_events
+    `).get() as any;
     const processedToday = processedRow?.cnt || 0;
-
-    const packedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items`).get() as any;
-    const packedCount = packedRow?.cnt || 0;
-
-    const targetRow = await db.prepare(`SELECT SUM(order_quantity) as total FROM sales_orders`).get() as any;
-    const targetQty = targetRow?.total || 0;
-    const targetProgressPercent = targetQty > 0 ? Math.min(100, Math.round((packedCount / targetQty) * 100)) : 0;
 
     return res.json({
       currentPosCount,
       totalSosCount,
       processedToday,
-      targetProgressPercent,
       assignedLines: ['Line 04', 'Line 02']
     });
   } catch (err) {
@@ -212,8 +216,7 @@ router.get('/alerts', authenticateToken, async (req: AuthRequest, res, next) => 
 // PATCH /api/alerts/:id/read
 router.patch('/alerts/:id/read', authenticateToken, async (req, res, next) => {
   try {
-    const now = new Date().toISOString();
-    await db.prepare(`UPDATE alerts SET read_at = ? WHERE id = ?`).run(now, req.params.id);
+    await db.prepare(`UPDATE alerts SET read_at = NOW(3) WHERE id = ?`).run(req.params.id);
     return res.json({ message: 'Alert marked as read' });
   } catch (err) {
     next(err);
