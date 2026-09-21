@@ -17,8 +17,6 @@ export const CreatePOReview: React.FC = () => {
   const [isCreated, setIsCreated] = useState(false);
   const [createdPo, setCreatedPo] = useState<ProductionOrder | null>(null);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
   useEffect(() => {
     const genData = sessionStorage.getItem('uniflow_draft_po_general');
     const sosData = sessionStorage.getItem('uniflow_draft_po_sos');
@@ -42,13 +40,11 @@ export const CreatePOReview: React.FC = () => {
   const totalShifts = draftSos.reduce((sum, s) => sum + (s.shifts ? s.shifts.length : 0), 0);
 
   const handleFinalCreate = async () => {
-    if (isSubmitting) return;
     if (!draftPoGeneral?.styleId) {
       showToast('Please select an existing style or create one first.', 'warning');
       return;
     }
 
-    setIsSubmitting(true);
     const finalPoPayload = {
       id: draftPoGeneral.id,
       mapPo: draftPoGeneral.mapPo,
@@ -74,7 +70,7 @@ export const CreatePOReview: React.FC = () => {
     } catch (e: any) {
       console.error('Failed to post PO to server', e);
       showToast(e.message || 'Failed to deploy PO to server database', 'error');
-      setIsSubmitting(false);
+      // Preserve draft on creation failure
       return;
     }
 
@@ -120,7 +116,6 @@ export const CreatePOReview: React.FC = () => {
 
     setCreatedPo(savedPo);
     setIsCreated(true);
-    setIsSubmitting(false);
   };
 
   if (isCreated) {
@@ -283,8 +278,8 @@ export const CreatePOReview: React.FC = () => {
         <button className="btn-secondary" onClick={() => navigate('/supervisor/production-orders/new/sales-orders')} style={{ flex: 1 }}>
           <ArrowLeft size={18} style={{ marginRight: '6px' }} /> Back
         </button>
-        <button className="btn-primary" onClick={handleFinalCreate} disabled={isSubmitting} style={{ flex: 2, opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? 'not-allowed' : 'pointer' }}>
-          {isSubmitting ? 'Creating Production Order...' : 'Create Production Order'}
+        <button className="btn-primary" onClick={handleFinalCreate} style={{ flex: 2 }}>
+          Create Production Order
         </button>
       </div>
     </div>

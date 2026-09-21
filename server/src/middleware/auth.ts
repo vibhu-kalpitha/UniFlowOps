@@ -25,11 +25,10 @@ export function hashToken(token: string): string {
 }
 
 export function generateToken(user: { id: string; username: string; role: string; fullName: string }): string {
-  const ttlHours = parseInt(process.env.SESSION_TTL_HOURS || '8', 10);
   return jwt.sign(
     { id: user.id, username: user.username, role: user.role, fullName: user.fullName },
     JWT_SECRET,
-    { expiresIn: `${ttlHours}h` }
+    { expiresIn: '24h' }
   );
 }
 
@@ -64,12 +63,6 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
 
     if (session.active !== 1 || session.revoked_at || session.logout_at) {
       console.warn(`[AUTH REJECTED] 401 - Session revoked/inactive (Session ID: ${session.id}) for user ${payload.username}. Path: ${req.originalUrl}`);
-      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session expired, revoked, or invalid' });
-    }
-
-    const expiresAtMs = new Date(session.expires_at).getTime();
-    if (isNaN(expiresAtMs) || Date.now() >= expiresAtMs) {
-      console.warn(`[AUTH REJECTED] 401 - Session database timestamp expired (Expires: ${session.expires_at}) for user ${payload.username}. Path: ${req.originalUrl}`);
       return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session expired, revoked, or invalid' });
     }
 

@@ -58,9 +58,7 @@ router.post('/login', async (req, res, next) => {
     const sessionId = `sess-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
     const userAgent = req.get('user-agent') || 'Unknown';
-    const ttlHours = parseInt(process.env.SESSION_TTL_HOURS || '8', 10);
-    const expiresAtDate = new Date(Date.now() + ttlHours * 3600 * 1000);
-    const expiresAt = expiresAtDate.toISOString().slice(0, 19).replace('T', ' ');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', '');
 
     await db.execute(`
       INSERT INTO user_sessions (id, user_id, token_hash, ip_address, user_agent, login_at, last_seen_at, expires_at, active)
