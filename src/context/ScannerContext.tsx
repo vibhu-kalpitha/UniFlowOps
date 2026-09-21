@@ -131,12 +131,25 @@ export const ScannerProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
 
       const device = devices[0];
-      if (!device.opened) {
-        await device.open();
+      activeHidDeviceRef.current = device;
+      const rawProductName = device.productName || 'HID Keyboard';
+
+      let exclusiveAccessBlocked = false;
+
+      if (!device.opened && typeof device.open === 'function') {
+        try {
+          await device.open();
+        } catch (openErr: any) {
+          console.warn('WebHID device.open() restricted for keyboard device:', openErr);
+          exclusiveAccessBlocked = true;
+        }
       }
 
-      activeHidDeviceRef.current = device;
-      const deviceName = device.productName || 'USB HID Scanner';
+      const statusHint = exclusiveAccessBlocked
+        ? 'HID keyboard selected — scan into a scan field'
+        : null;
+
+      const deviceName = rawProductName.startsWith('HID') ? rawProductName : `HID: ${rawProductName}`;
 
       setScannerState({
         status: 'connected',
@@ -144,14 +157,28 @@ export const ScannerProvider: React.FC<{ children: ReactNode }> = ({ children })
         deviceName,
         lastScannedCode: null,
         lastScanTime: Date.now(),
-        errorMessage: null,
+        errorMessage: statusHint,
       });
     } catch (err: any) {
+      if (
+        err.name === 'NotFoundError' ||
+        err.message?.includes('No device selected') ||
+        err.message?.includes('user cancelled') ||
+        err.message?.includes('cancelled')
+      ) {
+        setScannerState(prev => ({
+          ...prev,
+          status: 'disconnected',
+          errorMessage: 'Device selection cancelled.',
+        }));
+        return;
+      }
+
       console.error('Web HID connection error:', err);
       setScannerState(prev => ({
         ...prev,
         status: 'error',
-        errorMessage: err.message || 'Failed to open HID Scanner device.',
+        errorMessage: err.message || 'Permission denied or HID device connection error.',
       }));
       throw err;
     }

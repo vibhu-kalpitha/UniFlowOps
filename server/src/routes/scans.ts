@@ -16,12 +16,11 @@ async function checkIdempotency(key: string, operatorId: string, operation: stri
 async function recordScanEvent(key: string, operatorId: string, operation: string, rawCode: string, result: 'ACCEPTED' | 'REJECTED' | 'DUPLICATE', errCode?: string, errMsg?: string) {
   if (!key) return;
   const id = `scan-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-  const now = new Date().toISOString();
   await db.prepare(`
     INSERT INTO scan_events (id, idempotency_key, operator_id, operation, raw_code, normalized_code, device_type, result, error_code, error_message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'KEYBOARD_WEDGE', ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, 'KEYBOARD_WEDGE', ?, ?, ?, NOW(3))
     ON DUPLICATE KEY UPDATE result = VALUES(result), error_code = VALUES(error_code), error_message = VALUES(error_message)
-  `).run(id, key, operatorId, operation, rawCode, rawCode.trim().toUpperCase(), result, errCode || null, errMsg || null, now);
+  `).run(id, key, operatorId, operation, rawCode, rawCode.trim().toUpperCase(), result, errCode || null, errMsg || null);
 }
 
 // Helper to resolve SO safely from ID, so_number, or map_so
@@ -144,8 +143,7 @@ async function checkAndUpdateSOCompletion(soId: string) {
   const packed = packedRow?.cnt || 0;
 
   if (qcPassed >= so.order_quantity && packed >= so.order_quantity) {
-    const now = new Date().toISOString();
-    await db.prepare(`UPDATE sales_orders SET status = 'COMPLETED', updated_at = ? WHERE id = ?`).run(now, so.id);
+    await db.prepare(`UPDATE sales_orders SET status = 'COMPLETED', updated_at = NOW(3) WHERE id = ?`).run(so.id);
 
     const remainingSo = await db.prepare(`
       SELECT COUNT(*) as cnt FROM sales_orders 
@@ -153,7 +151,7 @@ async function checkAndUpdateSOCompletion(soId: string) {
     `).get(so.production_order_id) as any;
 
     if (remainingSo && remainingSo.cnt === 0) {
-      await db.prepare(`UPDATE production_orders SET status = 'COMPLETED', updated_at = ? WHERE id = ?`).run(now, so.production_order_id);
+      await db.prepare(`UPDATE production_orders SET status = 'COMPLETED', updated_at = NOW(3) WHERE id = ?`).run(so.production_order_id);
     }
   }
 }
@@ -256,7 +254,6 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
 
     const operatorId = req.user!.id;
     const userRole = req.user!.role;
-    const now = new Date().toISOString();
 
     const so = await resolveSO(targetSoKey);
     if (!so) {
@@ -292,8 +289,8 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       const itemId = `itm-${itemQr}`;
       await db.prepare(`
         INSERT INTO item_units (id, qr_code, sales_order_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, 'L', 'CREATED', ?, ?)
-      `).run(itemId, itemQr, so.id, now, now);
+        VALUES (?, ?, ?, 'L', 'CREATED', NOW(3), NOW(3))
+      `).run(itemId, itemQr, so.id);
       item = { id: itemId, qr_code: itemQr, sales_order_id: so.id, status: 'CREATED' };
     } else {
       const isAlreadyAdmitted = await isItemAdmitted(item.id);
@@ -306,7 +303,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
           });
         }
       }
-      await db.prepare(`UPDATE item_units SET sales_order_id = ?, updated_at = ? WHERE id = ?`).run(so.id, now, item.id);
+      await db.prepare(`UPDATE item_units SET sales_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(so.id, item.id);
       item.sales_order_id = so.id;
     }
 
@@ -339,33 +336,33 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
         const failLogId = `qcfail-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
           INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, so_id, po_id, shift_id, failure_type)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QC_FAIL')
-        `).run(failLogId, item.id, operatorId, qcResult, testResult, failureReason || null, failCount, now, idempotencyKey || null, itemQr, so.id, so.production_order_id, so.shift_id);
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, ?, ?, 'QC_FAIL')
+        `).run(failLogId, item.id, operatorId, qcResult, testResult, failureReason || null, failCount, idempotencyKey || null, itemQr, so.id, so.production_order_id, so.shift_id);
 
         const alertId = `alt-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
           INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, reference_type, reference_id, created_at)
-          VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'QC Test Failure Alert', ?, 'qc_fail_log', ?, ?)
-        `).run(alertId, `QC failed for item ${itemQr} on SO ${so.so_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId, now);
+          VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'QC Test Failure Alert', ?, 'qc_fail_log', ?, NOW(3))
+        `).run(alertId, `QC failed for item ${itemQr} on SO ${so.so_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId);
       }
 
       if (existingQc) {
         retryCount = (existingQc.retry_count || 0) + 1;
         await tx.prepare(`
           UPDATE qc_results 
-          SET operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?
+          SET operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = NOW(3)
           WHERE item_id = ?
-        `).run(operatorId, qcResult, testResult, failureReason || null, retryCount, now, item.id);
+        `).run(operatorId, qcResult, testResult, failureReason || null, retryCount, item.id);
       } else {
         retryCount = 0;
         const qcId = `qc-${Date.now()}`;
         await tx.prepare(`
           INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at)
-          VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-        `).run(qcId, item.id, operatorId, qcResult, testResult, failureReason || null, now, now);
+          VALUES (?, ?, ?, ?, ?, ?, 0, NOW(3), NOW(3))
+        `).run(qcId, item.id, operatorId, qcResult, testResult, failureReason || null);
       }
 
-      await tx.prepare(`UPDATE item_units SET status = ?, updated_at = ? WHERE id = ?`).run(finalItemStatus, now, item.id);
+      await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalItemStatus, item.id);
     });
 
     await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'ACCEPTED');
@@ -553,7 +550,6 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
   try {
     const { idempotencyKey, boxNumber, itemQr, salesOrderNumber } = packItemSchema.parse(req.body);
     const operatorId = req.user!.id;
-    const now = new Date().toISOString();
 
     let so = await db.prepare(`SELECT id, production_order_id FROM sales_orders WHERE so_number = ? OR id = ?`).get(salesOrderNumber, salesOrderNumber) as any;
     if (!so) {
@@ -569,8 +565,8 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       const code = boxNumber.trim().toUpperCase();
       await db.prepare(`
         INSERT INTO boxes (id, box_code, box_number, production_order_id, sales_order_id, capacity, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 12, 'OPEN', ?)
-      `).run(boxId, code, code, so.production_order_id, so.id, now);
+        VALUES (?, ?, ?, ?, ?, 12, 'OPEN', NOW(3))
+      `).run(boxId, code, code, so.production_order_id, so.id);
       box = { id: boxId, box_code: code, box_number: code, production_order_id: so.production_order_id, sales_order_id: so.id, capacity: 12, status: 'OPEN' };
     }
 
@@ -634,13 +630,13 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     await db.transaction(async (tx) => {
       await tx.prepare(`
         INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
-        VALUES (?, ?, ?, ?, ?, 1)
-      `).run(boxItemId, box.id, item.id, operatorId, now);
+        VALUES (?, ?, ?, ?, NOW(3), 1)
+      `).run(boxItemId, box.id, item.id, operatorId);
 
-      await tx.prepare(`UPDATE item_units SET status = 'PACKED', updated_at = ? WHERE id = ?`).run(now, item.id);
+      await tx.prepare(`UPDATE item_units SET status = 'PACKED', updated_at = NOW(3) WHERE id = ?`).run(item.id);
 
       if (currentItemsCount + 1 >= box.capacity) {
-        await tx.prepare(`UPDATE boxes SET status = 'COMPLETE', completed_at = ? WHERE id = ?`).run(now, box.id);
+        await tx.prepare(`UPDATE boxes SET status = 'COMPLETE', completed_at = NOW(3) WHERE id = ?`).run(box.id);
       }
     });
 
@@ -674,7 +670,6 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
     const { fromBoxNumber, toBoxNumber, itemQrs, remarks } = transferSchema.parse(req.body);
     const operatorId = req.user!.id;
     const role = req.user!.role;
-    const now = new Date().toISOString();
 
     const fromCode = fromBoxNumber.trim().toUpperCase();
     const toCode = toBoxNumber.trim().toUpperCase();
@@ -738,8 +733,8 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
       // Record box_transfers row
       await tx.prepare(`
         INSERT INTO box_transfers (id, source_box_id, destination_box_id, production_order_id, sales_order_id, transferred_by, item_count, transferred_at, remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(transferId, fromBox.id, toBox.id, fromBox.production_order_id, fromBox.sales_order_id, operatorId, itemQrs.length, now, remarks || null);
+        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?)
+      `).run(transferId, fromBox.id, toBox.id, fromBox.production_order_id, fromBox.sales_order_id, operatorId, itemQrs.length, remarks || null);
 
       for (const qr of itemQrs) {
         const cleanQr = qr.trim().toUpperCase();
@@ -759,15 +754,15 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
           const newBoxItemId = `bi-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
           await tx.prepare(`
             INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
-            VALUES (?, ?, ?, ?, ?, 1)
-          `).run(newBoxItemId, toBox.id, activeBoxItem.item_id, operatorId, now);
+            VALUES (?, ?, ?, ?, NOW(3), 1)
+          `).run(newBoxItemId, toBox.id, activeBoxItem.item_id, operatorId);
 
           // Record box_transfer_items
           const trfItemId = `trfi-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
           await tx.prepare(`
             INSERT INTO box_transfer_items (id, transfer_id, item_id, source_box_item_id, destination_box_item_id, transferred_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(trfItemId, transferId, activeBoxItem.item_id, activeBoxItem.id, newBoxItemId, now);
+            VALUES (?, ?, ?, ?, ?, NOW(3))
+          `).run(trfItemId, transferId, activeBoxItem.item_id, activeBoxItem.id, newBoxItemId);
         }
       }
 
@@ -784,8 +779,8 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
       const alertId = `alt-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
       await db.prepare(`
         INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, reference_type, reference_id, created_at)
-        VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'INFO', 'Box Transfer Post-AQL', ?, 'box_transfers', ?, ?)
-      `).run(alertId, `Items were transferred from Box ${fromBox.box_code || fromBox.box_number} after AQL completion. Destination Box requires AQL review.`, transferId, now);
+        VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'INFO', 'Box Transfer Post-AQL', ?, 'box_transfers', ?, NOW(3))
+      `).run(alertId, `Items were transferred from Box ${fromBox.box_code || fromBox.box_number} after AQL completion. Destination Box requires AQL review.`, transferId);
     }
 
     await auditLog(operatorId, 'BOX_TRANSFER', 'box_transfers', transferId, { fromBoxNumber, toBoxNumber, count: itemQrs.length });
@@ -806,7 +801,6 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
   try {
     const { boxNumber } = req.body;
     const operatorId = req.user!.id;
-    const now = new Date().toISOString();
 
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
     if (!box) {
@@ -825,8 +819,8 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
 
     await db.prepare(`
       INSERT INTO aql_inspections (id, box_id, sales_order_id, inspector_id, required_samples, result, started_at)
-      VALUES (?, ?, ?, ?, ?, 'PENDING', ?)
-    `).run(inspectionId, box.id, box.sales_order_id, operatorId, totalItems > 0 ? totalItems : 3, now);
+      VALUES (?, ?, ?, ?, ?, 'PENDING', NOW(3))
+    `).run(inspectionId, box.id, box.sales_order_id, operatorId, totalItems > 0 ? totalItems : 3);
 
     return res.json({
       box: {
@@ -848,7 +842,6 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
   try {
     const inspectionId = req.params.id;
     const { sampleNumber, itemQr, result } = req.body;
-    const now = new Date().toISOString();
 
     const insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
     if (!insp) {
@@ -872,9 +865,9 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
     const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     await db.prepare(`
       INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, scanned_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE result = VALUES(result), scanned_at = VALUES(scanned_at)
-    `).run(sampleId, inspectionId, item.id, sampleNumber, result, now);
+      VALUES (?, ?, ?, ?, ?, NOW(3))
+      ON DUPLICATE KEY UPDATE result = VALUES(result), scanned_at = NOW(3)
+    `).run(sampleId, inspectionId, item.id, sampleNumber, result);
 
     return res.json({ message: 'Sample recorded', sampleNumber, result, itemQr });
   } catch (err) {
@@ -887,7 +880,6 @@ router.post('/api/aql/inspections/direct-complete', authenticateToken, async (re
   try {
     const { boxNumber, result, failureReason } = req.body;
     const operatorId = req.user!.id;
-    const now = new Date().toISOString();
 
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
     if (!box) {
@@ -897,11 +889,11 @@ router.post('/api/aql/inspections/direct-complete', authenticateToken, async (re
     const inspectionId = `aql-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     await db.prepare(`
       INSERT INTO aql_inspections (id, box_id, sales_order_id, inspector_id, required_samples, result, failure_reason, started_at, completed_at)
-      VALUES (?, ?, ?, ?, 12, ?, ?, ?, ?)
-    `).run(inspectionId, box.id, box.sales_order_id, operatorId, result, failureReason || null, now, now);
+      VALUES (?, ?, ?, ?, 12, ?, ?, NOW(3), NOW(3))
+    `).run(inspectionId, box.id, box.sales_order_id, operatorId, result, failureReason || null);
 
     const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';
-    await db.prepare(`UPDATE boxes SET status = ?, completed_at = ? WHERE id = ?`).run(boxStatus, now, box.id);
+    await db.prepare(`UPDATE boxes SET status = ?, completed_at = NOW(3) WHERE id = ?`).run(boxStatus, box.id);
 
     return res.json({ message: 'AQL Direct Complete finalized', inspectionId, result });
   } catch (err) {
@@ -915,7 +907,6 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
     let inspectionId = req.params.id;
     const { result, failureReason, boxNumber } = req.body;
     const operatorId = req.user!.id;
-    const now = new Date().toISOString();
 
     let insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
     if (!insp) {
@@ -926,20 +917,20 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
 
       await db.prepare(`
         INSERT INTO aql_inspections (id, box_id, sales_order_id, inspector_id, required_samples, result, failure_reason, started_at, completed_at)
-        VALUES (?, ?, ?, ?, 12, ?, ?, ?, ?)
-      `).run(inspectionId, box.id, box.sales_order_id, operatorId, result, failureReason || null, now, now);
+        VALUES (?, ?, ?, ?, 12, ?, ?, NOW(3), NOW(3))
+      `).run(inspectionId, box.id, box.sales_order_id, operatorId, result, failureReason || null);
       insp = { id: inspectionId, box_id: box.id };
     } else {
       await db.prepare(`
         UPDATE aql_inspections 
-        SET result = ?, failure_reason = ?, completed_at = ? 
+        SET result = ?, failure_reason = ?, completed_at = NOW(3) 
         WHERE id = ?
-      `).run(result, failureReason || null, now, inspectionId);
+      `).run(result, failureReason || null, inspectionId);
     }
 
     const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';
     if (insp.box_id) {
-      await db.prepare(`UPDATE boxes SET status = ?, completed_at = ? WHERE id = ?`).run(boxStatus, now, insp.box_id);
+      await db.prepare(`UPDATE boxes SET status = ?, completed_at = NOW(3) WHERE id = ?`).run(boxStatus, insp.box_id);
     }
 
     return res.json({ message: 'AQL Inspection finalized', inspectionId, result });

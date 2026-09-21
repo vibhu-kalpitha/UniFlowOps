@@ -29,7 +29,9 @@ export const ScannerStatus: React.FC<ScannerStatusProps> = ({
     switch (status) {
       case 'connected':
         return {
-          label: `Connected (${scannerState.deviceName || 'USB/BT HID'})`,
+          label: scannerState.errorMessage
+            ? scannerState.errorMessage
+            : `Scanner Connected (${scannerState.deviceName || 'HID Keyboard'})`,
           bgColor: 'rgba(24, 184, 121, 0.12)',
           borderColor: 'rgba(24, 184, 121, 0.3)',
           textColor: '#18B879',

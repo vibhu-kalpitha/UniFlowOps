@@ -36,11 +36,10 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
     }
 
     const id = `style-${Date.now()}`;
-    const now = new Date().toISOString();
     await db.prepare(`
       INSERT INTO styles (id, code, name, customer, season, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, code, name, customer || null, season || null, notes || null, now, now);
+      VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+    `).run(id, code, name, customer || null, season || null, notes || null);
 
     await auditLog(req.user!.id, 'CREATE_STYLE', 'styles', id, { code, name });
 
@@ -247,7 +246,6 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
     const body = addSoStandaloneSchema.parse(req.body);
     const soNumber = body.soNumber || body.id || `SO-${Math.floor(77000 + Math.random() * 9999)}`;
     const mapSo = body.mapSo || `MAP-${soNumber}`;
-    const now = new Date().toISOString();
     const soDbId = `so-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
 
     let lineId = 'line-04';
@@ -260,7 +258,7 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
 
     await db.prepare(`
       INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
     `).run(
       soDbId,
       po.id,
@@ -273,9 +271,7 @@ router.post('/production-orders/:id/sales-orders', authenticateToken, requireRol
       qty,
       lineId,
       shiftId,
-      body.boxCapacity || 12,
-      now,
-      now
+      body.boxCapacity || 12
     );
 
     await auditLog(req.user!.id, 'CREATE_SO', 'sales_orders', soDbId, { poId: po.id, soNumber });
@@ -313,7 +309,6 @@ const createPoSchema = z.object({
 router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const body = createPoSchema.parse(req.body);
-    const now = new Date().toISOString();
     const poDbId = `po-${Date.now()}`;
     const statusUpper = (body.status || 'CURRENT').toUpperCase();
 
@@ -324,8 +319,8 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
         const newStyleId = `style-${Date.now()}`;
         await db.prepare(`
           INSERT INTO styles (id, code, name, customer, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(newStyleId, body.styleCode, body.styleName || `Style ${body.styleCode}`, body.customer, now, now);
+          VALUES (?, ?, ?, ?, NOW(3), NOW(3))
+        `).run(newStyleId, body.styleCode, body.styleName || `Style ${body.styleCode}`, body.customer);
         styleId = newStyleId;
       } else {
         styleId = existingStyle.id;
@@ -335,8 +330,8 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     await db.transaction(async (tx) => {
       await tx.prepare(`
         INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(poDbId, body.id, body.mapPo, body.customer, styleId, body.startDate, body.dueDate, req.user!.id, body.remarks || '', statusUpper, now, now);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, body.mapPo, body.customer, styleId, body.startDate, body.dueDate, req.user!.id, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = 'QC_TEST';
@@ -359,7 +354,7 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
           await tx.prepare(`
             INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
           `).run(
             soDbId,
             poDbId,
@@ -372,9 +367,7 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
             so.quantity || 1000,
             lineId,
             shiftId,
-            so.boxCapacity || 12,
-            now,
-            now
+            so.boxCapacity || 12
           );
         }
       }
@@ -418,13 +411,12 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
     const targetShiftId = shift ? shift.id : shiftId;
 
     const workAssignId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    const now = new Date().toISOString();
 
     await db.prepare(`
       INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'SUPERVISOR', ?, 1, ?, ?)
-      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = VALUES(updated_at)
-    `).run(workAssignId, so.id, targetShiftId, opUser.id, operation || 'ALL', now.split('T')[0], req.user!.id, now, now);
+      VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
+      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
+    `).run(workAssignId, so.id, targetShiftId, opUser.id, operation || 'ALL', req.user!.id);
 
     await auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, shiftId: targetShiftId });
 
@@ -465,7 +457,7 @@ router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requi
   try {
     const { allocId } = req.params;
 
-    await db.prepare(`UPDATE operator_work_assignments SET active = 0, updated_at = NOW() WHERE id = ?`).run(allocId);
+    await db.prepare(`UPDATE operator_work_assignments SET active = 0, updated_at = NOW(3) WHERE id = ?`).run(allocId);
     await auditLog(req.user!.id, 'DEACTIVATE_ALLOCATION', 'operator_work_assignments', allocId);
 
     return res.json({ message: 'Allocation deactivated successfully' });

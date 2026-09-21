@@ -54,12 +54,11 @@ router.post('/:id/members', authenticateToken, requireRole('ADMIN'), async (req:
     }
 
     const memberId = `sm-${Date.now()}`;
-    const now = new Date().toISOString();
     await db.prepare(`
       INSERT INTO shift_members (id, shift_id, operator_id, effective_from, active)
-      VALUES (?, ?, ?, ?, 1)
+      VALUES (?, ?, ?, NOW(3), 1)
       ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1
-    `).run(memberId, shift.id, operator.id, now);
+    `).run(memberId, shift.id, operator.id);
 
     await auditLog(req.user!.id, 'ADD_SHIFT_MEMBER', 'shift_members', memberId, { shiftId: shift.id, operatorId: operator.id });
 

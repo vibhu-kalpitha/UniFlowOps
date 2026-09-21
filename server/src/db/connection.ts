@@ -29,6 +29,15 @@ export interface StatementRunner {
   run(...params: any[]): Promise<{ changes: number; lastInsertRowid: number }>;
 }
 
+/**
+ * Safely format a JavaScript Date, string, or timestamp into a MySQL-compatible 
+ * DATETIME(3) string format 'YYYY-MM-DD HH:mm:ss.SSS' without 'T' or 'Z'.
+ */
+export function formatMySqlDateTime(date?: Date | string | number): string {
+  const d = date ? new Date(date) : new Date();
+  return d.toISOString().replace('T', ' ').replace('Z', '');
+}
+
 export class DbConnection {
   private client: Pool | PoolConnection;
 
