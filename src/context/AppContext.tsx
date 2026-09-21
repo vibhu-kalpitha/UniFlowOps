@@ -154,9 +154,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             triggerExpiryToast();
           }
         })
-        .catch(() => {
-          logoutUser();
-          triggerExpiryToast();
+        .catch((err: any) => {
+          const msg = String(err?.message || '').toUpperCase();
+          if (msg.includes('401') || msg.includes('UNAUTHORIZED') || msg.includes('EXPIRED')) {
+            logoutUser();
+            triggerExpiryToast();
+          } else {
+            console.warn('Network error or server error verifying session, preserving local session state:', err);
+          }
         })
         .finally(() => {
           setAuthLoading(false);

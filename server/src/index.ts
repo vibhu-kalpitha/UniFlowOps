@@ -6,6 +6,8 @@ import dotenv from 'dotenv';
 import os from 'os';
 import fs from 'fs';
 
+import compression from 'compression';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -26,6 +28,9 @@ dotenv.config();
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
+
+// Enable gzip/brotli HTTP response compression
+app.use(compression());
 
 // CORS for development
 app.use(cors());
@@ -73,12 +78,17 @@ function resolveDistPath(): string {
 
 const distPath = resolveDistPath();
 
-// Serve production static frontend from dist with no-cache headers for immediate updates
+// Serve production static frontend with immutable caching for hashed assets and no-cache for HTML
 app.use(express.static(distPath, {
-  setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+  setHeaders: (res, filePath) => {
+    const normPath = filePath.replace(/\\/g, '/');
+    if (normPath.includes('/assets/')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
   }
 }));
 
