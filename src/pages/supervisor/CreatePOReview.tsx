@@ -40,11 +40,16 @@ export const CreatePOReview: React.FC = () => {
   const totalShifts = draftSos.reduce((sum, s) => sum + (s.shifts ? s.shifts.length : 0), 0);
 
   const handleFinalCreate = async () => {
+    if (!draftPoGeneral?.styleId) {
+      showToast('Please select an existing style or create one first.', 'warning');
+      return;
+    }
+
     const finalPoPayload = {
       id: draftPoGeneral.id,
       mapPo: draftPoGeneral.mapPo,
       customer: draftPoGeneral.customer || 'Factory Orders',
-      styleCode: draftPoGeneral.selectedStyle,
+      styleId: draftPoGeneral.styleId,
       boxRangeStart: draftPoGeneral.boxRangeStart,
       boxRangeEnd: draftPoGeneral.boxRangeEnd,
       startDate: draftPoGeneral.startDate,
@@ -107,7 +112,7 @@ export const CreatePOReview: React.FC = () => {
     // Clear draft ONLY after success
     sessionStorage.removeItem('uniflow_draft_po_general');
     sessionStorage.removeItem('uniflow_draft_po_sos');
-    sessionStorage.removeItem('uniflow_draft_po_style');
+    sessionStorage.removeItem('uniflow_draft_po_style_id');
 
     setCreatedPo(savedPo);
     setIsCreated(true);

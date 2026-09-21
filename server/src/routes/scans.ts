@@ -73,6 +73,61 @@ export async function checkOperatorAllocation(operatorId: string, role: string, 
   return !!(row && row.cnt > 0);
 }
 
+// Product QR Range Validation Helper
+export function validateProductQrRange(so: any, rawCode: string): { valid: boolean; error?: string; message?: string; expectedRange?: string } {
+  if (!so) {
+    return { valid: false, error: 'SO_NOT_FOUND', message: 'Sales Order not found' };
+  }
+  const prefix = so.product_qr_prefix || so.productQrPrefix;
+  const start = so.product_serial_start != null ? Number(so.product_serial_start) : (so.productSerialStart != null ? Number(so.productSerialStart) : null);
+  const end = so.product_serial_end != null ? Number(so.product_serial_end) : (so.productSerialEnd != null ? Number(so.productSerialEnd) : null);
+
+  const soNum = so.so_number || so.id;
+
+  if (!prefix || start === null || end === null || isNaN(start) || isNaN(end)) {
+    return {
+      valid: false,
+      error: 'QR_RANGE_NOT_CONFIGURED',
+      message: `Product QR range not configured for ${soNum}. Please edit Sales Order to configure QR range.`
+    };
+  }
+
+  const code = rawCode.trim().toUpperCase();
+  const normalizedPrefix = prefix.trim().toUpperCase();
+  const expectedRange = `${normalizedPrefix}${start} to ${normalizedPrefix}${end}`;
+
+  if (!code.startsWith(normalizedPrefix)) {
+    return {
+      valid: false,
+      error: 'QR_OUT_OF_RANGE',
+      message: `This product QR does not belong to ${soNum}.`,
+      expectedRange
+    };
+  }
+
+  const serialStr = code.slice(normalizedPrefix.length);
+  if (!serialStr || !/^\d+$/.test(serialStr)) {
+    return {
+      valid: false,
+      error: 'QR_OUT_OF_RANGE',
+      message: `This product QR does not belong to ${soNum}.`,
+      expectedRange
+    };
+  }
+
+  const serialNum = parseInt(serialStr, 10);
+  if (serialNum < start || serialNum > end) {
+    return {
+      valid: false,
+      error: 'QR_OUT_OF_RANGE',
+      message: `This product QR does not belong to ${soNum}.`,
+      expectedRange
+    };
+  }
+
+  return { valid: true, expectedRange };
+}
+
 // 0. POST /api/qc/scan
 router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
@@ -83,6 +138,15 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
     }
     const code = rawCode.trim().toUpperCase();
     const so = await resolveSO(targetSoKey);
+
+    const rangeCheck = validateProductQrRange(so, code);
+    if (!rangeCheck.valid) {
+      return res.status(400).json({
+        error: rangeCheck.error,
+        message: rangeCheck.message,
+        expectedRange: rangeCheck.expectedRange
+      });
+    }
 
     const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
     if (item) {
@@ -258,6 +322,16 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     const so = await resolveSO(targetSoKey);
     if (!so) {
       return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    }
+
+    const rangeCheck = validateProductQrRange(so, itemQr);
+    if (!rangeCheck.valid) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'REJECTED', rangeCheck.error, rangeCheck.message);
+      return res.status(400).json({
+        error: rangeCheck.error,
+        message: rangeCheck.message,
+        expectedRange: rangeCheck.expectedRange
+      });
     }
 
     if (idempotencyKey) {

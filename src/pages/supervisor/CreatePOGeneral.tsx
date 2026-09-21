@@ -10,6 +10,9 @@ interface StyleItem {
   id: string;
   code: string;
   name: string;
+  customer?: string;
+  season?: string;
+  notes?: string;
 }
 
 export const CreatePOGeneral: React.FC = () => {
@@ -19,7 +22,6 @@ export const CreatePOGeneral: React.FC = () => {
   const [stylesList, setStylesList] = useState<StyleItem[]>([]);
   const [loadingStyles, setLoadingStyles] = useState<boolean>(true);
   const [selectedStyleId, setSelectedStyleId] = useState<string>('');
-  const [selectedStyleText, setSelectedStyleText] = useState<string>('');
 
   const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
   const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
@@ -45,11 +47,6 @@ export const CreatePOGeneral: React.FC = () => {
         const savedId = sessionStorage.getItem('uniflow_draft_po_style_id');
         if (savedId && res.some(s => s.id === savedId)) {
           setSelectedStyleId(savedId);
-          const found = res.find(s => s.id === savedId);
-          if (found) setSelectedStyleText(`${found.code} - ${found.name}`);
-        } else if (res.length > 0) {
-          setSelectedStyleId(res[0].id);
-          setSelectedStyleText(`${res[0].code} - ${res[0].name}`);
         }
       })
       .catch(err => {
@@ -71,7 +68,7 @@ export const CreatePOGeneral: React.FC = () => {
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStyleId) {
-      showToast('Please select a Garment Style', 'warning');
+      showToast('Please select an existing style or create one first.', 'warning');
       return;
     }
     if (!poId.trim() || !mapPo.trim()) {
@@ -87,16 +84,14 @@ export const CreatePOGeneral: React.FC = () => {
       return;
     }
 
-    const styleObj = stylesList.find(s => s.id === selectedStyleId);
-    const styleText = styleObj ? `${styleObj.code} - ${styleObj.name}` : selectedStyleText;
+    const selectedStyleObj = stylesList.find(s => s.id === selectedStyleId);
 
     // Save draft PO to session/state
     const draftPo = {
       id: poId,
       mapPo,
-      customer: 'Nike',
+      customer: selectedStyleObj?.customer || 'Nike',
       styleId: selectedStyleId,
-      selectedStyle: styleText,
       boxRangeStart,
       boxRangeEnd,
       startDate,
@@ -107,7 +102,6 @@ export const CreatePOGeneral: React.FC = () => {
     };
 
     sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleId);
-    sessionStorage.setItem('uniflow_draft_po_style', styleText);
     sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftPo));
     navigate('/supervisor/production-orders/new/sales-orders');
   };
@@ -159,11 +153,10 @@ export const CreatePOGeneral: React.FC = () => {
               onChange={e => {
                 const id = e.target.value;
                 setSelectedStyleId(id);
-                const found = stylesList.find(s => s.id === id);
-                if (found) {
-                  setSelectedStyleText(`${found.code} - ${found.name}`);
-                  sessionStorage.setItem('uniflow_draft_po_style_id', found.id);
-                  sessionStorage.setItem('uniflow_draft_po_style', `${found.code} - ${found.name}`);
+                if (id) {
+                  sessionStorage.setItem('uniflow_draft_po_style_id', id);
+                } else {
+                  sessionStorage.removeItem('uniflow_draft_po_style_id');
                 }
               }}
               required

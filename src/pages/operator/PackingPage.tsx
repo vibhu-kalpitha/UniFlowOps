@@ -30,9 +30,6 @@ export const PackingPage: React.FC = () => {
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
-  const rangeStart = po?.boxRangeStart || '';
-  const rangeEnd   = po?.boxRangeEnd   || '';
-
   const targetSoQty = so?.quantity || 10;
   const packedQty = so?.progress?.packed || 0;
   const remainingPackQty = Math.max(0, targetSoQty - packedQty);
@@ -43,14 +40,6 @@ export const PackingPage: React.FC = () => {
 
   /* ── Phase 1: Box barcode scan ─────────────────────────────── */
   const handleScanBox = async (code: string) => {
-    if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
-      return {
-        status: 'rejected' as const,
-        message: `❌ Out of Serial Range! Box barcode (${code}) is out of PO range: ${rangeStart} → ${rangeEnd}`,
-        code,
-      };
-    }
-
     const newBox: ActiveBox = {
       boxNumber: code,
       capacity:  so?.boxCapacity || 12,
@@ -75,15 +64,6 @@ export const PackingPage: React.FC = () => {
       return {
         status:  'rejected' as const,
         message: `Box full (${box.capacity}/${box.capacity})! Finish this box first.`,
-        code,
-      };
-    }
-
-    // Range check
-    if (rangeStart && rangeEnd && !isCodeInRange(code, rangeStart, rangeEnd)) {
-      return {
-        status:  'rejected' as const,
-        message: `❌ Out of Range! (${code}) not in PO range: ${rangeStart} → ${rangeEnd}`,
         code,
       };
     }
@@ -187,9 +167,9 @@ export const PackingPage: React.FC = () => {
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                 {so?.product || 'Garment'} — {so?.colour || '—'}
-                {rangeStart && rangeEnd && (
+                {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null && (
                   <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                    • Range: {rangeStart} → {rangeEnd}
+                    • Product Range: {so.productQrPrefix}{so.productSerialStart} → {so.productQrPrefix}{so.productSerialEnd}
                   </span>
                 )}
               </span>
@@ -362,9 +342,11 @@ export const PackingPage: React.FC = () => {
                 <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{so?.boxCapacity || 24} items / carton</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Barcode Range:</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Product QR Range:</span>
                 <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>
-                  {rangeStart && rangeEnd ? `${rangeStart} → ${rangeEnd}` : 'Any Code'}
+                  {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null
+                    ? `${so.productQrPrefix}${so.productSerialStart} → ${so.productQrPrefix}${so.productSerialEnd}`
+                    : 'Not configured'}
                 </span>
               </div>
             </div>

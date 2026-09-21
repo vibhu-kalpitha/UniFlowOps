@@ -270,3 +270,48 @@ button:disabled {
 .scan-pulse {
   animation: scanPulse 2s infinite;
 }
+
+/* ── Mobile Operator Home Responsive Enhancements (<= 640px) ──────────────── */
+@media (max-width: 640px) {
+  .op-metrics-wrapper {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    margin-top: 10px !important;
+    padding-top: 10px !important;
+    border-top: 1px solid var(--border-color) !important;
+  }
+
+  .op-metrics-row1,
+  .op-metrics-row2 {
+    display: contents !important;
+  }
+
+  .op-metric-box {
+    padding: 8px 4px !important;
+    min-height: 56px !important;
+    border-radius: 10px !important;
+  }
+
+  .op-metric-box span:first-child {
+    font-size: 16px !important;
+    line-height: 1.1 !important;
+  }
+
+  .op-metric-box span:last-child {
+    font-size: 9.5px !important;
+    line-height: 1.15 !important;
+    margin-top: 2px !important;
+  }
+
+  /* Requirement 2: Remove operation descriptions on mobile only */
+  .op-card-desc {
+    display: none !important;
+  }
+
+  .op-card-interactive {
+    height: 88px !important;
+    padding: 10px !important;
+    gap: 6px !important;
+  }
+}

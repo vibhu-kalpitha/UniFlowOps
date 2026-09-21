@@ -141,6 +141,21 @@ async function runSchemaAlignment002(): Promise<void> {
   }
 }
 
+async function runSchemaAlignment004(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (004 Product QR Range)...');
+  if (await tableExists('sales_orders')) {
+    if (!(await columnExists('sales_orders', 'product_qr_prefix'))) {
+      await db.exec(`ALTER TABLE sales_orders ADD COLUMN product_qr_prefix VARCHAR(100) NULL AFTER box_capacity;`);
+    }
+    if (!(await columnExists('sales_orders', 'product_serial_start'))) {
+      await db.exec(`ALTER TABLE sales_orders ADD COLUMN product_serial_start BIGINT NULL AFTER product_qr_prefix;`);
+    }
+    if (!(await columnExists('sales_orders', 'product_serial_end'))) {
+      await db.exec(`ALTER TABLE sales_orders ADD COLUMN product_serial_end BIGINT NULL AFTER product_serial_start;`);
+    }
+  }
+}
+
 export async function runMigrations(): Promise<{ applied: string[]; skipped: string[] }> {
   const connected = await ensureDbConnected();
   if (!connected) {
@@ -189,6 +204,8 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
           await db.exec(sql);
         }
       }
+    } else if (file === '004_so_product_qr_range.sql') {
+      await runSchemaAlignment004();
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);

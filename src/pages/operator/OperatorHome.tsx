@@ -133,8 +133,8 @@ export const OperatorHome: React.FC = () => {
       return;
     }
 
-    // 3. Check product QR against active PO range
-    const inRange = po?.boxRangeStart && po?.boxRangeEnd;
+    // 3. Check product QR against active SO product range
+    const inRange = so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null;
     if (inRange) {
       setSearchResult('product');
       return;
@@ -240,43 +240,46 @@ export const OperatorHome: React.FC = () => {
               All Production Orders & Factory Live Metrics
             </h3>
 
-            {/* Row 1 Metrics (6 items) */}
-            <div style={styles.metricsRow1}>
-              <div style={styles.metricBoxGreen}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
+            {/* Metrics Wrapper */}
+            <div className="op-metrics-wrapper">
+              {/* Row 1 Metrics (6 items) */}
+              <div style={styles.metricsRow1} className="op-metrics-row1">
+                <div style={styles.metricBoxGreen} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
+                </div>
+                <div style={styles.metricBoxBlue} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
+                </div>
+                <div style={styles.metricBoxPurple} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
+                </div>
+                <div style={styles.metricBoxAmber} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
+                </div>
+                <div style={styles.metricBoxDarkRed} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
+                </div>
+                <div style={styles.metricBoxRed} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
+                </div>
               </div>
-              <div style={styles.metricBoxBlue}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
-              </div>
-              <div style={styles.metricBoxPurple}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
-              </div>
-              <div style={styles.metricBoxAmber}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
-              </div>
-              <div style={styles.metricBoxDarkRed}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
-              </div>
-              <div style={styles.metricBoxRed}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
-              </div>
-            </div>
 
-            {/* Row 2 Metrics (2 items) */}
-            <div style={styles.metricsRow2}>
-              <div style={styles.metricBoxEmerald}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
-              </div>
-              <div style={styles.metricBoxYellow}>
-                <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+              {/* Row 2 Metrics (2 items) */}
+              <div style={styles.metricsRow2} className="op-metrics-row2">
+                <div style={styles.metricBoxEmerald} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
+                </div>
+                <div style={styles.metricBoxYellow} className="op-metric-box">
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+                </div>
               </div>
             </div>
           </div>
