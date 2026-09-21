@@ -55,6 +55,12 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
 
   const navItems = getNavItems();
 
+  const handleProfileClick = () => {
+    if (currentRole === 'operator') navigate('/operator/profile');
+    else if (currentRole === 'supervisor') navigate('/supervisor/profile');
+    else navigate('/admin/more');
+  };
+
   return (
     <header className="app-header-container" style={styles.header}>
       <div className="header-inner-container" style={styles.innerHeaderContainer}>
@@ -103,9 +109,15 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
             {unreadAlertsCount > 0 && <span style={styles.badge}>{unreadAlertsCount}</span>}
           </button>
 
-          <div style={styles.avatar}>
+          <button
+            type="button"
+            style={styles.avatarBtn}
+            onClick={handleProfileClick}
+            aria-label="Open profile"
+            id="header-profile-avatar"
+          >
             <span>{currentUser?.avatarInitials || 'US'}</span>
-          </div>
+          </button>
         </div>
       </div>
     </header>
@@ -210,7 +222,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     padding: '0 4px'
   },
-  avatar: {
+  avatarBtn: {
     width: '36px',
     height: '36px',
     borderRadius: '50%',
@@ -221,7 +233,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    cursor: 'pointer',
+    padding: 0,
+    outline: 'none'
   },
   topNav: {
     alignItems: 'center',

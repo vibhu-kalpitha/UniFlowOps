@@ -53,12 +53,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [aqlSession, setAqlSessionState] = useState<AQLSession | null>(repository.getAQLSession());
   const [scannerConnected, setScannerConnected] = useState<boolean>(true);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const sessionExpiredToastShownRef = React.useRef(false);
 
   // Daily counters for demo
   const [qcPassedCountToday, setQcPassedCountToday] = useState<number>(624);
   const [packedCountToday, setPackedCountToday] = useState<number>(598);
 
+  const triggerExpiryToast = () => {
+    if (!sessionExpiredToastShownRef.current) {
+      sessionExpiredToastShownRef.current = true;
+      showToast('Session expired, please log in again.', 'warning');
+    }
+  };
+
   const loginUser = (token: string, userObj: any) => {
+    sessionExpiredToastShownRef.current = false;
     localStorage.setItem('uniflow_token', token);
     const roleStr = (userObj.role || 'operator').toLowerCase() as UserRole;
     const formattedUser: User = {
@@ -102,7 +111,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const handleUnauthorized = () => {
       logoutUser();
-      showToast('Session expired, please log in again.', 'warning');
+      triggerExpiryToast();
     };
     window.addEventListener('uniflow_unauthorized', handleUnauthorized);
     return () => {
@@ -125,6 +134,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       apiFetch('/api/auth/me')
         .then(res => {
           if (res.user) {
+            sessionExpiredToastShownRef.current = false;
             const roleStr = res.user.role.toLowerCase() as UserRole;
             const formattedUser: User = {
               id: res.user.id,
@@ -141,12 +151,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setIsAuthenticated(true);
           } else {
             logoutUser();
-            showToast('Session expired, please log in again.', 'warning');
+            triggerExpiryToast();
           }
         })
         .catch(() => {
           logoutUser();
-          showToast('Session expired, please log in again.', 'warning');
+          triggerExpiryToast();
         })
         .finally(() => {
           setAuthLoading(false);

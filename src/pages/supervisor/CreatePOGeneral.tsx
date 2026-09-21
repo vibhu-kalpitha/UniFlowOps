@@ -26,8 +26,6 @@ export const CreatePOGeneral: React.FC = () => {
   const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
   const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
 
-  const [boxRangeStart, setBoxRangeStart] = useState('BX-000100');
-  const [boxRangeEnd, setBoxRangeEnd] = useState('BX-000500');
   const [startDate, setStartDate] = useState('2026-09-15');
   const [dueDate, setDueDate] = useState('2026-10-10');
   const [supervisor, setSupervisor] = useState('Nimal Perera');
@@ -75,10 +73,6 @@ export const CreatePOGeneral: React.FC = () => {
       showToast('Please fill required PO fields', 'warning');
       return;
     }
-    if (!boxRangeStart.trim() || !boxRangeEnd.trim()) {
-      showToast('Please specify box serial number / barcode range', 'warning');
-      return;
-    }
     if (selectedOps.length === 0) {
       showToast('Select at least one required operation', 'warning');
       return;
@@ -92,8 +86,6 @@ export const CreatePOGeneral: React.FC = () => {
       mapPo,
       customer: selectedStyleObj?.customer || 'Nike',
       styleId: selectedStyleId,
-      boxRangeStart,
-      boxRangeEnd,
       startDate,
       dueDate,
       supervisorId: supervisor,
@@ -129,7 +121,7 @@ export const CreatePOGeneral: React.FC = () => {
       <div>
         <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Create Production Order</h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Step 2 of 4: Select Garment Style, Define Production Order Header & Box Serial Range.
+          Step 2 of 4: Select Garment Style & Define Production Order Header.
         </p>
       </div>
 
@@ -204,32 +196,6 @@ export const CreatePOGeneral: React.FC = () => {
               onChange={e => setMapPo(e.target.value)}
               required
             />
-          </div>
-
-          {/* Box Serial Range */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={styles.label}>Box Serial Range Start</label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="e.g. BX-000100"
-                value={boxRangeStart}
-                onChange={e => setBoxRangeStart(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label style={styles.label}>Box Serial Range End</label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="e.g. BX-000500"
-                value={boxRangeEnd}
-                onChange={e => setBoxRangeEnd(e.target.value)}
-                required
-              />
-            </div>
           </div>
 
           {/* Dates Row */}

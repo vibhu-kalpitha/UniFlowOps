@@ -6,6 +6,7 @@ import '../../styles/tokens.css';
 
 interface BoxData {
   id: string;
+  isNew?: boolean;
   boxCode: string;
   boxNumber: string;
   productionOrderId: string;
@@ -42,11 +43,15 @@ export const BoxTransferPage: React.FC = () => {
   const [selectedItemQrs, setSelectedItemQrs] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const resolveBox = async (val: string): Promise<BoxData> => {
+  const resolveBox = async (val: string, options?: { isDestination?: boolean; sourceBoxCode?: string }): Promise<BoxData> => {
     const { apiFetch } = await import('../../services/api');
     const res = await apiFetch<{ box: BoxData }>('/api/boxes/resolve', {
       method: 'POST',
-      body: JSON.stringify({ value: val.trim() }),
+      body: JSON.stringify({
+        value: val.trim(),
+        isDestination: options?.isDestination,
+        sourceBoxCode: options?.sourceBoxCode
+      }),
     });
     return res.box;
   };
@@ -75,9 +80,16 @@ export const BoxTransferPage: React.FC = () => {
     setLoadingDest(true);
     setErrorMessage(null);
     try {
-      const box = await resolveBox(destInput);
+      const box = await resolveBox(destInput, {
+        isDestination: true,
+        sourceBoxCode: sourceBox?.boxCode || sourceBox?.boxNumber
+      });
       setDestBox(box);
-      showToast(`Destination box ${box.boxCode || box.boxNumber} loaded`, 'success');
+      if (box.isNew) {
+        showToast(`New empty box ${box.boxCode} ready as destination`, 'info');
+      } else {
+        showToast(`Destination box ${box.boxCode || box.boxNumber} loaded`, 'success');
+      }
     } catch (err: any) {
       setDestBox(null);
       const msg = err.message || 'Failed to resolve destination box';
@@ -144,7 +156,10 @@ export const BoxTransferPage: React.FC = () => {
 
       // Refresh both box states seamlessly
       const updatedSource = await resolveBox(sourceBox.boxCode || sourceBox.boxNumber);
-      const updatedDest = await resolveBox(destBox.boxCode || destBox.boxNumber);
+      const updatedDest = await resolveBox(destBox.boxCode || destBox.boxNumber, {
+        isDestination: true,
+        sourceBoxCode: updatedSource?.boxCode || updatedSource?.boxNumber
+      });
 
       setSourceBox(updatedSource);
       setDestBox(updatedDest);
@@ -160,34 +175,28 @@ export const BoxTransferPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Header Banner */}
-      <div style={styles.banner}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <ArrowLeftRight size={22} color="var(--color-orange)" />
-          <div>
-            <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0 }}>Box Transfer</h3>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Scan QR code or type box number to transfer active packed garments
-            </span>
-          </div>
+      {/* Header Info */}
+      <div style={styles.headerRow}>
+        <div>
+          <span style={styles.cardHeaderTitle}>STATION OPERATOR</span>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>Box Item Transfer</h2>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Move packed product items between boxes safely inside atomic transactions.
+          </span>
         </div>
+        <ScannerStatus compact={true} />
       </div>
 
-      {/* Error Message Display Banner */}
+      {/* Error Alert Box if any */}
       {errorMessage && (
         <div style={styles.errorBanner}>
-          <AlertTriangle size={18} color="#EF4444" style={{ flexShrink: 0 }} />
-          <span style={{ fontSize: '13px', fontWeight: 600, color: '#EF4444' }}>
-            {errorMessage}
-          </span>
+          <AlertTriangle size={18} color="var(--color-red)" />
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-red)' }}>{errorMessage}</span>
         </div>
       )}
 
-      {/* Scanner Status */}
-      <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
-
-      {/* Source and Destination Box Resolution Inputs */}
-      <div style={styles.boxTransferGrid}>
+      {/* Grid: Source Box & Destination Box Cards */}
+      <div style={styles.boxesGrid}>
         {/* Source Box */}
         <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '12px' }}>
           <span style={styles.cardHeaderTitle}>SOURCE BOX</span>
@@ -279,10 +288,26 @@ export const BoxTransferPage: React.FC = () => {
                 <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0 }}>
                   {destBox.boxCode}
                 </h4>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Ref: {destBox.boxNumber}
-                </span>
+                {destBox.isNew ? (
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', backgroundColor: 'rgba(16,185,129,0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+                    NEW EMPTY BOX
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Ref: {destBox.boxNumber}
+                  </span>
+                )}
               </div>
+              {destBox.isNew && (
+                <div style={{ backgroundColor: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '8px', padding: '8px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', color: '#10B981', fontWeight: 700, display: 'block' }}>
+                    ✨ New Empty Box: {destBox.boxCode}
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
+                    This box will be created for the same PO ({destBox.poNumber}) and SO ({destBox.soNumber}) as the source box.
+                  </span>
+                </div>
+              )}
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
                 PO: {destBox.poNumber || 'N/A'} | SO: {destBox.soNumber || 'N/A'}
               </span>

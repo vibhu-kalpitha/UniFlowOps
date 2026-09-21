@@ -561,7 +561,10 @@ router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest
 const resolveBoxSchema = z.object({
   value: z.string().optional(),
   boxCode: z.string().optional(),
-  boxNumber: z.string().optional()
+  boxNumber: z.string().optional(),
+  isDestination: z.boolean().optional(),
+  sourceBoxCode: z.string().optional(),
+  sourceBoxNumber: z.string().optional()
 });
 
 router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, next) => {
@@ -598,6 +601,33 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
     }
 
     if (!box) {
+      if (parsed.isDestination && (parsed.sourceBoxCode || parsed.sourceBoxNumber)) {
+        const srcCode = (parsed.sourceBoxCode || parsed.sourceBoxNumber)!.trim().toUpperCase();
+        const srcBox = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(srcCode, srcCode) as any;
+        if (srcBox) {
+          const so = await db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(srcBox.sales_order_id) as any;
+          const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ?`).get(srcBox.production_order_id) as any;
+          const capacity = Number(so?.box_capacity || so?.capacity || srcBox.capacity || 12);
+
+          return res.json({
+            box: {
+              id: `new-${val}`,
+              isNew: true,
+              boxCode: val,
+              boxNumber: val,
+              productionOrderId: srcBox.production_order_id,
+              poNumber: po?.po_number || srcBox.production_order_id,
+              salesOrderId: srcBox.sales_order_id,
+              soNumber: so?.so_number || srcBox.sales_order_id,
+              capacity,
+              activeCount: 0,
+              availableSpace: capacity,
+              status: 'NEW',
+              items: []
+            }
+          });
+        }
+      }
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box '${val}' not found.` });
     }
 
@@ -749,14 +779,12 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
     const toCode = toBoxNumber.trim().toUpperCase();
 
     const fromBox = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(fromCode, fromCode) as any;
-    const toBox = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(toCode, toCode) as any;
 
-    if (!fromBox || !toBox) {
-      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Source or destination box not found' });
+    if (!fromBox) {
+      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Source box '${fromCode}' not found.` });
     }
 
-    // Validation 1: SAME_BOX check
-    if (fromBox.id === toBox.id) {
+    if (fromCode === toCode) {
       return res.status(400).json({ error: 'SAME_BOX', message: 'Source and destination box cannot be the same box.' });
     }
 
@@ -768,14 +796,23 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
       });
     }
 
-    // Validation 3: PO Mismatch
-    if (fromBox.production_order_id && toBox.production_order_id && fromBox.production_order_id !== toBox.production_order_id) {
-      return res.status(400).json({ error: 'PO_MISMATCH', message: 'Source and destination boxes belong to different Production Orders.' });
-    }
+    let toBox = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(toCode, toCode) as any;
 
-    // Validation 4: SO Mismatch
-    if (fromBox.sales_order_id !== toBox.sales_order_id) {
-      return res.status(400).json({ error: 'SO_MISMATCH', message: 'Source and destination boxes belong to different Sales Orders.' });
+    if (toBox) {
+      // Validation 1: SAME_BOX check
+      if (fromBox.id === toBox.id) {
+        return res.status(400).json({ error: 'SAME_BOX', message: 'Source and destination box cannot be the same box.' });
+      }
+
+      // Validation 3: PO Mismatch
+      if (fromBox.production_order_id && toBox.production_order_id && fromBox.production_order_id !== toBox.production_order_id) {
+        return res.status(400).json({ error: 'PO_MISMATCH', message: 'Source and destination boxes belong to different Production Orders.' });
+      }
+
+      // Validation 4: SO Mismatch
+      if (fromBox.sales_order_id !== toBox.sales_order_id) {
+        return res.status(400).json({ error: 'SO_MISMATCH', message: 'Source and destination boxes belong to different Sales Orders.' });
+      }
     }
 
     const transferId = `trf-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
@@ -784,9 +821,40 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
 
     // MySQL Transaction with SELECT ... FOR UPDATE pessimistic row locking
     await db.transaction(async (tx) => {
-      // Lock source and destination box rows
+      // Lock source box row
       await tx.query(`SELECT * FROM boxes WHERE id = ? FOR UPDATE`, [fromBox.id]);
-      await tx.query(`SELECT * FROM boxes WHERE id = ? FOR UPDATE`, [toBox.id]);
+
+      // If destination box does not exist, create it atomically inside transaction
+      if (!toBox) {
+        const existingLockedToBox = await tx.queryOne<any>(`
+          SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ? FOR UPDATE
+        `, [toCode, toCode]);
+
+        if (existingLockedToBox) {
+          toBox = existingLockedToBox;
+        } else {
+          const so = await tx.queryOne<any>(`SELECT * FROM sales_orders WHERE id = ?`, [fromBox.sales_order_id]);
+          const destCapacity = Number(so?.box_capacity || so?.capacity || fromBox.capacity || 12);
+          const newBoxId = `bx-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+
+          await tx.prepare(`
+            INSERT INTO boxes (id, box_code, box_number, production_order_id, sales_order_id, capacity, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', NOW(3))
+          `).run(newBoxId, toCode, toCode, fromBox.production_order_id, fromBox.sales_order_id, destCapacity);
+
+          toBox = {
+            id: newBoxId,
+            box_code: toCode,
+            box_number: toCode,
+            production_order_id: fromBox.production_order_id,
+            sales_order_id: fromBox.sales_order_id,
+            capacity: destCapacity,
+            status: 'OPEN'
+          };
+        }
+      } else {
+        await tx.query(`SELECT * FROM boxes WHERE id = ? FOR UPDATE`, [toBox.id]);
+      }
 
       // Lock and count current occupied destination capacity inside transaction
       const destCountRow = await tx.queryOne<{ cnt: number }>(`
@@ -865,6 +933,38 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
       sourceActiveCount: updatedSourceCount,
       destinationActiveCount: updatedDestCount
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 4b. GET /api/box-transfers - Transfer history endpoint with transferred_by user join
+router.get('/box-transfers', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const transfers = await db.query(`
+      SELECT 
+        bt.id,
+        bt.source_box_id,
+        bt.destination_box_id,
+        sb.box_code AS source_box_code,
+        sb.box_number AS source_box_number,
+        db_box.box_code AS destination_box_code,
+        db_box.box_number AS destination_box_number,
+        bt.production_order_id,
+        bt.sales_order_id,
+        bt.transferred_by,
+        u.full_name AS operator_name,
+        u.username AS operator_username,
+        bt.item_count,
+        bt.transferred_at,
+        bt.remarks
+      FROM box_transfers bt
+      LEFT JOIN boxes sb ON sb.id = bt.source_box_id
+      LEFT JOIN boxes db_box ON db_box.id = bt.destination_box_id
+      LEFT JOIN users u ON u.id = bt.transferred_by
+      ORDER BY bt.transferred_at DESC
+    `);
+    return res.json(transfers);
   } catch (err) {
     next(err);
   }
