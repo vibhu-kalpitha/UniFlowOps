@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import { CheckCircle2, XCircle, FileText, Check, ScanLine, Zap } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
@@ -499,6 +500,7 @@ export const QCTestPage: React.FC = () => {
             </div>
           </div>
 
+          <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
           <ScannerInput onScan={handleScanCode} placeholder={isBulkMode ? "⚡ Bulk Mode Active: Scan barcode to auto-save..." : "Scan garment QR code…"} />
 
           {!scannedItem ? (

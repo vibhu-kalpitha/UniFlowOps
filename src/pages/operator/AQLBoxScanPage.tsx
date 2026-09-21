@@ -5,6 +5,7 @@ import { ArrowRight, BoxSelect, ScanLine, Package, Search } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
@@ -165,6 +166,7 @@ export const AQLBoxScanPage: React.FC = () => {
             </div>
           )}
 
+          <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
           <ScannerInput onScan={handleScanBox} placeholder="Scan packing box QR / barcode…" />
 
           {!scannedBox && (

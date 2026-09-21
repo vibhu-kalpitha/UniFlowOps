@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import { CheckCircle2, AlertTriangle, ArrowRight, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
@@ -88,6 +89,9 @@ export const AQLResultPage: React.FC = () => {
           <span>Result</span>
         </div>
       </div>
+
+      {/* Scanner Status */}
+      <ScannerStatus compact={true} style={{ marginBottom: '12px' }} />
 
       {/* Result Hero Banner */}
       {isPassed ? (

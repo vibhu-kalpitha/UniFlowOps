@@ -89,6 +89,12 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
 
     if (res.status === 401) {
       setStoredToken(null);
+      localStorage.removeItem('uniflow_user');
+      localStorage.removeItem('uniflow_role');
+      localStorage.removeItem('uniflow_active_job');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('uniflow_unauthorized'));
+      }
     }
 
     const contentType = res.headers.get('content-type');

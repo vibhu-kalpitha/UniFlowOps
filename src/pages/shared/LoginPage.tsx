@@ -7,7 +7,7 @@ import '../../styles/tokens.css';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { setRole, showToast } = useApp();
+  const { loginUser, showToast } = useApp();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,8 +37,8 @@ export const LoginPage: React.FC = () => {
       const { login } = await import('../../services/api');
       const data = await login(username, password);
       const roleFromBackend = data.user.role.toLowerCase() as UserRole;
-      setRole(roleFromBackend);
-      showToast(`Welcome back, ${data.user.full_name}! Logged in as ${roleFromBackend.toUpperCase()}`, 'success');
+      loginUser(data.token, data.user);
+      showToast(`Welcome back, ${data.user.name || data.user.full_name}! Logged in as ${roleFromBackend.toUpperCase()}`, 'success');
 
       if (roleFromBackend === 'operator') {
         navigate('/operator/home');
