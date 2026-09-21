@@ -13,6 +13,7 @@
     "import:sqlite": "node dist-server/db/import-sqlite.js",
     "verify:deployment": "node dist-server/db/verify-deployment.js",
     "bootstrap:admin": "node dist-server/db/bootstrap-admin.js",
+    "bootstrap:test-users": "node dist-server/db/bootstrap-test-users.js",
     "db:seed": "node dist-server/db/seed.js",
     "test": "vitest run",
     "lint": "tsc --noEmit"

@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { ProgressBar } from '../../components/ProgressBar';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
@@ -249,6 +250,7 @@ export const PackingPage: React.FC = () => {
                   Point scanner at the box barcode to activate it
                 </span>
               </div>
+              <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
               <ScannerInput onScan={handleScanBox} placeholder="Scan box QR / barcode…" />
             </>
           ) : (

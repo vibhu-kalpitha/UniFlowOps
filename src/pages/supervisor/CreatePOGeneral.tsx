@@ -1,25 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { apiFetch } from '../../services/api';
 import { OperationType } from '../../types';
-import { ArrowRight, CheckSquare, Square, Tag } from 'lucide-react';
+import { ArrowRight, CheckSquare, Square, Tag, Plus } from 'lucide-react';
 import '../../styles/tokens.css';
+
+interface StyleItem {
+  id: string;
+  code: string;
+  name: string;
+}
 
 export const CreatePOGeneral: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useApp();
 
-  const [selectedStyle, setSelectedStyle] = useState('Style 01 (Running Tee)');
+  const [stylesList, setStylesList] = useState<StyleItem[]>([]);
+  const [loadingStyles, setLoadingStyles] = useState<boolean>(true);
+  const [selectedStyleId, setSelectedStyleId] = useState<string>('');
+  const [selectedStyleText, setSelectedStyleText] = useState<string>('');
 
   const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
   const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
 
-  useEffect(() => {
-    const savedStyle = sessionStorage.getItem('uniflow_draft_po_style');
-    if (savedStyle) {
-      setSelectedStyle(savedStyle);
-    }
-  }, []);
   const [boxRangeStart, setBoxRangeStart] = useState('BX-000100');
   const [boxRangeEnd, setBoxRangeEnd] = useState('BX-000500');
   const [startDate, setStartDate] = useState('2026-09-15');
@@ -34,6 +38,28 @@ export const CreatePOGeneral: React.FC = () => {
     'Box Transfer'
   ]);
 
+  useEffect(() => {
+    apiFetch<StyleItem[]>('/api/styles')
+      .then(res => {
+        setStylesList(res);
+        const savedId = sessionStorage.getItem('uniflow_draft_po_style_id');
+        if (savedId && res.some(s => s.id === savedId)) {
+          setSelectedStyleId(savedId);
+          const found = res.find(s => s.id === savedId);
+          if (found) setSelectedStyleText(`${found.code} - ${found.name}`);
+        } else if (res.length > 0) {
+          setSelectedStyleId(res[0].id);
+          setSelectedStyleText(`${res[0].code} - ${res[0].name}`);
+        }
+      })
+      .catch(err => {
+        showToast('Failed to load styles from database', 'error');
+      })
+      .finally(() => {
+        setLoadingStyles(false);
+      });
+  }, []);
+
   const toggleOp = (op: OperationType) => {
     if (selectedOps.includes(op)) {
       setSelectedOps(selectedOps.filter(o => o !== op));
@@ -44,6 +70,10 @@ export const CreatePOGeneral: React.FC = () => {
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedStyleId) {
+      showToast('Please select a Garment Style', 'warning');
+      return;
+    }
     if (!poId.trim() || !mapPo.trim()) {
       showToast('Please fill required PO fields', 'warning');
       return;
@@ -57,12 +87,16 @@ export const CreatePOGeneral: React.FC = () => {
       return;
     }
 
+    const styleObj = stylesList.find(s => s.id === selectedStyleId);
+    const styleText = styleObj ? `${styleObj.code} - ${styleObj.name}` : selectedStyleText;
+
     // Save draft PO to session/state
     const draftPo = {
       id: poId,
       mapPo,
       customer: 'Nike',
-      selectedStyle,
+      styleId: selectedStyleId,
+      selectedStyle: styleText,
       boxRangeStart,
       boxRangeEnd,
       startDate,
@@ -72,6 +106,8 @@ export const CreatePOGeneral: React.FC = () => {
       selectedOperations: selectedOps
     };
 
+    sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleId);
+    sessionStorage.setItem('uniflow_draft_po_style', styleText);
     sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftPo));
     navigate('/supervisor/production-orders/new/sales-orders');
   };
@@ -99,44 +135,59 @@ export const CreatePOGeneral: React.FC = () => {
       <div>
         <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Create Production Order</h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Step 2 of 4: Define Production Order Header & Box Serial Number Range.
+          Step 2 of 4: Select Garment Style, Define Production Order Header & Box Serial Range.
         </p>
-      </div>
-
-      {/* Selected Style Banner */}
-      <div
-        style={{
-          backgroundColor: 'rgba(22, 184, 174, 0.12)',
-          border: '1px solid var(--primary-teal)',
-          borderRadius: '14px',
-          padding: '12px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <Tag size={20} color="var(--primary-teal)" />
-          <div>
-            <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700, textTransform: 'uppercase' }}>
-              Selected Garment Style
-            </span>
-            <h4 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {selectedStyle}
-            </h4>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate('/supervisor/production-orders/new/style')}
-          style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textDecoration: 'underline' }}
-        >
-          Change Style
-        </button>
       </div>
 
       <form onSubmit={handleNext} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div className="grid-2-desktop" style={{ display: 'grid', gap: '14px' }}>
+          {/* Garment Style Dropdown (Required) */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={styles.label}>Select Garment Style (Required)</label>
+              <button
+                type="button"
+                onClick={() => navigate('/supervisor/production-orders/new/style')}
+                style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+              >
+                <Plus size={14} /> Create / Manage Styles
+              </button>
+            </div>
+            <select
+              className="input-field"
+              value={selectedStyleId}
+              onChange={e => {
+                const id = e.target.value;
+                setSelectedStyleId(id);
+                const found = stylesList.find(s => s.id === id);
+                if (found) {
+                  setSelectedStyleText(`${found.code} - ${found.name}`);
+                  sessionStorage.setItem('uniflow_draft_po_style_id', found.id);
+                  sessionStorage.setItem('uniflow_draft_po_style', `${found.code} - ${found.name}`);
+                }
+              }}
+              required
+            >
+              <option value="">-- Select Style from Catalog --</option>
+              {loadingStyles ? (
+                <option value="" disabled>Loading styles from database...</option>
+              ) : stylesList.length === 0 ? (
+                <option value="" disabled>No styles available</option>
+              ) : (
+                stylesList.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.code} - {s.name}
+                  </option>
+                ))
+              )}
+            </select>
+            {stylesList.length === 0 && !loadingStyles && (
+              <p style={{ fontSize: '12px', color: 'var(--color-amber)', marginTop: '4px' }}>
+                No styles found in database. Click '+ Create / Manage Styles' above to add one.
+              </p>
+            )}
+          </div>
+
           {/* PO Number */}
           <div>
             <label style={styles.label}>Production Order No.</label>
@@ -149,7 +200,7 @@ export const CreatePOGeneral: React.FC = () => {
             />
           </div>
 
-          {/* Map PO (Free Text) */}
+          {/* Map PO */}
           <div>
             <label style={styles.label}>Map PO (Free Text Code)</label>
             <input
@@ -162,7 +213,7 @@ export const CreatePOGeneral: React.FC = () => {
             />
           </div>
 
-          {/* Box Serial Number / Barcode Range (Letters & Numbers) */}
+          {/* Box Serial Range */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div>
               <label style={styles.label}>Box Serial Range Start</label>
@@ -210,7 +261,7 @@ export const CreatePOGeneral: React.FC = () => {
             </div>
           </div>
 
-          {/* Responsible Supervisor */}
+          {/* Supervisor */}
           <div>
             <label style={styles.label}>Responsible Supervisor</label>
             <input
@@ -222,7 +273,7 @@ export const CreatePOGeneral: React.FC = () => {
           </div>
         </div>
 
-        {/* Required Operations Checkboxes */}
+        {/* Operations Checkboxes */}
         <div>
           <label style={styles.label}>Required Operations for this PO</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>

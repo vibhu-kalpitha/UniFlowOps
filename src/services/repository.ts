@@ -1,4 +1,4 @@
-import { ProductionOrder, ActiveJob, UserRole, AlertItem, PackingBox, AQLSession } from '../types';
+import { ProductionOrder, ActiveJob, UserRole, User, AlertItem, PackingBox, AQLSession } from '../types';
 import { INITIAL_PRODUCTION_ORDERS, MOCK_USERS, INITIAL_ALERTS, INITIAL_PACKING_BOXES } from '../data/mockData';
 
 // ─── Bump this version whenever structure changes or resetting demo data ──────
@@ -35,17 +35,34 @@ ensureFreshData();
 
 export const repository = {
   // Role & Auth
-  getCurrentRole(): UserRole {
+  getCurrentRole(): UserRole | null {
     const role = localStorage.getItem(KEYS.CURRENT_ROLE);
-    return (role as UserRole) || 'operator';
+    return role ? (role as UserRole) : null;
   },
 
-  setCurrentRole(role: UserRole): void {
-    localStorage.setItem(KEYS.CURRENT_ROLE, role);
+  setCurrentRole(role: UserRole | null): void {
+    if (role) localStorage.setItem(KEYS.CURRENT_ROLE, role);
+    else localStorage.removeItem(KEYS.CURRENT_ROLE);
   },
 
-  getUserByRole(role: UserRole) {
-    return MOCK_USERS[role] || MOCK_USERS.operator;
+  getStoredUser(): User | null {
+    const userStr = localStorage.getItem('uniflow_user');
+    if (!userStr) return null;
+    try {
+      return JSON.parse(userStr);
+    } catch {
+      return null;
+    }
+  },
+
+  setStoredUser(user: User | null): void {
+    if (user) localStorage.setItem('uniflow_user', JSON.stringify(user));
+    else localStorage.removeItem('uniflow_user');
+  },
+
+  getUserByRole(role: UserRole | null) {
+    if (!role) return null;
+    return MOCK_USERS[role] || null;
   },
 
   // Active Job

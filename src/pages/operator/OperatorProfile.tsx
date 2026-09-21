@@ -8,23 +8,15 @@ import '../../styles/tokens.css';
 
 export const OperatorProfile: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, currentRole, setRole, showToast } = useApp();
+  const { currentUser, currentRole, logoutUser, showToast } = useApp();
 
   const [language, setLanguage] = useState('English');
   const [showRoleModal, setShowRoleModal] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutUser();
     showToast('Logged out of UniFlow Ops', 'info');
     navigate('/login');
-  };
-
-  const handleSwitchRole = (role: UserRole) => {
-    setRole(role);
-    setShowRoleModal(false);
-    showToast(`Switched role to ${role.toUpperCase()}`, 'success');
-    if (role === 'operator') navigate('/operator/home');
-    else if (role === 'supervisor') navigate('/supervisor/home');
-    else navigate('/admin/dashboard');
   };
 
   return (
@@ -32,17 +24,17 @@ export const OperatorProfile: React.FC = () => {
       {/* Left Column: Hero Identity Card */}
       <div style={styles.profileHero}>
         <div style={styles.avatarBig}>
-          <span>{currentUser.avatarInitials}</span>
+          <span>{currentUser?.avatarInitials || 'OP'}</span>
         </div>
         <h2 style={{ fontSize: '20px', fontWeight: 800, marginTop: '12px' }}>
-          {currentUser.name}
+          {currentUser?.name || 'Operator'}
         </h2>
         <div style={{ marginTop: '6px' }}>
-          <StatusPill label={`${currentUser.role.toUpperCase()} • ${currentUser.lineId || 'Line 04'}`} variant="teal" />
+          <StatusPill label={`${(currentUser?.role || 'operator').toUpperCase()} • ${currentUser?.lineId || 'Line 04'}`} variant="teal" />
         </div>
 
         <div style={{ marginTop: '20px', width: '100%', textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-          <span style={styles.menuDesc}>ID: {currentUser.id} • Username: @{currentUser.username}</span>
+          <span style={styles.menuDesc}>ID: {currentUser?.id || 'op-001'} • Username: @{currentUser?.username || 'operator'}</span>
         </div>
 
         {/* Logout Action */}
@@ -61,7 +53,7 @@ export const OperatorProfile: React.FC = () => {
             </div>
             <div>
               <span style={styles.menuTitle}>My Account Details</span>
-              <span style={styles.menuDesc}>ID: {currentUser.id} • Username: @{currentUser.username}</span>
+              <span style={styles.menuDesc}>ID: {currentUser?.id || 'op-001'} • Username: @{currentUser?.username || 'operator'}</span>
             </div>
           </div>
         </div>
@@ -105,20 +97,6 @@ export const OperatorProfile: React.FC = () => {
           </div>
         </div>
 
-        {/* Demo Role Switcher */}
-        <div className="card" style={{ ...styles.menuCard, cursor: 'pointer' }} onClick={() => setShowRoleModal(true)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-            <div style={styles.iconCircle}>
-              <Shield size={18} color="var(--color-purple)" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <span style={styles.menuTitle}>Switch Demo Role</span>
-              <span style={styles.menuDesc}>Current active: {currentRole.toUpperCase()}</span>
-            </div>
-            <ChevronRight size={18} color="var(--text-secondary)" />
-          </div>
-        </div>
-
         {/* About UniFlow Ops */}
         <div className="card" style={styles.menuCard}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -132,32 +110,6 @@ export const OperatorProfile: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Switch Role Modal */}
-      {showRoleModal && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '12px' }}>Switch Role Mode</h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Select role to test workflow views:
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button className="btn-secondary" onClick={() => handleSwitchRole('operator')}>
-                Operator (Chamika Silva)
-              </button>
-              <button className="btn-secondary" onClick={() => handleSwitchRole('supervisor')}>
-                Supervisor (Nimal Perera)
-              </button>
-              <button className="btn-secondary" onClick={() => handleSwitchRole('admin')}>
-                Admin (Factory Administrator)
-              </button>
-              <button className="btn-primary" onClick={() => setShowRoleModal(false)} style={{ marginTop: '6px' }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -31,6 +31,10 @@ const HOST = process.env.HOST || '0.0.0.0';
 app.use(cors());
 app.use(express.json());
 
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', true);
+}
+
 // Explicit Health Check Endpoint
 app.get('/api/health', async (req, res) => {
   try {

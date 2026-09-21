@@ -7,33 +7,24 @@ import '../../styles/tokens.css';
 
 export const AdminMore: React.FC = () => {
   const navigate = useNavigate();
-  const { setRole, showToast } = useApp();
+  const { logoutUser, showToast } = useApp();
 
   const [activeModal, setActiveModal] = useState<string | null>(null);
-  const [showRoleModal, setShowRoleModal] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutUser();
     showToast('Logged out of UniFlow Ops', 'info');
     navigate('/login');
   };
 
-  const handleSwitchRole = (role: UserRole) => {
-    setRole(role);
-    setShowRoleModal(false);
-    showToast(`Switched role to ${role.toUpperCase()}`, 'success');
-    if (role === 'operator') navigate('/operator/home');
-    else if (role === 'supervisor') navigate('/supervisor/home');
-    else navigate('/admin/dashboard');
-  };
-
   const settingsItems = [
+    { id: 'sessions', title: 'User Sessions & Login Activity', desc: 'Inspect active tokens, IP addresses and revoke access', icon: Lock, color: 'var(--primary-teal)' },
     { id: 'company', title: 'Company Details', desc: 'Innovus Garments (Pvt) Ltd • Factory #04', icon: Building, color: 'var(--primary-teal)' },
     { id: 'lines', title: 'Production Lines', desc: '4 active assembly lines (Line 01 - 04)', icon: Layers, color: 'var(--color-blue)' },
-    { id: 'styles', title: 'Products & Styles', desc: 'Catalog of 18 garment style codes', icon: Shirt, color: 'var(--color-purple)' },
+    { id: 'styles', title: 'Products & Styles', desc: 'Catalog of garment style specifications', icon: Shirt, color: 'var(--color-purple)' },
     { id: 'box', title: 'Box Settings', desc: 'Default box capacity: 12 units', icon: Package, color: 'var(--color-amber)' },
     { id: 'scanners', title: 'Scanner Devices', desc: '14 paired Bluetooth barcode scanners', icon: Wifi, color: 'var(--color-green)' },
-    { id: 'test-scanner', title: 'Test Scanner Diagnostic', desc: 'Inspect raw keystrokes, timing & terminators', icon: Wifi, color: 'var(--primary-teal)' },
-    { id: 'roles', title: 'Roles & Permissions', desc: 'Access policy configuration per role', icon: Lock, color: 'var(--color-red)' }
+    { id: 'test-scanner', title: 'Test Scanner Diagnostic', desc: 'Inspect raw keystrokes, timing & terminators', icon: Wifi, color: 'var(--primary-teal)' }
   ];
 
   return (
@@ -52,6 +43,8 @@ export const AdminMore: React.FC = () => {
               onClick={() => {
                 if (item.id === 'test-scanner') {
                   navigate('/test-scanner');
+                } else if (item.id === 'sessions') {
+                  navigate('/admin/sessions');
                 } else {
                   setActiveModal(item.id);
                   showToast(`Opened ${item.title} configuration`, 'info');
@@ -74,23 +67,6 @@ export const AdminMore: React.FC = () => {
       </div>
 
       {/* Switch Demo Role */}
-      <div
-        className="card"
-        style={{ ...styles.menuCard, cursor: 'pointer' }}
-        onClick={() => setShowRoleModal(true)}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-          <div style={styles.iconCircle}>
-            <Shield size={18} color="var(--primary-teal)" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <span style={styles.menuTitle}>Switch Demo Role Mode</span>
-            <span style={styles.menuDesc}>Switch view to Operator or Supervisor</span>
-          </div>
-          <ChevronRight size={18} color="var(--text-secondary)" />
-        </div>
-      </div>
-
       {/* Logout Action */}
       <button className="btn-danger" onClick={handleLogout} style={{ marginTop: 'auto' }}>
         <LogOut size={18} style={{ marginRight: '8px' }} /> Log Out
@@ -116,29 +92,6 @@ export const AdminMore: React.FC = () => {
             <button className="btn-primary" onClick={() => setActiveModal(null)}>
               Save Settings
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Switch Role Modal */}
-      {showRoleModal && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '12px' }}>Switch Role Mode</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button className="btn-secondary" onClick={() => handleSwitchRole('operator')}>
-                Operator (Chamika Silva)
-              </button>
-              <button className="btn-secondary" onClick={() => handleSwitchRole('supervisor')}>
-                Supervisor (Nimal Perera)
-              </button>
-              <button className="btn-secondary" onClick={() => handleSwitchRole('admin')}>
-                Admin (Factory Administrator)
-              </button>
-              <button className="btn-primary" onClick={() => setShowRoleModal(false)} style={{ marginTop: '6px' }}>
-                Cancel
-              </button>
-            </div>
           </div>
         </div>
       )}

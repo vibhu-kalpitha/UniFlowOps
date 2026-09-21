@@ -104,7 +104,7 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
           </button>
 
           <div style={styles.avatar}>
-            <span>{currentUser.avatarInitials}</span>
+            <span>{currentUser?.avatarInitials || 'US'}</span>
           </div>
         </div>
       </div>

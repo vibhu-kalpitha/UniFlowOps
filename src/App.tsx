@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
+import { ScannerProvider } from './context/ScannerContext';
 import { AppShell } from './components/AppShell';
 
 // Shared Pages
@@ -37,13 +38,17 @@ import { AdminOrders } from './pages/admin/AdminOrders';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminReports } from './pages/admin/AdminReports';
 import { AdminMore } from './pages/admin/AdminMore';
+import { AdminSessions } from './pages/admin/AdminSessions';
 
 // Role Guard Component
 const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin'; children: React.ReactNode }> = ({
   allowedRole,
   children
 }) => {
-  const { currentRole } = useApp();
+  const { isAuthenticated, currentRole } = useApp();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
   if (currentRole !== allowedRole) {
     if (currentRole === 'operator') return <Navigate to="/operator/home" replace />;
     if (currentRole === 'supervisor') return <Navigate to="/supervisor/home" replace />;
@@ -55,15 +60,24 @@ const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin
 // Main App Routes with AppShell
 const AppRoutes: React.FC = () => {
   const location = useLocation();
-  const { currentRole } = useApp();
+  const { isAuthenticated, currentRole } = useApp();
 
   const isLoginPage = location.pathname === '/login';
+
+  const getDashboardPath = () => {
+    if (currentRole === 'operator') return '/operator/home';
+    if (currentRole === 'supervisor') return '/supervisor/home';
+    return '/admin/dashboard';
+  };
 
   return (
     <AppShell hideNav={isLoginPage}>
       <Routes>
         {/* Auth Route */}
-        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/login"
+          element={isAuthenticated ? <Navigate to={getDashboardPath()} replace /> : <LoginPage />}
+        />
 
         {/* Shared Alerts Route */}
         <Route path="/alerts" element={<AlertsPage />} />
@@ -285,6 +299,14 @@ const AppRoutes: React.FC = () => {
           }
         />
         <Route
+          path="/admin/sessions"
+          element={
+            <RoleRouteGuard allowedRole="admin">
+              <AdminSessions />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
           path="/admin/more"
           element={
             <RoleRouteGuard allowedRole="admin">
@@ -297,7 +319,9 @@ const AppRoutes: React.FC = () => {
         <Route
           path="*"
           element={
-            currentRole === 'operator' ? (
+            !isAuthenticated ? (
+              <Navigate to="/login" replace />
+            ) : currentRole === 'operator' ? (
               <Navigate to="/operator/home" replace />
             ) : currentRole === 'supervisor' ? (
               <Navigate to="/supervisor/home" replace />
@@ -314,9 +338,11 @@ const AppRoutes: React.FC = () => {
 export default function App() {
   return (
     <AppProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
+      <ScannerProvider>
+        <Router>
+          <AppRoutes />
+        </Router>
+      </ScannerProvider>
     </AppProvider>
   );
 }

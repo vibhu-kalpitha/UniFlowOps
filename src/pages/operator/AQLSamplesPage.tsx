@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import { CheckCircle2, XCircle, ArrowRight, Check, PackageCheck } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
@@ -265,6 +266,7 @@ export const AQLSamplesPage: React.FC = () => {
       </div>
 
       {/* Scanner Input Component */}
+      <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
       <ScannerInput onScan={handleScanSample} placeholder={`Scan or type sample item ${currentIdx} QR code...`} />
 
       {/* Sample Details */}

@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { CheckCircle2, Package, Search, ArrowLeftRight, Wifi, WifiOff } from 'lucide-react';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import '../../styles/tokens.css';
 
 export const ScanCenter: React.FC = () => {
@@ -55,26 +56,7 @@ export const ScanCenter: React.FC = () => {
       </div>
 
       {/* Scanner Status Bar */}
-      <div
-        style={styles.statusBox}
-        onClick={() => setScannerConnected(!scannerConnected)}
-        title="Click to toggle scanner connection simulation"
-      >
-        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Scanner Status</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-          {scannerConnected ? (
-            <>
-              <Wifi size={16} color="var(--color-green)" />
-              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-green)' }}>● Connected</span>
-            </>
-          ) : (
-            <>
-              <WifiOff size={16} color="var(--color-red)" />
-              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-red)' }}>● Disconnected</span>
-            </>
-          )}
-        </div>
-      </div>
+      <ScannerStatus showConnectButton={true} style={{ marginTop: '12px' }} />
 
       {/* Cancel Button */}
       <button className="btn-secondary" onClick={() => navigate(-1)} style={{ marginTop: 'auto' }}>

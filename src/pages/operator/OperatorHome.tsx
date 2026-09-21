@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import { ProductionOrder, SalesOrder } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect } from 'lucide-react';
 import { apiFetch } from '../../services/api';
@@ -78,8 +79,8 @@ export const OperatorHome: React.FC = () => {
     const shift = selectedSo.shifts[0] || {
       id: 'shf-101',
       salesOrderId: selectedSo.id,
-      workerId: currentUser.id,
-      workerName: currentUser.name,
+      workerId: currentUser?.id || 'op-001',
+      workerName: currentUser?.name || 'Operator',
       startTime: '14:00',
       endTime: '18:00',
       date: new Date().toISOString().split('T')[0],
@@ -189,15 +190,15 @@ export const OperatorHome: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            {currentUser.avatarInitials || currentUser.name.charAt(0)}
+            {currentUser?.avatarInitials || currentUser?.name?.charAt(0) || 'OP'}
           </div>
           <div>
             <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Good Morning,</span>
             <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {currentUser.name}
+              {currentUser?.name || 'Operator'}
             </h2>
             <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-              {currentUser.role.toUpperCase()} • {currentUser.lineId}
+              {(currentUser?.role || 'operator').toUpperCase()} • {currentUser?.lineId || 'Line 04'}
             </span>
           </div>
         </div>
@@ -207,25 +208,7 @@ export const OperatorHome: React.FC = () => {
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#18B879' }}></span>
             <span style={{ fontSize: '12px', fontWeight: 700, color: '#18B879' }}>Shift A Active</span>
           </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              backgroundColor: scannerConnected ? 'rgba(34, 211, 197, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-              padding: '6px 12px',
-              borderRadius: '20px',
-              border: scannerConnected ? '1px solid rgba(34, 211, 197, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
-              cursor: 'pointer'
-            }}
-            onClick={() => setScannerConnected(!scannerConnected)}
-            title="Click to toggle scanner connection"
-          >
-            <ScanLine size={14} color={scannerConnected ? 'var(--primary-teal)' : '#EF4444'} />
-            <span style={{ fontSize: '12px', fontWeight: 700, color: scannerConnected ? 'var(--primary-teal)' : '#EF4444' }}>
-              {scannerConnected ? 'Scanner Connected' : 'Scanner Disconnected'}
-            </span>
-          </div>
+          <ScannerStatus compact={true} />
         </div>
       </div>
 

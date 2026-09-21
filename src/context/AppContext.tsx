@@ -3,9 +3,12 @@ import { UserRole, User, ActiveJob, ProductionOrder, PackingBox, AlertItem, AQLS
 import { repository } from '../services/repository';
 
 interface AppContextType {
-  currentRole: UserRole;
-  currentUser: User;
-  setRole: (role: UserRole) => void;
+  isAuthenticated: boolean;
+  currentRole: UserRole | null;
+  currentUser: User | null;
+  loginUser: (token: string, userObj: any) => void;
+  logoutUser: () => Promise<void>;
+  setRole: (role: UserRole | null) => void;
   activeJob: ActiveJob | null;
   setActiveJob: (job: ActiveJob | null) => void;
   productionOrders: ProductionOrder[];
@@ -33,8 +36,12 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentRole, setCurrentRoleState] = useState<UserRole>(repository.getCurrentRole());
-  const [currentUser, setCurrentUser] = useState<User>(repository.getUserByRole(currentRole));
+  const [currentRole, setCurrentRoleState] = useState<UserRole | null>(repository.getCurrentRole());
+  const [currentUser, setCurrentUserState] = useState<User | null>(repository.getStoredUser());
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return Boolean(localStorage.getItem('uniflow_token') && repository.getCurrentRole());
+  });
+
   const [activeJob, setActiveJobState] = useState<ActiveJob | null>(repository.getActiveJob());
   const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(repository.getProductionOrders());
   const [packingBoxes, setPackingBoxes] = useState<Record<string, PackingBox>>(repository.getPackingBoxes());
@@ -47,7 +54,92 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [qcPassedCountToday, setQcPassedCountToday] = useState<number>(624);
   const [packedCountToday, setPackedCountToday] = useState<number>(598);
 
+  const loginUser = (token: string, userObj: any) => {
+    localStorage.setItem('uniflow_token', token);
+    const roleStr = (userObj.role || 'operator').toLowerCase() as UserRole;
+    const formattedUser: User = {
+      id: userObj.id,
+      employeeNo: userObj.employeeNo || userObj.employee_no || 'EMP-001',
+      username: userObj.username,
+      name: userObj.name || userObj.full_name || 'User',
+      role: roleStr,
+      avatarInitials: userObj.avatarInitials || 'US'
+    };
+    repository.setCurrentRole(roleStr);
+    repository.setStoredUser(formattedUser);
+    setCurrentRoleState(roleStr);
+    setCurrentUserState(formattedUser);
+    setIsAuthenticated(true);
+  };
+
+  const logoutUser = async () => {
+    try {
+      const { apiFetch } = await import('../services/api');
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.warn('Logout request failed or user session already cleared', err);
+    } finally {
+      localStorage.removeItem('uniflow_token');
+      localStorage.removeItem('uniflow_user');
+      localStorage.removeItem('uniflow_role');
+      localStorage.removeItem('uniflow_active_job');
+      repository.setCurrentRole(null);
+      repository.setStoredUser(null);
+      repository.setActiveJob(null);
+      setCurrentRoleState(null);
+      setCurrentUserState(null);
+      setIsAuthenticated(false);
+      setActiveJobState(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      logoutUser();
+    };
+    window.addEventListener('uniflow_unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('uniflow_unauthorized', handleUnauthorized);
+    };
+  }, []);
+
+  // Verify stored session on mount
+  useEffect(() => {
+    const token = localStorage.getItem('uniflow_token');
+    if (!token) {
+      setIsAuthenticated(false);
+      setCurrentRoleState(null);
+      setCurrentUserState(null);
+      return;
+    }
+    import('../services/api').then(({ apiFetch }) => {
+      apiFetch('/api/auth/me')
+        .then(res => {
+          if (res.user) {
+            const roleStr = res.user.role.toLowerCase() as UserRole;
+            const formattedUser: User = {
+              id: res.user.id,
+              employeeNo: res.user.employeeNo || res.user.employee_no || 'EMP-001',
+              username: res.user.username,
+              name: res.user.name || res.user.full_name || 'User',
+              role: roleStr,
+              avatarInitials: res.user.avatarInitials || 'US'
+            };
+            repository.setCurrentRole(roleStr);
+            repository.setStoredUser(formattedUser);
+            setCurrentRoleState(roleStr);
+            setCurrentUserState(formattedUser);
+            setIsAuthenticated(true);
+          }
+        })
+        .catch(() => {
+          logoutUser();
+        });
+    });
+  }, []);
+
   const refreshProductionOrders = async (): Promise<ProductionOrder[]> => {
+    if (!isAuthenticated) return [];
     try {
       const { apiFetch } = await import('../services/api');
       const data = await apiFetch<ProductionOrder[]>('/api/production-orders');
@@ -63,13 +155,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   useEffect(() => {
-    refreshProductionOrders();
-  }, [currentRole]);
+    if (isAuthenticated) {
+      refreshProductionOrders();
+    }
+  }, [currentRole, isAuthenticated]);
 
-  const setRole = (role: UserRole) => {
+  const setRole = (role: UserRole | null) => {
     setCurrentRoleState(role);
     repository.setCurrentRole(role);
-    setCurrentUser(repository.getUserByRole(role));
+    if (role) {
+      const u = repository.getUserByRole(role);
+      setCurrentUserState(u);
+      if (u) repository.setStoredUser(u);
+    } else {
+      setCurrentUserState(null);
+      repository.setStoredUser(null);
+    }
   };
 
   const setActiveJob = (job: ActiveJob | null) => {
@@ -182,8 +283,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        isAuthenticated,
         currentRole,
-        currentUser,
+        currentUser: currentUser!,
+        loginUser,
+        logoutUser,
         setRole,
         activeJob,
         setActiveJob,

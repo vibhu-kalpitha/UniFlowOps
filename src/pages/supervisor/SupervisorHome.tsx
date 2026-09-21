@@ -24,7 +24,7 @@ export const SupervisorHome: React.FC = () => {
         <div>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Welcome, Supervisor</span>
           <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>
-            {currentUser.name} 👨‍💼
+            {currentUser?.name || 'Supervisor'} 👨‍💼
           </h2>
           <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
             Assigned: Line 04 & Line 02

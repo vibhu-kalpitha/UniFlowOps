@@ -2,7 +2,7 @@ import { Router as ExpressRouter, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { db } from '../db/connection.js';
-import { generateToken, authenticateToken, AuthRequest } from '../middleware/auth.js';
+import { generateToken, authenticateToken, requireRole, hashToken, AuthRequest } from '../middleware/auth.js';
 import { auditLog } from '../middleware/errorHandler.js';
 
 const router = ExpressRouter();
@@ -53,7 +53,19 @@ router.post('/login', async (req, res, next) => {
       fullName: user.full_name
     });
 
-    await auditLog(user.id, 'LOGIN', 'user', user.id, { username });
+    // Compute token hash for database session tracking
+    const tokenHash = hashToken(token);
+    const sessionId = `sess-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.get('user-agent') || 'Unknown';
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', '');
+
+    await db.execute(`
+      INSERT INTO user_sessions (id, user_id, token_hash, ip_address, user_agent, login_at, last_seen_at, expires_at, active)
+      VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3), ?, 1)
+    `, [sessionId, user.id, tokenHash, ipAddress, userAgent, expiresAt]);
+
+    await auditLog(user.id, 'LOGIN', 'user', user.id, { username, ipAddress });
 
     return res.json({
       token,
@@ -67,6 +79,29 @@ router.post('/login', async (req, res, next) => {
         avatarInitials: initials
       }
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/logout
+router.post('/logout', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token) {
+      const tokenHash = hashToken(token);
+      await db.execute(`
+        UPDATE user_sessions SET active = 0, logout_at = NOW(3) WHERE token_hash = ? AND active = 1
+      `, [tokenHash]);
+    }
+
+    if (req.user) {
+      await auditLog(req.user.id, 'LOGOUT', 'user', req.user.id, { username: req.user.username });
+    }
+
+    return res.json({ message: 'Logged out successfully' });
   } catch (err) {
     next(err);
   }
@@ -102,15 +137,8 @@ const resetPasswordSchema = z.object({
 });
 
 // POST /api/auth/reset-password - ADMIN ONLY
-router.post('/reset-password', authenticateToken, async (req: AuthRequest, res, next) => {
+router.post('/reset-password', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
   try {
-    if (!req.user || req.user.role !== 'ADMIN') {
-      return res.status(403).json({
-        error: 'FORBIDDEN',
-        message: 'Only ADMIN can reset user passwords'
-      });
-    }
-
     const { userId, newPassword } = resetPasswordSchema.parse(req.body);
 
     const user = await db.prepare(`SELECT id, username, full_name FROM users WHERE id = ? OR username = ?`).get(userId, userId) as any;
@@ -123,11 +151,93 @@ router.post('/reset-password', authenticateToken, async (req: AuthRequest, res, 
 
     await db.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).run(passwordHash, now, user.id);
 
-    await auditLog(req.user.id, 'RESET_PASSWORD', 'users', user.id, { username: user.username });
+    await auditLog(req.user!.id, 'RESET_PASSWORD', 'users', user.id, { username: user.username });
 
     return res.json({
       message: `Password reset successfully for user ${user.username}`
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/admin/sessions - ADMIN ONLY
+router.get('/admin/sessions', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const sessions = await db.query(`
+      SELECT 
+        s.id,
+        s.user_id,
+        u.username,
+        u.role,
+        u.full_name,
+        s.ip_address,
+        s.user_agent,
+        s.login_at,
+        s.last_seen_at,
+        s.logout_at,
+        s.expires_at,
+        s.revoked_at,
+        s.active
+      FROM user_sessions s
+      JOIN users u ON u.id = s.user_id
+      ORDER BY s.login_at DESC
+      LIMIT 100
+    `);
+
+    const formatted = sessions.map(s => {
+      const now = new Date();
+      const expires = new Date(s.expires_at);
+      let status = 'ACTIVE';
+      if (s.revoked_at) {
+        status = 'REVOKED';
+      } else if (s.logout_at) {
+        status = 'LOGGED_OUT';
+      } else if (expires <= now || !s.active) {
+        status = 'EXPIRED';
+      }
+
+      return {
+        id: s.id,
+        userId: s.user_id,
+        username: s.username,
+        role: s.role.toLowerCase(),
+        fullName: s.full_name,
+        ipAddress: s.ip_address || '127.0.0.1',
+        userAgent: s.user_agent || 'Unknown',
+        loginAt: s.login_at,
+        lastSeenAt: s.last_seen_at,
+        logoutAt: s.logout_at,
+        expiresAt: s.expires_at,
+        revokedAt: s.revoked_at,
+        active: Boolean(s.active && status === 'ACTIVE'),
+        status
+      };
+    });
+
+    return res.json(formatted);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/sessions/:id/revoke - ADMIN ONLY
+router.post('/admin/sessions/:id/revoke', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const sessionId = req.params.id;
+    const session = await db.queryOne(`SELECT * FROM user_sessions WHERE id = ?`, [sessionId]);
+
+    if (!session) {
+      return res.status(404).json({ error: 'SESSION_NOT_FOUND', message: 'Session not found' });
+    }
+
+    await db.execute(`
+      UPDATE user_sessions SET active = 0, revoked_at = NOW(3) WHERE id = ?
+    `, [sessionId]);
+
+    await auditLog(req.user!.id, 'REVOKE_SESSION', 'user_sessions', sessionId, { targetUserId: session.user_id });
+
+    return res.json({ message: 'Session revoked successfully', sessionId });
   } catch (err) {
     next(err);
   }

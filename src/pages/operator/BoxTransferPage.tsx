@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ArrowLeftRight, CheckSquare, Square, QrCode, AlertTriangle } from 'lucide-react';
+import { ScannerStatus } from '../../components/ScannerStatus';
 import '../../styles/tokens.css';
 
 interface BoxData {
@@ -181,6 +182,9 @@ export const BoxTransferPage: React.FC = () => {
           </span>
         </div>
       )}
+
+      {/* Scanner Status */}
+      <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
 
       {/* Source and Destination Box Resolution Inputs */}
       <div style={styles.boxTransferGrid}>

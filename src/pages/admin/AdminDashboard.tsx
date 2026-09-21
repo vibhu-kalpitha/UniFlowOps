@@ -154,6 +154,13 @@ export const AdminDashboard: React.FC = () => {
             </span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
               <button
+                onClick={() => navigate('/admin/sessions')}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', backgroundColor: '#102F39', border: '1px solid #1E4650', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <span>🔐 User Sessions / Login Activity</span>
+                <span>→</span>
+              </button>
+              <button
                 onClick={() => navigate('/admin/users')}
                 style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', backgroundColor: '#102F39', border: '1px solid #1E4650', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700, textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
               >
