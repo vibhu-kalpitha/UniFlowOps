@@ -12,11 +12,28 @@ export interface User {
 
 export type OperationType = 'QC Test' | 'Packing' | 'AQL Checker' | 'Box Transfer';
 
+export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only';
+
+export interface ProductConfiguration {
+  id?: string;
+  configCode: string;         // e.g. PNFLSS, PNFLSM, 009735535
+  productType?: string;       // e.g. LEG, CORE, BEACON, CUSTOM
+  size?: string;              // e.g. SS, SM, SL, TS, TM, TL, TXL
+  productQrPrefix: string;    // e.g. PNFLSS0926
+  productSerialStart: number; // e.g. 1
+  productSerialEnd: number;   // e.g. 500
+  quantity: number;           // Auto calculated e.g. 500
+}
+
 export interface ShiftAssignment {
   id: string;
-  salesOrderId: string;
+  productionOrderId?: string;
+  salesOrderId?: string;
   workerId: string;
   workerName: string;
+  shiftId?: string;
+  shiftName?: string;
+  operation?: string;
   startTime: string; // e.g. "14:00"
   endTime: string;   // e.g. "18:00"
   date: string;      // e.g. "2026-09-14"
@@ -54,24 +71,46 @@ export interface SalesOrder {
   progress: SalesOrderProgress;
 }
 
+export interface ProductionOrderProgress {
+  qcPassed: number;
+  qcFailed: number;
+  testPassed: number;
+  testFailed: number;
+  packed: number;
+  aqlPassed: number;
+  aqlFailed: number;
+  issuesCount: number;
+  status: string;
+}
+
 export interface ProductionOrder {
   id: string;                  // e.g. PO-2026-0184
   dbId?: string;
   mapPo: string;               // Free text e.g. MAP-PO-44821
   customer: string;            // e.g. Nike
+  styleId?: string | null;
+  styleCode?: string;
+  styleName?: string;
   startDate: string;           // e.g. 2026-09-10
   dueDate: string;             // e.g. 2026-09-25
   supervisorId: string;        // e.g. Nimal Perera
   remarks?: string;
   status: 'Current' | 'Completed' | 'Draft';
   selectedOperations: OperationType[];
-  salesOrders: SalesOrder[];
+  qcTestMode?: QcTestMode;
+  productConfigurations?: ProductConfiguration[];
+  totalQuantity?: number;
+  shifts?: ShiftAssignment[];
+  allocations?: any[];
+  progress?: ProductionOrderProgress;
+  salesOrders?: SalesOrder[];
 }
 
 export interface ActiveJob {
   productionOrder: ProductionOrder;
-  salesOrder: SalesOrder;
-  shift: ShiftAssignment;
+  shift?: ShiftAssignment;
+  salesOrder?: SalesOrder;
+  config?: ProductConfiguration;
 }
 
 export interface BoxItem {

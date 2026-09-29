@@ -68,7 +68,7 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
         SELECT COUNT(DISTINCT ai.id) as cnt
         FROM aql_inspections ai
         JOIN boxes b ON b.id = ai.box_id
-        JOIN operator_work_assignments owa ON owa.sales_order_id = b.sales_order_id
+        JOIN operator_work_assignments owa ON (owa.production_order_id = b.production_order_id OR owa.sales_order_id = b.sales_order_id)
         WHERE ai.result = 'PASSED'
           AND owa.operator_id = ?
           AND owa.active = 1

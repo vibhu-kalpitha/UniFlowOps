@@ -6,8 +6,6 @@ import { auditLog } from '../middleware/errorHandler.js';
 
 const router = ExpressRouter();
 
-// Styles API
-
 // GET /api/production/styles (or /api/styles)
 router.get('/styles', authenticateToken, async (req, res, next) => {
   try {
@@ -51,7 +49,7 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
 });
 
 // Helper to map DB PO to API contract
-async function formatProductionOrder(po: any, reqUser?: AuthUser) {
+export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   const opsRows = await db.prepare(`SELECT operation FROM production_order_operations WHERE production_order_id = ?`).all(po.id) as any[];
   const selectedOperations = opsRows.map(r => {
     switch (r.operation) {
@@ -65,123 +63,167 @@ async function formatProductionOrder(po: any, reqUser?: AuthUser) {
 
   const style = po.style_id ? await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(po.style_id) as any : null;
 
-  let soQuery = `
+  // Strictly enforce Operator Visibility Rule using operator_work_assignments
+  if (reqUser && reqUser.role === 'OPERATOR') {
+    const isAllocated = await db.prepare(`
+      SELECT COUNT(*) as cnt FROM operator_work_assignments
+      WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND operator_id = ? AND active = 1
+    `).get(po.id, po.id, reqUser.id) as any;
+
+    if (!isAllocated || isAllocated.cnt === 0) {
+      return null;
+    }
+  }
+
+  // Load PO Product Configurations
+  const configRows = await db.prepare(`
+    SELECT * FROM production_order_configs WHERE production_order_id = ? ORDER BY config_code ASC
+  `).all(po.id) as any[];
+
+  const productConfigurations = configRows.map(c => ({
+    id: c.id,
+    productionOrderId: c.production_order_id,
+    configCode: c.config_code,
+    productType: c.product_type || undefined,
+    size: c.size || undefined,
+    productQrPrefix: c.product_qr_prefix,
+    productSerialStart: Number(c.product_serial_start),
+    productSerialEnd: Number(c.product_serial_end),
+    quantity: c.quantity
+  }));
+
+  const totalQuantity = productConfigurations.length > 0
+    ? productConfigurations.reduce((sum, c) => sum + c.quantity, 0)
+    : 0;
+
+  // QC Test Mode
+  let qcTestMode: string = 'QC & Test';
+  if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
+  else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
+
+  // Load PO-level allocations
+  const poAllocations = await db.prepare(`
+    SELECT owa.id, owa.production_order_id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+    FROM operator_work_assignments owa
+    JOIN users u ON u.id = owa.operator_id
+    LEFT JOIN shifts s ON s.id = owa.shift_id
+    WHERE (owa.production_order_id = ? OR owa.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND owa.active = 1
+  `).all(po.id, po.id) as any[];
+
+  const shifts = poAllocations.map(m => ({
+    id: m.id,
+    productionOrderId: po.id,
+    salesOrderId: m.sales_order_id || undefined,
+    workerId: m.operator_id,
+    workerName: m.operator_name,
+    shiftId: m.shift_id,
+    shiftName: m.shift_name,
+    operation: m.operation || 'ALL',
+    date: new Date().toISOString().split('T')[0],
+    enabledOperations: [m.operation || 'ALL']
+  }));
+
+  // Aggregated progress metrics
+  const qcPassedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+    JOIN item_units iu ON iu.id = qr.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+  `).get(po.id, po.id) as any;
+  const qcPassed = qcPassedRow?.cnt || 0;
+
+  const qcFailedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log qf
+    JOIN item_units iu ON iu.id = qf.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+  `).get(po.id, po.id) as any;
+  const qcFailed = qcFailedRow?.cnt || 0;
+
+  const packedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+    JOIN boxes b ON b.id = bi.box_id
+    WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND bi.active = 1
+  `).get(po.id, po.id) as any;
+  const packed = packedRow?.cnt || 0;
+
+  const aqlPassedRow = await db.prepare(`
+    SELECT COUNT(*) as cnt FROM aql_inspections ai
+    JOIN boxes b ON b.id = ai.box_id
+    WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND ai.result = 'PASSED'
+  `).get(po.id, po.id) as any;
+  const aqlPassed = aqlPassedRow?.cnt || 0;
+
+  // Legacy SO rows if present
+  const soRows = await db.prepare(`
     SELECT so.*, pl.name as line_name, s.name as shift_name
     FROM sales_orders so
     LEFT JOIN production_lines pl ON pl.id = so.line_id
     LEFT JOIN shifts s ON s.id = so.shift_id
     WHERE so.production_order_id = ?
-  `;
-  const soRows = await db.prepare(soQuery).all(po.id) as any[];
+  `).all(po.id) as any[];
 
-  const salesOrders = (await Promise.all(soRows.map(async so => {
-    // Strictly enforce Operator Visibility Rule using operator_work_assignments ONLY
-    if (reqUser && reqUser.role === 'OPERATOR') {
-      const isAllocated = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM operator_work_assignments
-        WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-      `).get(so.id, reqUser.id) as any;
-
-      if (!isAllocated || isAllocated.cnt === 0) {
-        return null;
-      }
+  const salesOrders = soRows.map(so => ({
+    id: so.so_number,
+    dbId: so.id,
+    mapSo: so.map_so,
+    product: so.product,
+    styleCode: so.style_code,
+    colour: so.colour,
+    sizeRange: so.size_range,
+    quantity: so.order_quantity,
+    lineId: so.line_name || 'Line 04',
+    shiftId: so.shift_id,
+    shiftName: so.shift_name,
+    boxCapacity: so.box_capacity,
+    productQrPrefix: so.product_qr_prefix || undefined,
+    productSerialStart: so.product_serial_start != null ? Number(so.product_serial_start) : undefined,
+    productSerialEnd: so.product_serial_end != null ? Number(so.product_serial_end) : undefined,
+    progress: {
+      qcPassed,
+      qcFailed,
+      testPassed: qcPassed,
+      testFailed: qcFailed,
+      packed,
+      aqlPassed,
+      aqlFailed: 0,
+      issuesCount: qcFailed,
+      status: so.status
     }
+  }));
 
-    // Progress metrics
-    const qcPassedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
-      JOIN item_units iu ON iu.id = qr.item_id
-      WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
-    `).get(so.id) as any;
-    const qcPassed = qcPassedRow?.cnt || 0;
-
-    const qcFailedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log qf
-      JOIN item_units iu ON iu.id = qf.item_id
-      WHERE iu.sales_order_id = ?
-    `).get(so.id) as any;
-    const qcFailed = qcFailedRow?.cnt || 0;
-
-    const packedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
-      JOIN boxes b ON b.id = bi.box_id
-      WHERE b.sales_order_id = ? AND bi.active = 1
-    `).get(so.id) as any;
-    const packed = packedRow?.cnt || 0;
-
-    const aqlPassedRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections ai
-      JOIN boxes b ON b.id = ai.box_id
-      WHERE b.sales_order_id = ? AND ai.result = 'PASSED'
-    `).get(so.id) as any;
-    const aqlPassed = aqlPassedRow?.cnt || 0;
-
-    const allocations = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
-      FROM operator_work_assignments owa
-      JOIN users u ON u.id = owa.operator_id
-      LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id) as any[];
-
-    const shifts = allocations.map(m => ({
-      id: m.id,
-      salesOrderId: so.id,
-      workerId: m.operator_id,
-      workerName: m.operator_name,
-      shiftId: m.shift_id,
-      shiftName: m.shift_name,
-      operation: m.operation || 'ALL',
-      date: new Date().toISOString().split('T')[0],
-      enabledOperations: [m.operation || 'ALL']
-    }));
-
-    return {
-      id: so.so_number,
-      dbId: so.id,
-      mapSo: so.map_so,
-      product: so.product,
-      styleCode: so.style_code,
-      colour: so.colour,
-      sizeRange: so.size_range,
-      quantity: so.order_quantity,
-      lineId: so.line_name || 'Line 04',
-      shiftId: so.shift_id,
-      shiftName: so.shift_name,
-      boxCapacity: so.box_capacity,
-      productQrPrefix: so.product_qr_prefix || undefined,
-      productSerialStart: so.product_serial_start != null ? Number(so.product_serial_start) : undefined,
-      productSerialEnd: so.product_serial_end != null ? Number(so.product_serial_end) : undefined,
-      allocations,
-      shifts,
-      progress: {
-        qcPassed,
-        qcFailed,
-        testPassed: qcPassed,
-        testFailed: qcFailed,
-        packed,
-        aqlPassed,
-        aqlFailed: 0,
-        issuesCount: qcFailed,
-        status: so.status
-      }
-    };
-  }))).filter(Boolean);
+  const calcTotalQty = totalQuantity || (salesOrders.reduce((sum, s) => sum + (s.quantity || 0), 0)) || 1000;
 
   return {
     id: po.po_number,
     dbId: po.id,
     mapPo: po.map_po,
-    customer: po.customer,
+    customer: po.customer || 'Factory Customer',
     styleId: style ? style.id : null,
-    styleCode: style ? style.code : ((salesOrders[0] as any)?.styleCode || 'ST-900'),
+    styleCode: style ? style.code : 'ST-900',
     styleName: style ? style.name : 'Standard Style',
     startDate: po.start_date,
     dueDate: po.due_date,
     supervisorId: po.supervisor_id,
-    remarks: po.remarks,
+    remarks: po.remarks || '',
     status: po.status === 'CURRENT' ? 'Current' : po.status === 'COMPLETED' ? 'Completed' : 'Draft',
     selectedOperations,
+    qcTestMode,
+    productConfigurations,
+    totalQuantity: calcTotalQty,
+    allocations: poAllocations,
+    shifts,
+    progress: {
+      qcPassed,
+      qcFailed,
+      testPassed: qcPassed,
+      testFailed: qcFailed,
+      packed,
+      aqlPassed,
+      aqlFailed: 0,
+      issuesCount: qcFailed,
+      status: po.status === 'CURRENT' ? 'In Progress' : po.status
+    },
     salesOrders
   };
 }
@@ -190,30 +232,49 @@ export async function checkQrRangeOverlap(
   prefix: string,
   start: number,
   end: number,
-  excludeSoId?: string
-): Promise<{ overlap: boolean; overlappingSoNumber?: string }> {
+  excludePoId?: string
+): Promise<{ overlap: boolean; overlappingPoNumber?: string }> {
   if (!prefix || start == null || end == null) return { overlap: false };
   const normPrefix = prefix.trim().toUpperCase();
 
-  let query = `
+  // 1. Check production_order_configs
+  let pocQuery = `
+    SELECT poc.id, po.po_number, poc.product_qr_prefix, poc.product_serial_start, poc.product_serial_end
+    FROM production_order_configs poc
+    JOIN production_orders po ON po.id = poc.production_order_id
+    WHERE UPPER(TRIM(poc.product_qr_prefix)) = ?
+  `;
+  const pocParams: any[] = [normPrefix];
+  if (excludePoId) {
+    pocQuery += ` AND po.id != ? AND po.po_number != ?`;
+    pocParams.push(excludePoId, excludePoId);
+  }
+  const pocRows = await db.prepare(pocQuery).all(...pocParams) as any[];
+  for (const r of pocRows) {
+    const existStart = Number(r.product_serial_start);
+    const existEnd = Number(r.product_serial_end);
+    if (Math.max(start, existStart) <= Math.min(end, existEnd)) {
+      return { overlap: true, overlappingPoNumber: r.po_number || r.id };
+    }
+  }
+
+  // 2. Check sales_orders (for historical compatibility)
+  let soQuery = `
     SELECT id, so_number, product_qr_prefix, product_serial_start, product_serial_end 
     FROM sales_orders 
     WHERE UPPER(TRIM(product_qr_prefix)) = ? AND product_serial_start IS NOT NULL AND product_serial_end IS NOT NULL
   `;
-  const params: any[] = [normPrefix];
-  if (excludeSoId) {
-    query += ` AND id != ? AND so_number != ?`;
-    params.push(excludeSoId, excludeSoId);
+  const soParams: any[] = [normPrefix];
+  if (excludePoId) {
+    soQuery += ` AND production_order_id != ? AND id != ? AND so_number != ?`;
+    soParams.push(excludePoId, excludePoId, excludePoId);
   }
-
-  const existingRows = await db.prepare(query).all(...params) as any[];
-
-  for (const r of existingRows) {
+  const soRows = await db.prepare(soQuery).all(...soParams) as any[];
+  for (const r of soRows) {
     const existStart = Number(r.product_serial_start);
     const existEnd = Number(r.product_serial_end);
-
     if (Math.max(start, existStart) <= Math.min(end, existEnd)) {
-      return { overlap: true, overlappingSoNumber: r.so_number || r.id };
+      return { overlap: true, overlappingPoNumber: r.so_number || r.id };
     }
   }
 
@@ -233,7 +294,7 @@ router.get('/production-orders', authenticateToken, async (req: AuthRequest, res
       if (role === 'SUPERVISOR' || role === 'ADMIN') {
         return true;
       }
-      return po.salesOrders && po.salesOrders.length > 0;
+      return true;
     });
 
     return res.json(orders);
@@ -256,106 +317,20 @@ router.get('/production-orders/:id', authenticateToken, async (req: AuthRequest,
   }
 });
 
-const addSoStandaloneSchema = z.object({
-  id: z.string().optional(),
-  soNumber: z.string().optional(),
-  mapSo: z.string().optional(),
-  product: z.string().optional(),
-  styleCode: z.string().optional(),
-  colour: z.string().optional(),
-  sizeRange: z.string().optional(),
-  quantity: z.number().optional(),
-  orderQuantity: z.number().optional(),
-  lineId: z.string().optional(),
-  shiftId: z.string().optional(),
-  boxCapacity: z.number().optional(),
-  productQrPrefix: z.string().optional(),
-  product_qr_prefix: z.string().optional(),
-  productSerialStart: z.number().optional(),
-  product_serial_start: z.number().optional(),
-  productSerialEnd: z.number().optional(),
-  product_serial_end: z.number().optional()
-});
-
-// POST /api/production-orders/:id/sales-orders (SUPERVISOR / ADMIN)
-router.post('/production-orders/:id/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
-  try {
-    const poParam = req.params.id;
-    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
-    if (!po) {
-      return res.status(404).json({ error: 'PO_NOT_FOUND', message: `Parent Production Order '${poParam}' not found` });
-    }
-
-    const body = addSoStandaloneSchema.parse(req.body);
-    const soNumber = body.soNumber || body.id || `SO-${Math.floor(77000 + Math.random() * 9999)}`;
-    const mapSo = body.mapSo || `MAP-${soNumber}`;
-    const soDbId = `so-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-
-    let lineId = 'line-04';
-    if (body.lineId === 'Line 01' || body.lineId === 'line-01') lineId = 'line-01';
-    else if (body.lineId === 'Line 02' || body.lineId === 'line-02') lineId = 'line-02';
-    else if (body.lineId === 'Line 03' || body.lineId === 'line-03') lineId = 'line-03';
-
-    const shiftId = body.shiftId || 'shift-c';
-    const qty = body.orderQuantity || body.quantity || 1000;
-
-    const prefix = body.productQrPrefix || body.product_qr_prefix || null;
-    const start = body.productSerialStart != null ? Number(body.productSerialStart) : (body.product_serial_start != null ? Number(body.product_serial_start) : null);
-    const end = body.productSerialEnd != null ? Number(body.productSerialEnd) : (body.product_serial_end != null ? Number(body.product_serial_end) : null);
-
-    if (prefix && start != null && end != null) {
-      if (start > end) {
-        return res.status(400).json({ error: 'INVALID_QR_RANGE', message: 'Product Serial Start cannot be greater than Product Serial End' });
-      }
-      if ((end - start + 1) < qty) {
-        return res.status(400).json({ error: 'INSUFFICIENT_QR_RANGE', message: `Product serial range (${end - start + 1}) must cover at least order quantity (${qty}).` });
-      }
-      const overlapRes = await checkQrRangeOverlap(prefix, start, end, soNumber);
-      if (overlapRes.overlap) {
-        return res.status(409).json({ error: 'QR_RANGE_OVERLAP', message: `Product QR range overlaps with existing Sales Order ${overlapRes.overlappingSoNumber}.` });
-      }
-    }
-
-    await db.prepare(`
-      INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
-    `).run(
-      soDbId,
-      po.id,
-      soNumber,
-      mapSo,
-      body.product || 'Garment Product',
-      body.styleCode || 'ST-900',
-      body.colour || 'Black',
-      body.sizeRange || 'S - XL',
-      qty,
-      lineId,
-      shiftId,
-      body.boxCapacity || 12,
-      prefix ? prefix.trim().toUpperCase() : null,
-      start,
-      end
-    );
-
-    await auditLog(req.user!.id, 'CREATE_SO', 'sales_orders', soDbId, { poId: po.id, soNumber });
-
-    const updatedPo = await formatProductionOrder(po, req.user);
-    return res.status(201).json({
-      message: `Sales Order ${soNumber} attached to PO ${po.po_number}`,
-      soDbId,
-      soNumber,
-      parentPoId: po.id,
-      productionOrder: updatedPo
-    });
-  } catch (err) {
-    next(err);
-  }
+const createPoProductConfigSchema = z.object({
+  configCode: z.string().min(1),
+  productType: z.string().optional(),
+  size: z.string().optional(),
+  productQrPrefix: z.string().min(1),
+  productSerialStart: z.number(),
+  productSerialEnd: z.number(),
+  quantity: z.number().optional()
 });
 
 const createPoSchema = z.object({
   id: z.string().min(1),
   mapPo: z.string().min(1),
-  customer: z.string().min(1),
+  customer: z.string().optional(),
   styleId: z.string().optional(),
   style_id: z.string().optional(),
   styleCode: z.string().optional(),
@@ -366,12 +341,16 @@ const createPoSchema = z.object({
   remarks: z.string().optional(),
   status: z.enum(['Current', 'Completed', 'Draft']).optional(),
   selectedOperations: z.array(z.string()),
+  qcTestMode: z.string().optional(),
+  productConfigurations: z.array(createPoProductConfigSchema).optional(),
+  shifts: z.array(z.any()).optional(),
+  allocations: z.array(z.any()).optional(),
   salesOrders: z.array(z.any()).optional()
 });
 
-async function syncSalesOrderAllocations(
+async function syncPoAllocations(
   tx: any,
-  soDbId: string,
+  poDbId: string,
   requestedAssignments: any[],
   assignedByUserId: string
 ) {
@@ -411,23 +390,23 @@ async function syncSalesOrderAllocations(
     await tx.prepare(`
       UPDATE operator_work_assignments 
       SET active = 0, updated_at = NOW(3)
-      WHERE sales_order_id = ? AND active = 1 AND operator_id NOT IN (${placeholders})
-    `).run(soDbId, ...activeOpIds);
+      WHERE production_order_id = ? AND active = 1 AND operator_id NOT IN (${placeholders})
+    `).run(poDbId, ...activeOpIds);
   } else {
     await tx.prepare(`
       UPDATE operator_work_assignments 
       SET active = 0, updated_at = NOW(3)
-      WHERE sales_order_id = ? AND active = 1
-    `).run(soDbId);
+      WHERE production_order_id = ? AND active = 1
+    `).run(poDbId);
   }
 
   for (const assign of activeOpAssignments) {
     const owaId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     await tx.prepare(`
-      INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+      INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
       ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
-    `).run(owaId, soDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
+    `).run(owaId, poDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
   }
 }
 
@@ -454,43 +433,40 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       });
     }
 
-    if (body.salesOrders && body.salesOrders.length > 0) {
-      for (const so of body.salesOrders) {
-        const prefix = so.productQrPrefix || so.product_qr_prefix;
-        const start = so.productSerialStart != null ? Number(so.productSerialStart) : (so.product_serial_start != null ? Number(so.product_serial_start) : null);
-        const end = so.productSerialEnd != null ? Number(so.productSerialEnd) : (so.product_serial_end != null ? Number(so.product_serial_end) : null);
-        const qty = so.quantity || so.orderQuantity || 1;
+    // QC Test Mode format mapping
+    let dbQcTestMode = 'QC_AND_TEST';
+    if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
+    else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
-        if (prefix && start != null && end != null) {
-          if (start > end) {
-            return res.status(400).json({
-              error: 'INVALID_QR_RANGE',
-              message: `Product Serial Start (${start}) cannot be greater than Product Serial End (${end}) for Sales Order ${so.id || so.soNumber}.`
-            });
-          }
-          const rangeCount = end - start + 1;
-          if (rangeCount < qty) {
-            return res.status(400).json({
-              error: 'INSUFFICIENT_QR_RANGE',
-              message: `Product serial range (${rangeCount}) must cover at least order quantity (${qty}) for Sales Order ${so.id || so.soNumber}.`
-            });
-          }
-          const overlapRes = await checkQrRangeOverlap(prefix, start, end, so.id || so.soNumber);
-          if (overlapRes.overlap) {
-            return res.status(409).json({
-              error: 'QR_RANGE_OVERLAP',
-              message: `Product QR range overlaps with existing Sales Order ${overlapRes.overlappingSoNumber}.`
-            });
-          }
+    // Validate product configurations
+    if (body.productConfigurations && body.productConfigurations.length > 0) {
+      for (const config of body.productConfigurations) {
+        const prefix = config.productQrPrefix;
+        const start = Number(config.productSerialStart);
+        const end = Number(config.productSerialEnd);
+
+        if (start > end) {
+          return res.status(400).json({
+            error: 'INVALID_QR_RANGE',
+            message: `Serial Start (${start}) cannot be greater than Serial End (${end}) for product config ${config.configCode}.`
+          });
+        }
+
+        const overlapRes = await checkQrRangeOverlap(prefix, start, end, body.id);
+        if (overlapRes.overlap) {
+          return res.status(409).json({
+            error: 'QR_RANGE_OVERLAP',
+            message: `Product QR range (${prefix}) overlaps with existing Production Order ${overlapRes.overlappingPoNumber}.`
+          });
         }
       }
     }
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, body.mapPo, body.customer, styleId, body.startDate, body.dueDate, req.user!.id, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = 'QC_TEST';
@@ -500,47 +476,25 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
         await tx.prepare(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, ?)`).run(poDbId, code);
       }
 
-      if (body.salesOrders && body.salesOrders.length > 0) {
-        for (const so of body.salesOrders) {
-          const soDbId = `so-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-          let lineId = 'line-04';
-          if (so.lineId === 'Line 01') lineId = 'line-01';
-          else if (so.lineId === 'Line 02') lineId = 'line-02';
-          else if (so.lineId === 'Line 03') lineId = 'line-03';
-
-          let shiftId = 'shift-c';
-          if (so.shiftId) shiftId = so.shiftId;
-
-          const prefix = so.productQrPrefix || so.product_qr_prefix || null;
-          const start = so.productSerialStart != null ? Number(so.productSerialStart) : (so.product_serial_start != null ? Number(so.product_serial_start) : null);
-          const end = so.productSerialEnd != null ? Number(so.productSerialEnd) : (so.product_serial_end != null ? Number(so.product_serial_end) : null);
+      // Insert product configurations
+      if (body.productConfigurations && body.productConfigurations.length > 0) {
+        for (const config of body.productConfigurations) {
+          const pocId = `poc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+          const prefix = config.productQrPrefix.trim().toUpperCase();
+          const start = Number(config.productSerialStart);
+          const end = Number(config.productSerialEnd);
+          const qty = config.quantity || (end - start + 1);
 
           await tx.prepare(`
-            INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
-          `).run(
-            soDbId,
-            poDbId,
-            so.id,
-            so.mapSo,
-            so.product || 'Garment Product',
-            body.styleCode || so.styleCode || 'ST-900',
-            so.colour || 'Black',
-            so.sizeRange || 'S - XL',
-            so.quantity || 1000,
-            lineId,
-            shiftId,
-            so.boxCapacity || 12,
-            prefix ? prefix.trim().toUpperCase() : null,
-            start,
-            end
-          );
-
-          // Persist operator assignments to operator_work_assignments for THIS SO
-          const assignmentsToSync = so.shifts || so.allocations || so.operators || [];
-          await syncSalesOrderAllocations(tx, soDbId, assignmentsToSync, req.user!.id);
+            INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, product_qr_prefix, product_serial_start, product_serial_end, quantity, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+          `).run(pocId, poDbId, config.configCode, config.productType || null, config.size || null, prefix, start, end, qty);
         }
       }
+
+      // Sync PO shift allocations
+      const assignmentsToSync = body.shifts || body.allocations || [];
+      await syncPoAllocations(tx, poDbId, assignmentsToSync, req.user!.id);
     });
 
     await auditLog(req.user!.id, 'CREATE_PO', 'production_orders', poDbId, { poNumber: body.id, styleId });
@@ -553,23 +507,21 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
   }
 });
 
-// Sales Order Operator Allocation endpoints using ONLY operator_work_assignments
-
-const allocSchema = z.object({
+// POST /api/production-orders/:id/allocations
+const poAllocSchema = z.object({
   operatorId: z.string().min(1),
   shiftId: z.string().min(1),
   operation: z.string().optional()
 });
 
-// POST /api/production/sales-orders/:id/allocations
-router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+router.post('/production-orders/:id/allocations', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
-    const soParam = req.params.id;
-    const { operatorId, shiftId, operation } = allocSchema.parse(req.body);
+    const poParam = req.params.id;
+    const { operatorId, shiftId, operation } = poAllocSchema.parse(req.body);
 
-    const so = await db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
-    if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    const po = await db.prepare(`SELECT id, po_number FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
     const opUser = await db.prepare(`SELECT id, full_name FROM users WHERE (id = ? OR username = ?) AND role = 'OPERATOR'`).get(operatorId, operatorId) as any;
@@ -583,24 +535,24 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
     const workAssignId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
 
     await db.prepare(`
-      INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+      INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
       ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
-    `).run(workAssignId, so.id, targetShiftId, opUser.id, operation || 'ALL', req.user!.id);
+    `).run(workAssignId, po.id, targetShiftId, opUser.id, operation || 'ALL', req.user!.id);
 
-    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, shiftId: targetShiftId });
+    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR_PO', 'operator_work_assignments', workAssignId, { poId: po.id, operatorId: opUser.id, shiftId: targetShiftId });
 
     const allocs = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      SELECT owa.id, owa.production_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
       FROM operator_work_assignments owa
       JOIN users u ON u.id = owa.operator_id
       LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id);
+      WHERE owa.production_order_id = ? AND owa.active = 1
+    `).all(po.id);
 
     return res.status(201).json({
-      message: `Operator ${opUser.full_name} allocated to SO ${so.so_number}`,
-      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId: targetShiftId },
+      message: `Operator ${opUser.full_name} allocated to PO ${po.po_number}`,
+      allocation: { id: workAssignId, productionOrderId: po.id, operatorId: opUser.id, shiftId: targetShiftId },
       allocations: allocs
     });
   } catch (err) {
@@ -608,52 +560,22 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
   }
 });
 
-// POST /api/production/sales-orders/:id/allocations/sync (SUPERVISOR / ADMIN)
-router.post('/sales-orders/:id/allocations/sync', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+// GET /api/production-orders/:id/allocations
+router.get('/production-orders/:id/allocations', authenticateToken, async (req, res, next) => {
   try {
-    const soParam = req.params.id;
-    const so = await db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
-    if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
-    }
-
-    const requestedShifts = req.body.shifts || req.body.allocations || (req.body.operatorId ? [req.body] : []);
-    await syncSalesOrderAllocations(db, so.id, requestedShifts, req.user!.id);
-
-    const allocs = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
-      FROM operator_work_assignments owa
-      JOIN users u ON u.id = owa.operator_id
-      LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id);
-
-    return res.status(200).json({
-      message: `Allocations synced for SO ${so.so_number}`,
-      salesOrderId: so.id,
-      allocations: allocs
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/production/sales-orders/:id/allocations
-router.get('/sales-orders/:id/allocations', authenticateToken, async (req, res, next) => {
-  try {
-    const soParam = req.params.id;
-    const so = await db.prepare(`SELECT id FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
-    if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    const poParam = req.params.id;
+    const po = await db.prepare(`SELECT id FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
     const allocs = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      SELECT owa.id, owa.production_order_id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
       FROM operator_work_assignments owa
       JOIN users u ON u.id = owa.operator_id
       LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id);
+      WHERE (owa.production_order_id = ? OR owa.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND owa.active = 1
+    `).all(po.id, po.id);
 
     return res.json(allocs);
   } catch (err) {
@@ -661,8 +583,8 @@ router.get('/sales-orders/:id/allocations', authenticateToken, async (req, res, 
   }
 });
 
-// DELETE /api/production/sales-orders/:id/allocations/:allocId
-router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+// DELETE /api/production-orders/:id/allocations/:allocId
+router.delete('/production-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { allocId } = req.params;
 

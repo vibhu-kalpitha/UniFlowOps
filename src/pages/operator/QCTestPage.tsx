@@ -4,9 +4,8 @@ import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, Zap } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
 
 interface ScannedItem {
@@ -35,19 +34,18 @@ export const QCTestPage: React.FC = () => {
   const { activeJob, incrementQCPassed, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
-  const so = activeJob?.salesOrder;
+  const qcMode = po?.qcTestMode || 'QC & Test';
 
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
-  const [qcResult,   setQcResult]   = useState<'PASS' | 'FAIL'>('PASS');
+  const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [failureReason, setFailureReason] = useState<string>('');
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isBulkMode, setIsBulkMode] = useState(false);
 
   // Authoritative backend progress state
-  const [soProgress, setSoProgress] = useState<{
+  const [poProgress, setPoProgress] = useState<{
     loading: boolean;
     targetQuantity: number;
     inspectedUnique: number;
@@ -58,21 +56,21 @@ export const QCTestPage: React.FC = () => {
     error?: string;
   }>({
     loading: true,
-    targetQuantity: so?.quantity || 10,
+    targetQuantity: po?.totalQuantity || 10,
     inspectedUnique: 0,
     passedUnique: 0,
     failedUnique: 0,
-    remainingToInspect: so?.quantity || 10,
-    remainingToPass: so?.quantity || 10,
+    remainingToInspect: po?.totalQuantity || 10,
+    remainingToPass: po?.totalQuantity || 10,
   });
 
   const fetchProgress = async () => {
-    const targetSoKey = so?.dbId || so?.id || 'SO-77201';
-    setSoProgress(prev => ({ ...prev, loading: true, error: undefined }));
+    const targetPoKey = po?.dbId || po?.id || 'PO-2026-0184';
+    setPoProgress(prev => ({ ...prev, loading: true, error: undefined }));
     try {
-      const res = await apiFetch(`/api/qc/progress/${targetSoKey}`);
+      const res = await apiFetch(`/api/qc/progress/${targetPoKey}`);
       if (res && typeof res.passedUnique === 'number') {
-        setSoProgress({
+        setPoProgress({
           loading: false,
           targetQuantity: res.targetQuantity,
           inspectedUnique: res.inspectedUnique,
@@ -82,22 +80,22 @@ export const QCTestPage: React.FC = () => {
           remainingToPass: res.remainingToPass,
         });
       } else {
-        setSoProgress(prev => ({ ...prev, loading: false }));
+        setPoProgress(prev => ({ ...prev, loading: false }));
       }
     } catch {
-      setSoProgress(prev => ({ ...prev, loading: false }));
+      setPoProgress(prev => ({ ...prev, loading: false }));
     }
   };
 
   useEffect(() => {
     fetchProgress();
-  }, [so?.dbId, so?.id]);
+  }, [po?.dbId, po?.id]);
 
-  const targetSoQty = soProgress.targetQuantity || so?.quantity || 10;
-  const qcPassedQty = soProgress.passedUnique;
-  const remainingQcQty = soProgress.remainingToPass;
-  const isQCComplete = soProgress.passedUnique >= targetSoQty;
-  const isAllAdmitted = soProgress.inspectedUnique >= targetSoQty;
+  const targetPoQty = poProgress.targetQuantity || po?.totalQuantity || 10;
+  const qcPassedQty = poProgress.passedUnique;
+  const remainingQcQty = poProgress.remainingToPass;
+  const isQCComplete = poProgress.passedUnique >= targetPoQty;
+  const isAllAdmitted = poProgress.inspectedUnique >= targetPoQty;
 
   /* ── scan handler ──────────────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
@@ -115,18 +113,18 @@ export const QCTestPage: React.FC = () => {
           history: hRes.history || []
         });
       }
-    } catch (_) {
+    } catch {
       setHistoryData(null);
     }
 
     try {
       const res = await apiFetch('/api/qc/scan', {
         method: 'POST',
-        body: JSON.stringify({ code, salesOrderId: so?.dbId || so?.id, salesOrderNumber: so?.id }),
+        body: JSON.stringify({ code, productionOrderId: po?.dbId || po?.id, productionOrderNumber: po?.id }),
       });
 
       if (res?.progress) {
-        setSoProgress({
+        setPoProgress({
           loading: false,
           targetQuantity: res.progress.targetQuantity,
           inspectedUnique: res.progress.inspectedUnique,
@@ -140,16 +138,15 @@ export const QCTestPage: React.FC = () => {
       const isDup = res.status === 'DUPLICATE';
 
       setScannedItem({
-        qr:      res.item?.qr_code || code,
-        product: so?.product || 'Garment',
-        size:    res.item?.size || 'L',
-        status:  isDup ? 'DUPLICATE' : 'VALID',
+        qr: res.item?.qr_code || code,
+        product: po?.styleName || po?.styleCode || 'Garment',
+        size: res.item?.size || 'L',
+        status: isDup ? 'DUPLICATE' : 'VALID',
       });
       setQcResult(isDup ? 'FAIL' : 'PASS');
       setTestResult(isDup ? 'FAIL' : 'PASS');
 
       if (isDup) {
-        // Read-only notification on duplicate scan
         return {
           status: 'duplicate' as const,
           message: `⚠️ Item ${code} is ALREADY QC PASSED! (Duplicate scan)`,
@@ -157,78 +154,18 @@ export const QCTestPage: React.FC = () => {
         };
       }
 
-      if (isBulkMode) {
-        // Bulk Auto-Save Mode: Save PASS result directly to DB on scan!
-        const key = `qc-${so?.id || 'so'}-${code}-${Date.now()}`;
-        let saveRes: any = null;
-        try {
-          saveRes = await apiFetch('/api/qc/results', {
-            method: 'POST',
-            body: JSON.stringify({
-              idempotencyKey:  key,
-              itemQr:          code,
-              salesOrderId:    so?.dbId || so?.id,
-              salesOrderNumber: so?.id || 'SO-77201',
-              qcResult:        'PASS',
-              testResult:      'PASS',
-            }),
-          });
-        } catch (saveErr: any) {
-          const saveErrMsg = saveErr?.message || String(saveErr);
-          if (saveErrMsg.includes('SO_QUANTITY_REACHED') || saveErrMsg.includes('already has')) {
-            showToast(`⚠️ Cannot add item — Sales Order quantity limit reached!`, 'error');
-            return {
-              status: 'rejected' as const,
-              message: `❌ Sales Order Full: ${saveErrMsg}`,
-              code,
-            };
-          }
-          if (saveErr?.error === 'QR_OUT_OF_RANGE' || saveErrMsg.includes('does not belong')) {
-            const expMsg = saveErr?.expectedRange ? ` (Expected range: ${saveErr.expectedRange})` : '';
-            showToast(`Out of range — this QR does not belong to the selected Sales Order.${expMsg}`, 'error');
-            setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
-            return {
-              status: 'rejected' as const,
-              message: `Out of range — this QR does not belong to the selected Sales Order.${expMsg}`,
-              code,
-            };
-          }
-        }
-
-        if (saveRes?.progress) {
-          setSoProgress({
-            loading: false,
-            targetQuantity: saveRes.progress.targetQuantity,
-            inspectedUnique: saveRes.progress.inspectedUnique,
-            passedUnique: saveRes.progress.passedUnique,
-            failedUnique: saveRes.progress.failedUnique,
-            remainingToInspect: saveRes.progress.remainingToInspect,
-            remainingToPass: saveRes.progress.remainingToPass,
-          });
-        }
-        await fetchProgress();
-
-        incrementQCPassed();
-        setSaved(true);
-        const retryText = saveRes?.retryCount > 0 ? ` (Passed on retry #${saveRes.retryCount})` : '';
-        showToast(`⚡ [Bulk Mode] Auto-saved PASS for ${code}${retryText}!`, 'success');
-        setTimeout(() => setSaved(false), 1200);
-      }
-
       return {
-        status:  'accepted' as const,
-        message: isBulkMode
-          ? `⚡ [Bulk Mode] ${code} auto-saved PASS to DB!`
-          : `✅ ${code} validated successfully`,
+        status: 'accepted' as const,
+        message: `✅ ${code} validated successfully for ${po?.id || 'PO'}`,
         code: res.item?.qr_code || code,
       };
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
         const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
-        const redMsg = `Out of range — this QR does not belong to the selected Sales Order.${expMsg}`;
+        const redMsg = `Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`;
         showToast(redMsg, 'error');
-        setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
+        setScannedItem({ qr: code, product: po?.styleName || 'Garment', size: '—', status: 'INVALID' });
         return {
           status: 'rejected' as const,
           message: redMsg,
@@ -237,9 +174,9 @@ export const QCTestPage: React.FC = () => {
       }
 
       if (err?.error === 'QR_RANGE_NOT_CONFIGURED' || errMsg.includes('not configured')) {
-        const notConfigMsg = `Product QR range not configured for Sales Order ${so?.id || ''}. Please contact supervisor.`;
+        const notConfigMsg = `Product QR range not configured for Production Order ${po?.id || ''}. Please contact supervisor.`;
         showToast(notConfigMsg, 'error');
-        setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
+        setScannedItem({ qr: code, product: po?.styleName || 'Garment', size: '—', status: 'INVALID' });
         return {
           status: 'rejected' as const,
           message: notConfigMsg,
@@ -247,55 +184,24 @@ export const QCTestPage: React.FC = () => {
         };
       }
 
-      if (errMsg.includes('SO_QUANTITY_REACHED') || errMsg.includes('already has') || errMsg.includes('target quantity reached')) {
-        showToast(`⚠️ Cannot add item — Sales Order target quantity reached!`, 'error');
-        setScannedItem({ qr: code, product: so?.product || 'Garment', size: '—', status: 'INVALID' });
-        return {
-          status: 'rejected' as const,
-          message: `❌ Sales Order Full (${errMsg})`,
-          code,
-        };
-      }
-
-      if (errMsg.includes('OPERATOR_UNAUTHORIZED')) {
-        showToast(`⛔ Operator Unauthorized for this Sales Order`, 'error');
-        return {
-          status: 'rejected' as const,
-          message: `⛔ Unauthorized`,
-          code,
-        };
-      }
-
-      // Offline mode fallback only on network failure
-      setScannedItem({ qr: code, product: so?.product || 'Garment', size: 'L', status: 'VALID' });
-      setQcResult('PASS');
-      setTestResult('PASS');
-
-      if (isBulkMode) {
-        incrementQCPassed();
-        setSaved(true);
-        showToast(`⚡ [Bulk Mode] Auto-saved PASS for ${code} (offline)!`, 'success');
-        setTimeout(() => setSaved(false), 1200);
-      }
-
+      showToast(`Scan Error: ${errMsg}`, 'error');
+      setScannedItem({ qr: code, product: po?.styleName || 'Garment', size: '—', status: 'INVALID' });
       return {
-        status:  'accepted' as const,
-        message: isBulkMode
-          ? `⚡ [Bulk Mode] ${code} auto-saved PASS (offline mode).`
-          : `✅ ${code} scanned (offline mode).`,
+        status: 'rejected' as const,
+        message: `Error: ${errMsg}`,
         code,
       };
     }
   };
 
-  /* ── save handler ───────────────────────────────────────────── */
+  /* ── save handler ──────────────────────────────────────────── */
   const handleSave = async () => {
     if (!scannedItem) {
-      showToast('Please scan an item first!', 'warning');
+      showToast('Please scan a garment QR first.', 'warning');
       return;
     }
     if (scannedItem.status === 'INVALID') {
-      showToast('Cannot save — barcode is invalid or out of range!', 'error');
+      showToast('Cannot save result for invalid item.', 'error');
       return;
     }
     if (scannedItem.status === 'DUPLICATE') {
@@ -305,38 +211,46 @@ export const QCTestPage: React.FC = () => {
     if (isSaving) return;
 
     setIsSaving(true);
-    const key = `qc-${so?.id || 'so'}-${scannedItem.qr}-${Date.now()}`;
+    const key = `qc-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
     let saveRes: any = null;
+
     try {
+      const payload: any = {
+        idempotencyKey: key,
+        itemQr: scannedItem.qr,
+        productionOrderId: po?.dbId || po?.id,
+        productionOrderNumber: po?.id || 'PO-2026-0184',
+        failureReason: (qcResult === 'FAIL' || testResult === 'FAIL') ? failureReason : undefined,
+      };
+
+      if (qcMode === 'QC Only') {
+        payload.qcResult = qcResult;
+      } else if (qcMode === 'Test Only') {
+        payload.testResult = testResult;
+      } else {
+        payload.qcResult = qcResult;
+        payload.testResult = testResult;
+      }
+
       saveRes = await apiFetch('/api/qc/results', {
         method: 'POST',
-        body: JSON.stringify({
-          idempotencyKey:  key,
-          itemQr:          scannedItem.qr,
-          salesOrderId:    so?.dbId || so?.id,
-          salesOrderNumber: so?.id || 'SO-77201',
-          qcResult,
-          testResult,
-          failureReason: (qcResult === 'FAIL' || testResult === 'FAIL') ? failureReason : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
         const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
-        showToast(`Out of range — this QR does not belong to the selected Sales Order.${expMsg}`, 'error');
+        showToast(`Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`, 'error');
         setIsSaving(false);
         return;
       }
-      if (errMsg.includes('SO_QUANTITY_REACHED') || errMsg.includes('already has')) {
-        showToast(`⚠️ Cannot save — Sales Order target quantity reached!`, 'error');
-        setIsSaving(false);
-        return;
-      }
+      showToast(`Save failed: ${errMsg}`, 'error');
+      setIsSaving(false);
+      return;
     }
 
     if (saveRes?.progress) {
-      setSoProgress({
+      setPoProgress({
         loading: false,
         targetQuantity: saveRes.progress.targetQuantity,
         inspectedUnique: saveRes.progress.inspectedUnique,
@@ -348,10 +262,12 @@ export const QCTestPage: React.FC = () => {
     }
     await fetchProgress();
 
-    if (qcResult === 'PASS' && testResult === 'PASS') {
+    const isPass = (qcMode === 'QC Only' ? qcResult === 'PASS' : qcMode === 'Test Only' ? testResult === 'PASS' : (qcResult === 'PASS' && testResult === 'PASS'));
+
+    if (isPass) {
       incrementQCPassed();
       const retryText = saveRes?.retryCount > 0 ? ` (Passed on retry #${saveRes.retryCount})` : '';
-      showToast(`✅ QC & Test PASSED for ${scannedItem.qr}${retryText}!`, 'success');
+      showToast(`✅ ${qcMode} PASSED for ${scannedItem.qr}${retryText}!`, 'success');
     } else {
       const attemptText = saveRes?.totalFails ? ` (Failed ${saveRes.totalFails} time(s))` : '';
       showToast(`❌ Failure recorded for ${scannedItem.qr}${attemptText}`, 'warning');
@@ -369,7 +285,6 @@ export const QCTestPage: React.FC = () => {
     }, 1200);
   };
 
-  /* ── render ─────────────────────────────────────────────────── */
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top Banner */}
@@ -379,15 +294,10 @@ export const QCTestPage: React.FC = () => {
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
-                QC Inspection • {po?.id || 'PO-2026-904'} | {so?.id || 'SO-77201'}
+                QC Inspection • {po?.id || 'PO-2026-0184'} — {po?.styleName || po?.styleCode || 'Garment Style'}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {so?.product || 'Garment'} — {so?.colour || '—'}
-                {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null && (
-                  <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                    • Valid Product Range: {so.productQrPrefix}{so.productSerialStart} → {so.productQrPrefix}{so.productSerialEnd}
-                  </span>
-                )}
+                Configured QC Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
               </span>
             </div>
           </div>
@@ -404,11 +314,11 @@ export const QCTestPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Scanner & Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* SO Order Progress & Remaining Counter */}
+          {/* PO Progress Card */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
-                QC INSPECTION QUANTITY PROGRESS
+                PRODUCTION ORDER QC PROGRESS
               </span>
               <StatusPill label={`Remaining: ${remainingQcQty}`} variant={remainingQcQty === 0 ? 'green' : 'teal'} />
             </div>
@@ -416,102 +326,31 @@ export const QCTestPage: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
               <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
                 <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetPoQty}</span>
               </div>
               <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#10B981', display: 'block' }}>QC Passed</span>
+                <span style={{ fontSize: '10px', color: '#10B981', display: 'block' }}>Passed</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{qcPassedQty}</span>
               </div>
               <div style={{ backgroundColor: 'rgba(34, 211, 197, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining to pass</span>
+                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>{remainingQcQty}</span>
               </div>
             </div>
 
-            <ProgressBar current={qcPassedQty} total={targetSoQty} height={8} />
+            <ProgressBar current={qcPassedQty} total={targetPoQty} height={8} />
 
             {isQCComplete && (
               <div style={{ padding: '10px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>
                 <span style={{ fontSize: '13px', fontWeight: 800, color: '#10B981' }}>
-                  ✅ QC complete — {qcPassedQty}/{targetSoQty} passed
+                  ✅ QC complete — {qcPassedQty}/{targetPoQty} passed
                 </span>
               </div>
             )}
-
-            {!isQCComplete && isAllAdmitted && (
-              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid #F59E0B', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#F59E0B' }}>
-                  ⚠️ All pieces inspected — rework pending
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Mode Selector Toggle: Manual Save vs Bulk Auto-Save Mode */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: isBulkMode ? 'rgba(245, 158, 11, 0.12)' : 'var(--bg-surface-1)',
-              border: `1px solid ${isBulkMode ? 'rgba(245, 158, 11, 0.4)' : 'var(--border-color)'}`,
-              borderRadius: '12px',
-              padding: '10px 14px',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Zap size={20} color={isBulkMode ? '#F59E0B' : 'var(--primary-teal)'} />
-              <div>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {isBulkMode ? '⚡ Bulk Auto-Save Mode' : '📝 Manual Review Mode'}
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>
-                  {isBulkMode
-                    ? 'Scanning auto-saves PASS results directly to DB (High Volume 1000+)'
-                    : 'Requires clicking Save button manually after reviewing details'}
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-surface-2)', padding: '4px', borderRadius: '10px' }}>
-              <button
-                type="button"
-                onClick={() => setIsBulkMode(false)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  backgroundColor: !isBulkMode ? 'var(--bg-surface-1)' : 'transparent',
-                  color: !isBulkMode ? 'var(--text-primary)' : 'var(--text-muted)',
-                  border: !isBulkMode ? '1px solid var(--border-color)' : 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                Manual
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsBulkMode(true)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  backgroundColor: isBulkMode ? 'var(--color-amber)' : 'transparent',
-                  color: isBulkMode ? '#000' : 'var(--text-muted)',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                ⚡ Bulk Auto-Save
-              </button>
-            </div>
           </div>
 
           <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
-          <ScannerInput onScan={handleScanCode} placeholder={isBulkMode ? "⚡ Bulk Mode Active: Scan barcode to auto-save..." : "Scan garment QR code…"} />
+          <ScannerInput onScan={handleScanCode} placeholder="Scan product QR barcode..." />
 
           {!scannedItem ? (
             <div style={styles.emptyCard}>
@@ -520,7 +359,7 @@ export const QCTestPage: React.FC = () => {
                 Waiting for scan…
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Scan a garment QR to see item details & validate quality
+                Scan a product QR code to inspect item details
               </span>
             </div>
           ) : (
@@ -546,7 +385,7 @@ export const QCTestPage: React.FC = () => {
                   </span>
                 </div>
                 <div style={styles.detailRow}>
-                  <span style={styles.detailLabel}>Product</span>
+                  <span style={styles.detailLabel}>Style</span>
                   <span style={styles.detailValue}>{scannedItem.product}</span>
                 </div>
                 <div style={styles.detailRow}>
@@ -572,55 +411,58 @@ export const QCTestPage: React.FC = () => {
                     gap: '6px'
                   }}>
                     <span style={{ fontSize: '13px', fontWeight: 800, color: '#f87171' }}>
-                      ⚠️ Previously Failed {historyData.failCount} time(s)! (Attempt #{historyData.failCount + 1})
+                      ⚠️ Previously Failed {historyData.failCount} time(s)!
                     </span>
-                    {historyData.history.map((h, idx) => (
-                      <div key={idx} style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Attempt #{h.attempt_number}: QC {h.qc_result} / Test {h.test_result} {h.failure_reason ? `(${h.failure_reason})` : ''}</span>
-                        <span style={{ fontSize: '10px', opacity: 0.8 }}>{new Date(h.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                    ))}
                   </div>
                 )}
               </div>
 
-              <div>
-                <span style={styles.controlLabel}>QC Result</span>
-                <div style={styles.segmentRow}>
-                  <button
-                    style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                    onClick={() => setQcResult('PASS')}
-                  >
-                    <Check size={18} /> PASS
-                  </button>
-                  <button
-                    style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                    onClick={() => setQcResult('FAIL')}
-                  >
-                    <XCircle size={18} /> FAIL
-                  </button>
+              {/* Mode-specific Result Controls */}
+              {(qcMode === 'QC & Test' || qcMode === 'QC Only') && (
+                <div>
+                  <span style={styles.controlLabel}>QC Result</span>
+                  <div style={styles.segmentRow}>
+                    <button
+                      type="button"
+                      style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                      onClick={() => setQcResult('PASS')}
+                    >
+                      <Check size={18} /> PASS
+                    </button>
+                    <button
+                      type="button"
+                      style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                      onClick={() => setQcResult('FAIL')}
+                    >
+                      <XCircle size={18} /> FAIL
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <span style={styles.controlLabel}>Test Result</span>
-                <div style={styles.segmentRow}>
-                  <button
-                    style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                    onClick={() => setTestResult('PASS')}
-                  >
-                    <Check size={18} /> PASS
-                  </button>
-                  <button
-                    style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                    onClick={() => setTestResult('FAIL')}
-                  >
-                    <XCircle size={18} /> FAIL
-                  </button>
+              {(qcMode === 'QC & Test' || qcMode === 'Test Only') && (
+                <div>
+                  <span style={styles.controlLabel}>Test Result</span>
+                  <div style={styles.segmentRow}>
+                    <button
+                      type="button"
+                      style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                      onClick={() => setTestResult('PASS')}
+                    >
+                      <Check size={18} /> PASS
+                    </button>
+                    <button
+                      type="button"
+                      style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                      onClick={() => setTestResult('FAIL')}
+                    >
+                      <XCircle size={18} /> FAIL
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {(qcResult === 'FAIL' || testResult === 'FAIL') && (
+              {((qcMode !== 'Test Only' && qcResult === 'FAIL') || (qcMode !== 'QC Only' && testResult === 'FAIL')) && (
                 <div>
                   <span style={styles.controlLabel}>Failure Reason (Optional)</span>
                   <input
@@ -644,7 +486,7 @@ export const QCTestPage: React.FC = () => {
               <button
                 className="btn-primary"
                 onClick={handleSave}
-                disabled={saved}
+                disabled={saved || isSaving}
                 style={{
                   marginTop: '8px',
                   background: saved
@@ -655,13 +497,13 @@ export const QCTestPage: React.FC = () => {
                   opacity: saved ? 0.7 : 1,
                 }}
               >
-                {saved ? '✅ Saved!' : 'Save QC Result'}
+                {saved ? '✅ Saved!' : `Save ${qcMode} Result`}
               </button>
             </>
           )}
         </div>
 
-        {/* Right Panel: Context Details & History */}
+        {/* Right Panel: Context Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
@@ -670,36 +512,37 @@ export const QCTestPage: React.FC = () => {
             <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Production Order:</span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{po?.id || 'PO-2026-904'}</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{po?.id || 'PO-2026-0184'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Sales Order:</span>
-                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{so?.id || 'SO-77201'}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Garment Style:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{po?.styleName || po?.styleCode || 'Standard'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Product Style:</span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{so?.product || 'Garment'}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Mode:</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{qcMode}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Product QR Range:</span>
-                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>
-                  {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null
-                    ? `${so.productQrPrefix}${so.productSerialStart} → ${so.productQrPrefix}${so.productSerialEnd}`
-                    : 'Not configured'}
-                </span>
-              </div>
+              {po?.productConfigurations && po.productConfigurations.length > 0 && (
+                <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>CONFIGURED RANGES:</span>
+                  {po.productConfigurations.map((cfg, idx) => (
+                    <div key={idx} style={{ fontSize: '11px', color: 'var(--text-primary)', marginTop: '2px' }}>
+                      • {cfg.configCode}: {cfg.productQrPrefix}{cfg.productSerialStart} → {cfg.productQrPrefix}{cfg.productSerialEnd} ({cfg.quantity} pcs)
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              QC TEST INSTRUCTIONS
+              QC INSTRUCTIONS
             </span>
             <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              <li>Scan the garment QR tag or enter manually.</li>
-              <li>Verify physical garment against specifications.</li>
-              <li>Mark QC & Test results appropriately before saving.</li>
-              <li>Failed items are automatically logged to the defect database.</li>
+              <li>Scan the product QR code barcode.</li>
+              <li>Perform required inspection according to selected mode ({qcMode}).</li>
+              <li>Record PASS/FAIL result and save to production database.</li>
             </ul>
           </div>
         </div>

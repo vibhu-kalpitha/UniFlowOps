@@ -156,6 +156,103 @@ async function runSchemaAlignment004(): Promise<void> {
   }
 }
 
+async function runSchemaAlignment005(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (005 PO Product Configurations)...');
+
+  if (await tableExists('production_orders')) {
+    if (!(await columnExists('production_orders', 'qc_test_mode'))) {
+      await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_test_mode VARCHAR(50) NOT NULL DEFAULT 'QC_AND_TEST' AFTER supervisor_id;`);
+    }
+  }
+
+  if (!(await tableExists('production_order_configs'))) {
+    await db.exec(`
+      CREATE TABLE production_order_configs (
+        id VARCHAR(191) PRIMARY KEY,
+        production_order_id VARCHAR(191) NOT NULL,
+        config_code VARCHAR(191) NOT NULL,
+        product_type VARCHAR(50) NULL,
+        size VARCHAR(50) NULL,
+        product_qr_prefix VARCHAR(191) NOT NULL,
+        product_serial_start BIGINT NOT NULL,
+        product_serial_end BIGINT NOT NULL,
+        quantity INT NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        INDEX idx_poc_po (production_order_id),
+        INDEX idx_poc_prefix (product_qr_prefix),
+        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  }
+
+  if (await tableExists('operator_work_assignments')) {
+    if (!(await columnExists('operator_work_assignments', 'production_order_id'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN production_order_id VARCHAR(191) NULL AFTER id;`);
+    }
+    await db.exec(`ALTER TABLE operator_work_assignments MODIFY COLUMN sales_order_id VARCHAR(191) NULL;`);
+
+    if (await tableExists('sales_orders')) {
+      await db.exec(`
+        UPDATE operator_work_assignments owa
+        JOIN sales_orders so ON so.id = owa.sales_order_id
+        SET owa.production_order_id = so.production_order_id
+        WHERE owa.production_order_id IS NULL AND owa.sales_order_id IS NOT NULL;
+      `);
+    }
+
+    if (!(await constraintExists('operator_work_assignments', 'fk_owa_po')) && !(await indexExists('operator_work_assignments', 'idx_owa_po'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE;`);
+    }
+  }
+
+  if (await tableExists('item_units')) {
+    await db.exec(`ALTER TABLE item_units MODIFY COLUMN sales_order_id VARCHAR(191) NULL;`);
+    if (!(await columnExists('item_units', 'production_order_id'))) {
+      await db.exec(`ALTER TABLE item_units ADD COLUMN production_order_id VARCHAR(191) NULL AFTER sales_order_id;`);
+    }
+    if (!(await columnExists('item_units', 'product_config_id'))) {
+      await db.exec(`ALTER TABLE item_units ADD COLUMN product_config_id VARCHAR(191) NULL AFTER production_order_id;`);
+    }
+
+    if (await tableExists('sales_orders')) {
+      await db.exec(`
+        UPDATE item_units iu
+        JOIN sales_orders so ON so.id = iu.sales_order_id
+        SET iu.production_order_id = so.production_order_id
+        WHERE iu.production_order_id IS NULL AND iu.sales_order_id IS NOT NULL;
+      `);
+    }
+  }
+
+  if (await tableExists('boxes')) {
+    await db.exec(`ALTER TABLE boxes MODIFY COLUMN sales_order_id VARCHAR(191) NULL;`);
+    if (await tableExists('sales_orders')) {
+      await db.exec(`
+        UPDATE boxes b
+        JOIN sales_orders so ON so.id = b.sales_order_id
+        SET b.production_order_id = so.production_order_id
+        WHERE b.production_order_id IS NULL AND b.sales_order_id IS NOT NULL;
+      `);
+    }
+  }
+
+  if (await tableExists('aql_inspections')) {
+    await db.exec(`ALTER TABLE aql_inspections MODIFY COLUMN sales_order_id VARCHAR(191) NULL;`);
+    if (!(await columnExists('aql_inspections', 'production_order_id'))) {
+      await db.exec(`ALTER TABLE aql_inspections ADD COLUMN production_order_id VARCHAR(191) NULL AFTER sales_order_id;`);
+    }
+    if (await tableExists('boxes')) {
+      await db.exec(`
+        UPDATE aql_inspections ai
+        JOIN boxes b ON b.id = ai.box_id
+        SET ai.production_order_id = b.production_order_id
+        WHERE ai.production_order_id IS NULL AND b.production_order_id IS NOT NULL;
+      `);
+    }
+  }
+}
+
 export async function runMigrations(): Promise<{ applied: string[]; skipped: string[] }> {
   const connected = await ensureDbConnected();
   if (!connected) {
@@ -206,6 +303,8 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       }
     } else if (file === '004_so_product_qr_range.sql') {
       await runSchemaAlignment004();
+    } else if (file === '005_po_product_configurations.sql') {
+      await runSchemaAlignment005();
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);

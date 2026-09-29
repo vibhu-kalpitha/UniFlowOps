@@ -209,7 +209,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshProductionOrders();
     // Also update activeJob if it belongs to this PO
     if (activeJob && activeJob.productionOrder.id === order.id) {
-      const updatedSo = order.salesOrders.find(s => s.id === activeJob.salesOrder.id) || activeJob.salesOrder;
+      const updatedSo = (order.salesOrders || []).find(s => s.id === activeJob.salesOrder?.id) || activeJob.salesOrder;
       const updatedJob: ActiveJob = {
         ...activeJob,
         productionOrder: order,
@@ -250,11 +250,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const incrementQCPassed = () => {
     setQcPassedCountToday(prev => prev + 1);
-    if (activeJob) {
+    if (activeJob && activeJob.salesOrder) {
       const orders = repository.getProductionOrders();
       const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder.id);
+      if (po && po.salesOrders) {
+        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
         if (so) {
           so.progress.qcPassed += 1;
           saveProductionOrder(po);
@@ -265,11 +265,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const incrementPacked = () => {
     setPackedCountToday(prev => prev + 1);
-    if (activeJob) {
+    if (activeJob && activeJob.salesOrder) {
       const orders = repository.getProductionOrders();
       const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder.id);
+      if (po && po.salesOrders) {
+        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
         if (so) {
           so.progress.packed += 1;
           saveProductionOrder(po);
@@ -279,11 +279,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const incrementAQLPassed = () => {
-    if (activeJob) {
+    if (activeJob && activeJob.salesOrder) {
       const orders = repository.getProductionOrders();
       const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder.id);
+      if (po && po.salesOrders) {
+        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
         if (so) {
           so.progress.aqlPassed = (so.progress.aqlPassed || 0) + 1;
           saveProductionOrder(po);
@@ -293,11 +293,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const incrementAQLFailed = () => {
-    if (activeJob) {
+    if (activeJob && activeJob.salesOrder) {
       const orders = repository.getProductionOrders();
       const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder.id);
+      if (po && po.salesOrders) {
+        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
         if (so) {
           so.progress.aqlFailed = (so.progress.aqlFailed || 0) + 1;
           saveProductionOrder(po);

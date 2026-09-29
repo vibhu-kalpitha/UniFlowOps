@@ -93,9 +93,10 @@ export const PackingPage: React.FC = () => {
       await apiFetch('/api/packing/items/scan', {
         method: 'POST',
         body: JSON.stringify({
-          boxNumber:      box.boxNumber,
-          itemQr:         code,
-          salesOrderNumber: so?.id || 'SO-77201',
+          boxNumber:              box.boxNumber,
+          itemQr:                 code,
+          productionOrderId:     po?.dbId || po?.id,
+          productionOrderNumber: po?.id || 'PO-2026-0184',
         }),
       });
     } catch (err: any) {
@@ -156,22 +157,17 @@ export const PackingPage: React.FC = () => {
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* PO/SO Banner */}
+      {/* PO Banner */}
       <div style={styles.banner}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
-                Packing Station • {po?.id || 'PO-2026-904'} | {so?.id || 'SO-77201'}
+                Packing Station • {po?.id || 'PO-2026-0184'} — {po?.styleName || po?.styleCode || 'Garment Style'}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {so?.product || 'Garment'} — {so?.colour || '—'}
-                {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null && (
-                  <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                    • Product Range: {so.productQrPrefix}{so.productSerialStart} → {so.productQrPrefix}{so.productSerialEnd}
-                  </span>
-                )}
+                Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}
               </span>
             </div>
           </div>

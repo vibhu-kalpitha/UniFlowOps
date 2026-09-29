@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { apiFetch } from '../../services/api';
-import { OperationType } from '../../types';
-import { ArrowRight, CheckSquare, Square, Tag, Plus } from 'lucide-react';
+import { OperationType, QcTestMode } from '../../types';
+import { ArrowRight, CheckSquare, Square, Plus } from 'lucide-react';
 import '../../styles/tokens.css';
 
 interface StyleItem {
@@ -38,6 +38,8 @@ export const CreatePOGeneral: React.FC = () => {
     'Box Transfer'
   ]);
 
+  const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
+
   useEffect(() => {
     apiFetch<StyleItem[]>('/api/styles')
       .then(res => {
@@ -47,7 +49,7 @@ export const CreatePOGeneral: React.FC = () => {
           setSelectedStyleId(savedId);
         }
       })
-      .catch(err => {
+      .catch(() => {
         showToast('Failed to load styles from database', 'error');
       })
       .finally(() => {
@@ -80,17 +82,19 @@ export const CreatePOGeneral: React.FC = () => {
 
     const selectedStyleObj = stylesList.find(s => s.id === selectedStyleId);
 
-    // Save draft PO to session/state
     const draftPo = {
       id: poId,
       mapPo,
       customer: selectedStyleObj?.customer || 'Nike',
       styleId: selectedStyleId,
+      styleCode: selectedStyleObj?.code,
+      styleName: selectedStyleObj?.name,
       startDate,
       dueDate,
       supervisorId: supervisor,
       remarks,
-      selectedOperations: selectedOps
+      selectedOperations: selectedOps,
+      qcTestMode: selectedOps.includes('QC Test') ? qcTestMode : undefined
     };
 
     sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleId);
@@ -109,7 +113,7 @@ export const CreatePOGeneral: React.FC = () => {
         <div style={styles.stepDivider} />
         <div style={styles.stepInactive}>
           <span style={styles.stepNumInactive}>3</span>
-          <span>Sales Orders</span>
+          <span>Product Configurations</span>
         </div>
         <div style={styles.stepDivider} />
         <div style={styles.stepInactive}>
@@ -166,11 +170,6 @@ export const CreatePOGeneral: React.FC = () => {
                 ))
               )}
             </select>
-            {stylesList.length === 0 && !loadingStyles && (
-              <p style={{ fontSize: '12px', color: 'var(--color-amber)', marginTop: '4px' }}>
-                No styles found in database. Click '+ Create / Manage Styles' above to add one.
-              </p>
-            )}
           </div>
 
           {/* PO Number */}
@@ -260,21 +259,64 @@ export const CreatePOGeneral: React.FC = () => {
               );
             })}
           </div>
+
+          {/* QC Test mode sub-selection */}
+          {selectedOps.includes('QC Test') && (
+            <div style={{ marginTop: '12px', padding: '14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>
+                QC / Test Mode Sub-Selection (Required)
+              </label>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                Specify whether operator must perform both QC & Test, QC Only, or Test Only.
+              </p>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {(['QC & Test', 'QC Only', 'Test Only'] as QcTestMode[]).map(mode => (
+                  <label
+                    key={mode}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      borderRadius: '10px',
+                      border: `2px solid ${qcTestMode === mode ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                      backgroundColor: qcTestMode === mode ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 700
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="qcTestMode"
+                      value={mode}
+                      checked={qcTestMode === mode}
+                      onChange={() => setQcTestMode(mode)}
+                      style={{ accentColor: 'var(--primary-teal)' }}
+                    />
+                    {mode}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Remarks */}
+        {/* Remarks / Instructions */}
         <div>
           <label style={styles.label}>Remarks / Instructions</label>
-          <input
-            type="text"
+          <textarea
             className="input-field"
+            rows={2}
+            placeholder="Enter instructions or remarks for the Production Order..."
             value={remarks}
             onChange={e => setRemarks(e.target.value)}
+            style={{ width: '100%', resize: 'vertical' }}
           />
         </div>
 
         <button type="submit" className="btn-primary" style={{ marginTop: '10px' }}>
-          Next: Add Sales Orders <ArrowRight size={18} style={{ marginLeft: '6px' }} />
+          Next: Product Configurations <ArrowRight size={18} style={{ marginLeft: '6px' }} />
         </button>
       </form>
     </div>
@@ -299,24 +341,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: 'var(--primary-teal)'
   },
-  stepInactive: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '12px',
-    color: 'var(--text-muted)'
-  },
   stepNumActive: {
     width: '20px',
     height: '20px',
     borderRadius: '50%',
     backgroundColor: 'var(--primary-teal)',
-    color: '#041820',
-    fontSize: '11px',
-    fontWeight: 800,
+    color: '#071B23',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    fontSize: '11px',
+    fontWeight: 800
+  },
+  stepInactive: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '12px',
+    fontWeight: 600,
+    color: 'var(--text-muted)'
   },
   stepNumInactive: {
     width: '20px',
@@ -324,31 +367,34 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '50%',
     backgroundColor: 'var(--bg-surface-2)',
     color: 'var(--text-muted)',
-    fontSize: '11px',
-    fontWeight: 700,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    fontSize: '11px',
+    fontWeight: 700
   },
   stepDivider: {
-    width: '14px',
+    flex: 1,
     height: '1px',
-    backgroundColor: 'var(--border-color)'
+    backgroundColor: 'var(--border-color)',
+    margin: '0 8px'
   },
   label: {
+    display: 'block',
     fontSize: '12px',
     fontWeight: 700,
     color: 'var(--text-secondary)',
-    marginBottom: '6px',
-    display: 'block'
+    marginBottom: '4px',
+    textTransform: 'uppercase'
   },
   opCheckRow: {
-    padding: '12px 14px',
-    borderRadius: '12px',
-    border: '1px solid',
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    cursor: 'pointer'
+    padding: '12px 14px',
+    borderRadius: '12px',
+    border: '1.5px solid var(--border-color)',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
   }
 };

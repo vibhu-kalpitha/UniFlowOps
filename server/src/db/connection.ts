@@ -119,8 +119,11 @@ export const db = new DbConnection();
 export async function ensureDbConnected(): Promise<boolean> {
   try {
     const pool = getPool();
-    await pool.query('SELECT 1');
-    return true;
+    const result = await Promise.race([
+      pool.query('SELECT 1').then(() => true),
+      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1500))
+    ]);
+    return result;
   } catch (err) {
     return false;
   }

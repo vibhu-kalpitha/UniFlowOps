@@ -560,7 +560,7 @@ export const OperatorHome: React.FC = () => {
                           </span>
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                          Contains {p.salesOrders.length} Sales Order(s) • {p.remarks}
+                          Style: {p.styleName || p.customer} • Configs/Orders: {(p.productConfigurations || []).length || (p.salesOrders || []).length} • {p.remarks || 'No remarks'}
                         </div>
                       </div>
                       <ChevronRight size={22} color="var(--primary-teal)" />
@@ -573,7 +573,7 @@ export const OperatorHome: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '360px', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                    Sales Orders in {selectedPoForModal.id} ({selectedPoForModal.salesOrders.length})
+                    Sales Orders in {selectedPoForModal.id} ({(selectedPoForModal.salesOrders || []).length})
                   </span>
                   <button
                     onClick={() => setSelectedPoForModal(null)}
@@ -583,7 +583,7 @@ export const OperatorHome: React.FC = () => {
                   </button>
                 </div>
 
-                {selectedPoForModal.salesOrders.map(s => {
+                {(selectedPoForModal.salesOrders || []).map(s => {
                   const isCurrentActiveSo = po?.id === selectedPoForModal.id && so?.id === s.id;
                   return (
                     <div

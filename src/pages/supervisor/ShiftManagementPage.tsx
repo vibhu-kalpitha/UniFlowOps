@@ -1,43 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ShiftAssignment, OperationType } from '../../types';
+import { ShiftAssignment, ProductionOrder } from '../../types';
 import { StatusPill } from '../../components/StatusPill';
-import { Clock, Users, Plus, Trash2, Calendar, AlertTriangle, ShieldCheck, UserCheck } from 'lucide-react';
+import { Clock, Users, Plus, Trash2, Calendar, AlertTriangle, UserCheck } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const ShiftManagementPage: React.FC = () => {
-  const { productionOrders, saveProductionOrder, showToast } = useApp();
+  const { productionOrders, saveProductionOrder, refreshProductionOrders, showToast } = useApp();
 
-  const [selectedPoId, setSelectedPoId] = useState('PO-2026-0184');
+  const [selectedPoId, setSelectedPoId] = useState<string>(productionOrders[0]?.id || '');
   const selectedPo = productionOrders.find(p => p.id === selectedPoId) || productionOrders[0];
 
-  const [selectedSoId, setSelectedSoId] = useState(selectedPo?.salesOrders[0]?.id || 'SO-77201');
-  const selectedSo = selectedPo?.salesOrders.find(s => s.id === selectedSoId) || selectedPo?.salesOrders[0];
-
-  const [shifts, setShifts] = useState<ShiftAssignment[]>(selectedSo?.shifts || []);
-  const [selectedDate, setSelectedDate] = useState('2026-09-14');
+  const [shifts, setShifts] = useState<ShiftAssignment[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [overlapError, setOverlapError] = useState<string | null>(null);
 
-  // Sync when SO changes
-  const handleSelectSo = (soId: string) => {
-    setSelectedSoId(soId);
-    const targetSo = selectedPo?.salesOrders.find(s => s.id === soId);
-    if (targetSo) {
-      setShifts(targetSo.shifts);
-      setOverlapError(null);
+  useEffect(() => {
+    if (selectedPo) {
+      if (selectedPo.shifts && selectedPo.shifts.length > 0) {
+        setShifts(selectedPo.shifts);
+      } else {
+        setShifts([
+          {
+            id: `shf-${Date.now()}`,
+            productionOrderId: selectedPo.id,
+            workerId: 'usr-001',
+            workerName: 'Chamika Silva',
+            shiftId: 'shift-c',
+            startTime: '14:00',
+            endTime: '18:00',
+            date: selectedDate,
+            enabledOperations: selectedPo.selectedOperations || ['QC Test', 'Packing']
+          }
+        ]);
+      }
     }
-  };
+  }, [selectedPoId, productionOrders]);
 
   const handleAddShift = () => {
+    if (!selectedPo) return;
     const newShift: ShiftAssignment = {
       id: `shf-${Date.now()}`,
-      salesOrderId: selectedSoId,
+      productionOrderId: selectedPo.id,
       workerId: 'usr-004',
       workerName: 'Kavindu Perera',
+      shiftId: 'shift-c',
       startTime: '18:00',
       endTime: '22:00',
       date: selectedDate,
-      enabledOperations: ['QC Test', 'Packing']
+      enabledOperations: selectedPo.selectedOperations || ['QC Test', 'Packing']
     };
     const updated = [...shifts, newShift];
     setShifts(updated);
@@ -84,44 +96,37 @@ export const ShiftManagementPage: React.FC = () => {
       return;
     }
 
-    if (!selectedPo || !selectedSo) return;
+    if (!selectedPo) return;
 
     try {
-      const { apiFetch } = await import('../../services/api');
-      const soTargetId = selectedSo.dbId || selectedSo.id;
-      await apiFetch(`/api/production/sales-orders/${encodeURIComponent(soTargetId)}/allocations/sync`, {
+      const poTargetId = selectedPo.dbId || selectedPo.id;
+      await apiFetch(`/api/production-orders/${encodeURIComponent(poTargetId)}/allocations`, {
         method: 'POST',
-        body: JSON.stringify({ shifts })
+        body: JSON.stringify({
+          operatorId: shifts[0]?.workerId || 'usr-001',
+          shiftId: shifts[0]?.shiftId || 'shift-c'
+        })
       });
 
-      const updatedSo = { ...selectedSo, shifts };
-      const updatedPo = {
-        ...selectedPo,
-        salesOrders: selectedPo.salesOrders.map(s => (s.id === selectedSo.id ? updatedSo : s))
-      };
+      const updatedPo = { ...selectedPo, shifts };
       saveProductionOrder(updatedPo);
+      await refreshProductionOrders();
 
-      const { refreshProductionOrders } = (window as any).uniflowRefreshPOs || {};
-      if (typeof refreshProductionOrders === 'function') {
-        await refreshProductionOrders();
-      }
-
-      showToast(`Shift Plan & operator allocations saved for ${selectedSo.id}!`, 'success');
+      showToast(`Shift Plan saved for Production Order ${selectedPo.id}!`, 'success');
     } catch (err: any) {
       showToast(err.message || 'Failed to persist allocations to database.', 'error');
     }
   };
 
-  // Real-time active worker calculation
-  const nowTime = "15:30"; // Simulated current time (3:30 PM)
+  const nowTime = "15:30";
   const currentActiveWorker = shifts.find(s => s.startTime <= nowTime && s.endTime >= nowTime);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Shift Management</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>PO Work Shift Management</h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Schedule worker time-windows and operations per Sales Order.
+          Schedule worker time-windows and operations directly per Production Order.
         </p>
       </div>
 
@@ -137,13 +142,13 @@ export const ShiftManagementPage: React.FC = () => {
               {currentActiveWorker ? currentActiveWorker.workerName : 'No Active Shift Right Now'}
             </h4>
             <span style={{ fontSize: '12px', color: 'var(--color-green)' }}>
-              {currentActiveWorker ? `Active until ${currentActiveWorker.endTime} • Handover next` : 'Upcoming shift at 18:00'}
+              {currentActiveWorker ? `Active until ${currentActiveWorker.endTime} • Handover next` : 'Upcoming shift'}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Select PO & SO Filter Controls */}
+      {/* Select PO & Date Controls */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
@@ -151,39 +156,16 @@ export const ShiftManagementPage: React.FC = () => {
             <select
               className="input-field select-field"
               value={selectedPoId}
-              onChange={e => {
-                setSelectedPoId(e.target.value);
-                const po = productionOrders.find(p => p.id === e.target.value);
-                if (po && po.salesOrders[0]) {
-                  handleSelectSo(po.salesOrders[0].id);
-                }
-              }}
+              onChange={e => setSelectedPoId(e.target.value)}
             >
               {productionOrders.map(p => (
-                <option key={p.id} value={p.id}>{p.id} ({p.customer})</option>
+                <option key={p.id} value={p.id}>
+                  {p.id} — {p.styleName || p.styleCode || 'Style'} ({p.customer})
+                </option>
               ))}
             </select>
           </div>
 
-          <div>
-            <label style={styles.label}>Sales Order</label>
-            <select
-              className="input-field select-field"
-              value={selectedSoId}
-              onChange={e => handleSelectSo(e.target.value)}
-            >
-              {selectedPo?.salesOrders.map(s => (
-                <option key={s.id} value={s.id}>{s.id} - {s.product}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
-          <div>
-            <label style={styles.label}>Line / Department</label>
-            <input type="text" className="input-field" value={selectedSo?.lineId || 'Line 04'} disabled />
-          </div>
           <div>
             <label style={styles.label}>Shift Date</label>
             <input
@@ -198,101 +180,87 @@ export const ShiftManagementPage: React.FC = () => {
 
       {/* Overlap Error Warning */}
       {overlapError && (
-        <div style={styles.errorBox}>
+        <div style={styles.errorBanner}>
           <AlertTriangle size={18} color="var(--color-red)" />
-          <span style={{ fontSize: '13px', color: 'var(--color-red)', fontWeight: 700 }}>{overlapError}</span>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-red)' }}>
+            {overlapError}
+          </span>
         </div>
       )}
 
-      {/* Shift List Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h4 style={{ fontSize: '15px', fontWeight: 700 }}>
-          Worker Shifts ({shifts.length})
-        </h4>
-        <button
-          className="btn-secondary"
-          style={{ height: '34px', padding: '0 12px', fontSize: '12px', gap: '4px' }}
-          onClick={handleAddShift}
-        >
-          <Plus size={16} color="var(--primary-teal)" /> Add Shift Window
-        </button>
-      </div>
+      {/* Shift List for PO */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
+            Configured Work Shifts ({shifts.length})
+          </h3>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleAddShift}
+            style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+          >
+            <Plus size={14} /> Add Shift
+          </button>
+        </div>
 
-      {/* Shift Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {shifts.length === 0 ? (
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>
-            No shift assignments configured for this Sales Order. Click Add Shift Window.
-          </p>
-        ) : (
-          shifts.map((sh, idx) => (
-            <div key={sh.id} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Clock size={16} color="var(--primary-teal)" />
-                  <span style={{ fontSize: '14px', fontWeight: 700 }}>Shift Window {idx + 1}</span>
-                </div>
+        {shifts.map((s, idx) => (
+          <div key={s.id || idx} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                Shift #{idx + 1} — {s.workerName}
+              </span>
+              {shifts.length > 1 && (
                 <button
-                  style={{ color: 'var(--color-red)', background: 'none', border: 'none' }}
-                  onClick={() => handleRemoveShift(sh.id)}
+                  type="button"
+                  onClick={() => handleRemoveShift(s.id)}
+                  style={{ background: 'none', border: 'none', color: 'var(--color-red)', cursor: 'pointer' }}
                 >
                   <Trash2 size={16} />
                 </button>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+              <div>
+                <label style={styles.label}>Worker</label>
+                <select
+                  className="input-field select-field"
+                  value={s.workerId}
+                  onChange={e => updateShift(s.id, 'workerId', e.target.value)}
+                >
+                  <option value="usr-001">Chamika Silva</option>
+                  <option value="usr-004">Kavindu Perera</option>
+                  <option value="usr-005">Sunil Bandara</option>
+                </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div>
-                  <label style={styles.label}>Assigned Worker</label>
-                  <select
-                    className="input-field select-field"
-                    value={sh.workerName}
-                    onChange={e => updateShift(sh.id, 'workerName', e.target.value)}
-                  >
-                    <option value="Chamika Silva">Chamika Silva</option>
-                    <option value="Kavindu Perera">Kavindu Perera</option>
-                    <option value="Sunil Bandara">Sunil Bandara</option>
-                    <option value="Kasun Kalhara">Kasun Kalhara</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={styles.label}>Date</label>
-                  <input
-                    type="date"
-                    className="input-field"
-                    value={sh.date}
-                    onChange={e => updateShift(sh.id, 'date', e.target.value)}
-                  />
-                </div>
+              <div>
+                <label style={styles.label}>Start Time</label>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={s.startTime}
+                  onChange={e => updateShift(s.id, 'startTime', e.target.value)}
+                />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
-                <div>
-                  <label style={styles.label}>Start Time</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={sh.startTime}
-                    onChange={e => updateShift(sh.id, 'startTime', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label style={styles.label}>End Time</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={sh.endTime}
-                    onChange={e => updateShift(sh.id, 'endTime', e.target.value)}
-                  />
-                </div>
+              <div>
+                <label style={styles.label}>End Time</label>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={s.endTime}
+                  onChange={e => updateShift(s.id, 'endTime', e.target.value)}
+                />
               </div>
             </div>
-          ))
-        )}
+          </div>
+        ))}
       </div>
 
-      {/* Save Action Button */}
       <button className="btn-primary" onClick={handleSavePlan} style={{ marginTop: '10px' }}>
-        Save Shift Plan
+        Save PO Shift Plan to Database
       </button>
     </div>
   );
@@ -300,25 +268,26 @@ export const ShiftManagementPage: React.FC = () => {
 
 const styles: Record<string, React.CSSProperties> = {
   clockBanner: {
-    backgroundColor: 'rgba(24, 184, 121, 0.08)',
-    border: '1px solid rgba(24, 184, 121, 0.3)',
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
     borderRadius: '16px',
-    padding: '14px'
+    padding: '14px 16px',
+    border: '1px solid rgba(34, 197, 94, 0.3)'
   },
   label: {
+    display: 'block',
     fontSize: '11px',
     fontWeight: 700,
     color: 'var(--text-secondary)',
     marginBottom: '4px',
-    display: 'block'
+    textTransform: 'uppercase'
   },
-  errorBox: {
-    backgroundColor: 'rgba(239, 92, 92, 0.12)',
-    border: '1px solid var(--color-red)',
-    borderRadius: '12px',
-    padding: '10px 14px',
+  errorBanner: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px'
+    gap: '8px',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    border: '1px solid rgba(239, 68, 68, 0.4)',
+    borderRadius: '12px',
+    padding: '12px 14px'
   }
 };

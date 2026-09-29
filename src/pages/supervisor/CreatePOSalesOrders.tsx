@@ -1,222 +1,208 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { SalesOrder, ShiftAssignment, OperationType } from '../../types';
-import { Plus, Trash2, Edit3, ArrowRight, ArrowLeft, X, Clock, Calendar, AlertTriangle } from 'lucide-react';
-import { StatusPill } from '../../components/StatusPill';
+import { ProductConfiguration, ShiftAssignment } from '../../types';
+import { apiFetch } from '../../services/api';
+import { Plus, Trash2, ArrowRight, ArrowLeft, CheckSquare, Square, Layers } from 'lucide-react';
 import '../../styles/tokens.css';
+
+interface StyleItem {
+  id: string;
+  code: string;
+  name: string;
+  customer?: string;
+  season?: string;
+}
+
+const BIOTAB_LEG_SIZES = ['SS', 'SM', 'SL', 'TM', 'TL', 'TXL'];
+const BIOTAB_CORE_SIZES = ['SS', 'SM', 'SL', 'TS', 'TM', 'TL'];
 
 export const CreatePOSalesOrders: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useApp();
 
-  const getSavedDraftSos = (): SalesOrder[] => {
-    const data = sessionStorage.getItem('uniflow_draft_po_sos');
-    if (data) {
-      try { return JSON.parse(data); } catch { return []; }
-    }
-    return [];
-  };
+  const [draftPoGeneral, setDraftPoGeneral] = useState<any>(null);
+  const [styleDetails, setStyleDetails] = useState<StyleItem | null>(null);
 
-  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>(getSavedDraftSos);
-  const [showSoModal, setShowSoModal] = useState(false);
-  const [editingSoId, setEditingSoId] = useState<string | null>(null);
+  // BioTab 2 Selection State
+  const [selectedLegSizes, setSelectedLegSizes] = useState<string[]>(['SS', 'SM', 'TM']);
+  const [selectedCoreSizes, setSelectedCoreSizes] = useState<string[]>(['SS', 'TS', 'TL']);
 
-  // Form State for Add/Edit Modal
-  const [soId, setSoId] = useState('SO-77205');
-  const [mapSo, setMapSo] = useState('MAP-SO-90318');
-  const [product, setProduct] = useState('Windbreaker Tee');
-  const [styleCode, setStyleCode] = useState('ST-NK-800');
-  const [colour, setColour] = useState('Black');
-  const [sizeRange, setSizeRange] = useState('S - XL');
-  const [quantity, setQuantity] = useState(1200);
-  const [lineId, setLineId] = useState('Line 04');
-  const [boxCapacity, setBoxCapacity] = useState(12);
+  // Dynamic Product Configurations List
+  const [configs, setConfigs] = useState<ProductConfiguration[]>([]);
 
-  // Product QR Serial Range
-  const [productQrPrefix, setProductQrPrefix] = useState('PNFLS092632');
-  const [productSerialStart, setProductSerialStart] = useState<number | ''>(670);
-  const [productSerialEnd, setProductSerialEnd] = useState<number | ''>(1869);
-
-  // Shifts Form State
+  // Shift Allocation State
   const [shifts, setShifts] = useState<ShiftAssignment[]>([
     {
-      id: 'shf-draft-1',
-      salesOrderId: 'SO-77205',
+      id: `shf-${Date.now()}-1`,
       workerId: 'usr-001',
       workerName: 'Chamika Silva',
       startTime: '14:00',
       endTime: '18:00',
-      date: '2026-09-15',
+      date: new Date().toISOString().split('T')[0],
       enabledOperations: ['QC Test', 'Packing']
     }
   ]);
 
-  const [overlapError, setOverlapError] = useState<string | null>(null);
+  // Load General Draft and Style info on mount
+  useEffect(() => {
+    const genData = sessionStorage.getItem('uniflow_draft_po_general');
+    if (genData) {
+      const parsed = JSON.parse(genData);
+      setDraftPoGeneral(parsed);
 
-  const handleOpenAdd = () => {
-    setEditingSoId(null);
-    setSoId(`SO-${Math.floor(77200 + Math.random() * 900)}`);
-    setMapSo(`MAP-SO-${Math.floor(90000 + Math.random() * 9000)}`);
-    setProductQrPrefix('PNFLS092632');
-    setProductSerialStart(670);
-    setProductSerialEnd(1869);
-    setShifts([
+      if (parsed.styleId) {
+        apiFetch<StyleItem[]>('/api/styles')
+          .then(styles => {
+            const found = styles.find(s => s.id === parsed.styleId);
+            if (found) setStyleDetails(found);
+          })
+          .catch(() => {});
+      }
+    }
+  }, []);
+
+  const isBioTab2 = styleDetails?.name?.toLowerCase().includes('biotab') || styleDetails?.code?.toLowerCase().includes('biotab');
+  const isBeacon = styleDetails?.name?.toLowerCase().includes('beacon') || styleDetails?.code?.toLowerCase().includes('beacon');
+
+  // BioTab 2 Generator
+  useEffect(() => {
+    if (isBioTab2) {
+      const newConfigs: ProductConfiguration[] = [];
+
+      // Generate LEG configs (PNFL)
+      selectedLegSizes.forEach((sz, idx) => {
+        const code = `PNFL${sz}`;
+        const prefix = `PNFL${sz}0926`;
+        const start = 1 + idx * 500;
+        const end = start + 499;
+        newConfigs.push({
+          configCode: code,
+          productType: 'LEG',
+          size: sz,
+          productQrPrefix: prefix,
+          productSerialStart: start,
+          productSerialEnd: end,
+          quantity: end - start + 1
+        });
+      });
+
+      // Generate CORE configs (PNCR)
+      selectedCoreSizes.forEach((sz, idx) => {
+        const code = `PNCR${sz}`;
+        const prefix = `PNCR${sz}0926`;
+        const start = 1 + (selectedLegSizes.length + idx) * 500;
+        const end = start + 499;
+        newConfigs.push({
+          configCode: code,
+          productType: 'CORE',
+          size: sz,
+          productQrPrefix: prefix,
+          productSerialStart: start,
+          productSerialEnd: end,
+          quantity: end - start + 1
+        });
+      });
+
+      setConfigs(newConfigs);
+    } else if (isBeacon && configs.length === 0) {
+      // Beacon default config
+      setConfigs([
+        {
+          configCode: '009735535',
+          productType: 'BEACON',
+          productQrPrefix: '009735535',
+          productSerialStart: 1,
+          productSerialEnd: 1000,
+          quantity: 1000
+        }
+      ]);
+    } else if (configs.length === 0) {
+      // General style default config
+      setConfigs([
+        {
+          configCode: styleDetails?.code || 'PROD-CONFIG-1',
+          productType: 'STANDARD',
+          productQrPrefix: `${styleDetails?.code || 'PNFL'}0926`,
+          productSerialStart: 1,
+          productSerialEnd: 500,
+          quantity: 500
+        }
+      ]);
+    }
+  }, [isBioTab2, isBeacon, selectedLegSizes, selectedCoreSizes, styleDetails]);
+
+  const toggleLegSize = (sz: string) => {
+    if (selectedLegSizes.includes(sz)) {
+      setSelectedLegSizes(selectedLegSizes.filter(s => s !== sz));
+    } else {
+      setSelectedLegSizes([...selectedLegSizes, sz]);
+    }
+  };
+
+  const toggleCoreSize = (sz: string) => {
+    if (selectedCoreSizes.includes(sz)) {
+      setSelectedCoreSizes(selectedCoreSizes.filter(s => s !== sz));
+    } else {
+      setSelectedCoreSizes([...selectedCoreSizes, sz]);
+    }
+  };
+
+  const updateConfig = (index: number, field: keyof ProductConfiguration, val: any) => {
+    const updated = [...configs];
+    const cfg = { ...updated[index], [field]: val };
+
+    if (field === 'productSerialStart' || field === 'productSerialEnd') {
+      const s = Number(field === 'productSerialStart' ? val : cfg.productSerialStart);
+      const e = Number(field === 'productSerialEnd' ? val : cfg.productSerialEnd);
+      if (!isNaN(s) && !isNaN(e) && e >= s) {
+        cfg.quantity = e - s + 1;
+      }
+    }
+    updated[index] = cfg;
+    setConfigs(updated);
+  };
+
+  const addManualConfig = () => {
+    const nextIdx = configs.length + 1;
+    setConfigs([
+      ...configs,
       {
-        id: `shf-${Date.now()}-1`,
-        salesOrderId: 'SO-NEW',
-        workerId: 'usr-001',
-        workerName: 'Chamika Silva',
-        startTime: '14:00',
-        endTime: '18:00',
-        date: '2026-09-15',
-        enabledOperations: ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
-      },
-      {
-        id: `shf-${Date.now()}-2`,
-        salesOrderId: 'SO-NEW',
-        workerId: 'usr-004',
-        workerName: 'Kavindu Perera',
-        startTime: '18:00',
-        endTime: '22:00',
-        date: '2026-09-15',
-        enabledOperations: ['QC Test', 'Packing']
+        configCode: `CONFIG-${nextIdx}`,
+        productType: 'CUSTOM',
+        productQrPrefix: `PNFLSS09${nextIdx}`,
+        productSerialStart: 1,
+        productSerialEnd: 500,
+        quantity: 500
       }
     ]);
-    setOverlapError(null);
-    setShowSoModal(true);
   };
 
-  const handleAddShift = () => {
-    const newShift: ShiftAssignment = {
-      id: `shf-${Date.now()}`,
-      salesOrderId: soId,
-      workerId: 'usr-005',
-      workerName: 'Sunil Bandara',
-      startTime: '08:00',
-      endTime: '14:00',
-      date: '2026-09-15',
-      enabledOperations: ['QC Test', 'Packing']
-    };
-    setShifts([...shifts, newShift]);
+  const removeConfig = (index: number) => {
+    setConfigs(configs.filter((_, i) => i !== index));
   };
 
-  const handleRemoveShift = (id: string) => {
-    setShifts(shifts.filter(s => s.id !== id));
-  };
+  const totalQuantity = configs.reduce((sum, c) => sum + (c.quantity || 0), 0);
 
-  const updateShiftField = (id: string, field: keyof ShiftAssignment, val: any) => {
-    const updated = shifts.map(s => (s.id === id ? { ...s, [field]: val } : s));
-    setShifts(updated);
+  const handleNext = () => {
+    if (configs.length === 0) {
+      showToast('Please add at least one product configuration.', 'warning');
+      return;
+    }
 
-    // Validate overlap
-    validateShifts(updated);
-  };
-
-  const validateShifts = (shiftList: ShiftAssignment[]): boolean => {
-    setOverlapError(null);
-
-    for (let i = 0; i < shiftList.length; i++) {
-      const s1 = shiftList[i];
-      if (s1.startTime >= s1.endTime) {
-        setOverlapError(`Shift ${i + 1}: End time must be after Start time.`);
-        return false;
+    for (const cfg of configs) {
+      if (!cfg.productQrPrefix.trim()) {
+        showToast(`QR Prefix required for config ${cfg.configCode}`, 'warning');
+        return;
       }
-      for (let j = i + 1; j < shiftList.length; j++) {
-        const s2 = shiftList[j];
-        // Check if same date and time overlap
-        if (s1.date === s2.date) {
-          const overlap = Math.max(s1.startTime.localeCompare(s2.startTime), 0) < Math.min(s1.endTime.localeCompare(s2.endTime), 1) &&
-                          s1.startTime < s2.endTime && s2.startTime < s1.endTime;
-          if (overlap) {
-            setOverlapError(`Shift conflict detected! Shift for ${s1.workerName} (${s1.startTime}-${s1.endTime}) overlaps with ${s2.workerName} (${s2.startTime}-${s2.endTime}).`);
-            return false;
-          }
-        }
+      if (cfg.productSerialStart > cfg.productSerialEnd) {
+        showToast(`Serial Start cannot be greater than Serial End for ${cfg.configCode}`, 'error');
+        return;
       }
     }
-    return true;
-  };
 
-  const handleSaveSoModal = () => {
-    if (!productQrPrefix.trim()) {
-      showToast('Please specify Product QR Prefix', 'warning');
-      return;
-    }
-    if (productSerialStart === '' || isNaN(Number(productSerialStart))) {
-      showToast('Please specify Product Serial Start integer', 'warning');
-      return;
-    }
-    if (productSerialEnd === '' || isNaN(Number(productSerialEnd))) {
-      showToast('Please specify Product Serial End integer', 'warning');
-      return;
-    }
-    const startNum = Number(productSerialStart);
-    const endNum = Number(productSerialEnd);
-    if (startNum > endNum) {
-      showToast('Product Serial Start cannot be greater than Product Serial End', 'error');
-      return;
-    }
-    const rangeCapacity = endNum - startNum + 1;
-    if (rangeCapacity < quantity) {
-      showToast(`Product serial range (${rangeCapacity}) must cover at least Order Quantity (${quantity}).`, 'error');
-      return;
-    }
-
-    if (!validateShifts(shifts)) {
-      showToast('Please resolve shift overlaps before saving.', 'error');
-      return;
-    }
-
-    const newSoItem: SalesOrder = {
-      id: soId,
-      mapSo,
-      product,
-      styleCode,
-      colour,
-      sizeRange,
-      quantity,
-      lineId,
-      boxCapacity,
-      productQrPrefix: productQrPrefix.trim().toUpperCase(),
-      productSerialStart: startNum,
-      productSerialEnd: endNum,
-      shifts,
-      progress: {
-        qcPassed: 0,
-        qcFailed: 0,
-        testPassed: 0,
-        testFailed: 0,
-        packed: 0,
-        aqlPassed: 0,
-        aqlFailed: 0,
-        issuesCount: 0,
-        status: 'In Progress'
-      }
-    };
-
-    if (editingSoId) {
-      setSalesOrders(salesOrders.map(s => (s.id === editingSoId ? newSoItem : s)));
-    } else {
-      setSalesOrders([...salesOrders, newSoItem]);
-    }
-
-    setShowSoModal(false);
-    showToast(`Sales Order ${soId} saved successfully!`, 'success');
-  };
-
-  const handleDeleteSo = (id: string) => {
-    setSalesOrders(salesOrders.filter(s => s.id !== id));
-    showToast(`Removed Sales Order ${id}`, 'info');
-  };
-
-  const totalQuantity = salesOrders.reduce((sum, s) => sum + s.quantity, 0);
-
-  const handleNextReview = () => {
-    sessionStorage.setItem('uniflow_draft_po_sos', JSON.stringify(salesOrders));
-    if (salesOrders.length === 0) {
-      showToast('Creating PO without Sales Orders (Unassigned PO)', 'info');
-    }
+    sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(configs));
+    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(shifts));
     navigate('/supervisor/production-orders/new/review');
   };
 
@@ -230,287 +216,212 @@ export const CreatePOSalesOrders: React.FC = () => {
         </div>
         <div style={styles.stepDivider} />
         <div style={styles.stepActive}>
-          <span style={styles.stepNumActive}>2</span>
-          <span>Sales Orders</span>
+          <span style={styles.stepNumActive}>3</span>
+          <span>Product Configurations</span>
         </div>
         <div style={styles.stepDivider} />
         <div style={styles.stepInactive}>
-          <span style={styles.stepNumInactive}>3</span>
+          <span style={styles.stepNumInactive}>4</span>
           <span>Review</span>
         </div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Configure Sales Orders</h2>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Product Configurations</h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Attach Sales Orders, Line IDs, and Worker Shifts to this PO.
+            Step 3 of 4: Configure product & size specifications and serial QR ranges for PO {draftPoGeneral?.id || ''}.
           </p>
         </div>
         <div style={styles.totalBadge}>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Total Units</span>
-          <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>{totalQuantity}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>TOTAL PO QTY</span>
+          <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)' }}>{totalQuantity}</span>
         </div>
       </div>
 
-      {/* Add Sales Order Button */}
-      <button className="btn-secondary" onClick={handleOpenAdd} style={{ gap: '8px', borderStyle: 'dashed' }}>
-        <Plus size={18} color="var(--primary-teal)" /> Add Sales Order
-      </button>
+      {/* BioTab 2 Specific Selection UI */}
+      {isBioTab2 && (
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Layers size={20} color="var(--primary-teal)" />
+            <h3 style={{ fontSize: '16px', fontWeight: 800 }}>BioTab 2 Style — Size Selection</h3>
+          </div>
 
-      {/* SO Cards List */}
-      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
-        {salesOrders.map(so => (
-          <div key={so.id} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
+          {/* LEG (PNFL) Sizes */}
+          <div>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>
+              LEG (Prefix: PNFL)
+            </span>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+              {BIOTAB_LEG_SIZES.map(sz => {
+                const isSelected = selectedLegSizes.includes(sz);
+                return (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => toggleLegSize(sz)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '10px',
+                      border: `2px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                      backgroundColor: isSelected ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
+                      color: isSelected ? 'var(--primary-teal)' : 'var(--text-primary)',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} PNFL{sz}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* CORE (PNCR) Sizes */}
+          <div>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-purple)', textTransform: 'uppercase' }}>
+              CORE (Prefix: PNCR)
+            </span>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+              {BIOTAB_CORE_SIZES.map(sz => {
+                const isSelected = selectedCoreSizes.includes(sz);
+                return (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => toggleCoreSize(sz)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '10px',
+                      border: `2px solid ${isSelected ? 'var(--color-purple)' : 'var(--border-color)'}`,
+                      backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--bg-surface-1)',
+                      color: isSelected ? 'var(--color-purple)' : 'var(--text-primary)',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} PNCR{sz}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product Configurations List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: 800 }}>
+            Configured Product Ranges ({configs.length})
+          </h3>
+          {!isBioTab2 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={addManualConfig}
+              style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <Plus size={14} /> Add Configuration
+            </button>
+          )}
+        </div>
+
+        {configs.map((cfg, idx) => (
+          <div key={idx} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)', backgroundColor: 'rgba(22, 184, 174, 0.15)', padding: '4px 10px', borderRadius: '8px' }}>
+                  {cfg.configCode}
+                </span>
+                {cfg.productType && (
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                    Type: {cfg.productType} {cfg.size ? `• Size: ${cfg.size}` : ''}
+                  </span>
+                )}
+              </div>
+              {configs.length > 1 && !isBioTab2 && (
+                <button
+                  type="button"
+                  onClick={() => removeConfig(idx)}
+                  style={{ background: 'none', border: 'none', color: 'var(--color-red)', cursor: 'pointer' }}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
               <div>
-                <h4 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>{so.id}</h4>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Map SO: {so.mapSo}</span>
+                <label style={styles.label}>Product QR Prefix</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={cfg.productQrPrefix}
+                  onChange={e => updateConfig(idx, 'productQrPrefix', e.target.value)}
+                />
               </div>
-              <StatusPill label={so.lineId} variant="blue" />
-            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-              <span>{so.product} ({so.colour})</span>
-              <span><strong>Qty:</strong> {so.quantity}</span>
-            </div>
-
-            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border-color)' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                Configured Shifts ({so.shifts.length})
-              </span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-                {so.shifts.map((sh, idx) => (
-                  <div key={sh.id} style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>👷 Shift {idx + 1}: {sh.workerName}</span>
-                    <span style={{ color: 'var(--primary-teal)', fontWeight: 600 }}>{sh.startTime} - {sh.endTime}</span>
-                  </div>
-                ))}
+              <div>
+                <label style={styles.label}>Serial Start</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={cfg.productSerialStart}
+                  onChange={e => updateConfig(idx, 'productSerialStart', parseInt(e.target.value, 10) || 0)}
+                />
               </div>
-            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
-              <button
-                style={{ padding: '6px 12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)', fontSize: '12px', color: 'var(--color-red)' }}
-                onClick={() => handleDeleteSo(so.id)}
-              >
-                <Trash2 size={14} /> Remove
-              </button>
+              <div>
+                <label style={styles.label}>Serial End</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={cfg.productSerialEnd}
+                  onChange={e => updateConfig(idx, 'productSerialEnd', parseInt(e.target.value, 10) || 0)}
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>Auto Quantity</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={cfg.quantity}
+                  readOnly
+                  style={{ backgroundColor: 'var(--bg-surface-2)', fontWeight: 800, color: 'var(--primary-teal)' }}
+                />
+              </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Navigation Controls */}
-      <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-        <button className="btn-secondary" onClick={() => navigate('/supervisor/production-orders/new/general')} style={{ flex: 1 }}>
-          <ArrowLeft size={18} style={{ marginRight: '6px' }} /> Back
+      {/* Navigation Buttons */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '14px' }}>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => navigate('/supervisor/production-orders/new/general')}
+          style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <ArrowLeft size={16} /> Back to General Info
         </button>
-        <button className="btn-primary" onClick={handleNextReview} style={{ flex: 1 }}>
-          Next: Review PO <ArrowRight size={18} style={{ marginLeft: '6px' }} />
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={handleNext}
+          style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          Next: Review PO <ArrowRight size={16} />
         </button>
       </div>
-
-      {/* Add / Edit Sales Order Modal */}
-      {showSoModal && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Add / Edit Sales Order</h3>
-              <button style={styles.closeBtn} onClick={() => setShowSoModal(false)}>
-                <X size={20} color="var(--text-secondary)" />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
-              <div>
-                <label style={styles.label}>Sales Order Number</label>
-                <input type="text" className="input-field" value={soId} onChange={e => setSoId(e.target.value)} />
-              </div>
-
-              <div>
-                <label style={styles.label}>Map SO (Free Text Code)</label>
-                <input type="text" className="input-field" value={mapSo} onChange={e => setMapSo(e.target.value)} />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Product Name</label>
-                  <input type="text" className="input-field" value={product} onChange={e => setProduct(e.target.value)} />
-                </div>
-                <div>
-                  <label style={styles.label}>Style Code</label>
-                  <input type="text" className="input-field" value={styleCode} onChange={e => setStyleCode(e.target.value)} />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Colour</label>
-                  <input type="text" className="input-field" value={colour} onChange={e => setColour(e.target.value)} />
-                </div>
-                <div>
-                  <label style={styles.label}>Size Range</label>
-                  <input type="text" className="input-field" value={sizeRange} onChange={e => setSizeRange(e.target.value)} />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Order Quantity</label>
-                  <input type="number" className="input-field" value={quantity} onChange={e => setQuantity(parseInt(e.target.value) || 0)} />
-                </div>
-                <div>
-                  <label style={styles.label}>Line / Department</label>
-                  <select className="input-field select-field" value={lineId} onChange={e => setLineId(e.target.value)}>
-                    <option value="Line 01">Line 01</option>
-                    <option value="Line 02">Line 02</option>
-                    <option value="Line 03">Line 03</option>
-                    <option value="Line 04">Line 04</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Product QR Range Section */}
-              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary-teal)', display: 'block', marginBottom: '8px' }}>
-                  Product QR Range (QC Validation)
-                </span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                  <div>
-                    <label style={styles.label}>Product QR Prefix</label>
-                    <input
-                      type="text"
-                      className="input-field"
-                      placeholder="e.g. PNFLS092632"
-                      value={productQrPrefix}
-                      onChange={e => setProductQrPrefix(e.target.value.toUpperCase())}
-                    />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Product Serial Start</label>
-                    <input
-                      type="number"
-                      className="input-field"
-                      placeholder="e.g. 670"
-                      value={productSerialStart}
-                      onChange={e => setProductSerialStart(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                    />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Product Serial End</label>
-                    <input
-                      type="number"
-                      className="input-field"
-                      placeholder="e.g. 1869"
-                      value={productSerialEnd}
-                      onChange={e => setProductSerialEnd(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                    />
-                  </div>
-                </div>
-
-                {/* Live Range Preview */}
-                {productQrPrefix && productSerialStart !== '' && productSerialEnd !== '' && (
-                  <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface-2)', padding: '6px 10px', borderRadius: '8px' }}>
-                    <strong>Valid Range Preview:</strong> {productQrPrefix}{productSerialStart} → {productQrPrefix}{productSerialEnd}
-                    {typeof productSerialStart === 'number' && typeof productSerialEnd === 'number' && (
-                      <span style={{ marginLeft: '10px', fontWeight: 600, color: 'var(--primary-teal)' }}>
-                        ({productSerialEnd - productSerialStart + 1} serials available)
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Work Shifts Section */}
-              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary-teal)' }}>Work Shifts Configuration</span>
-                  <button type="button" style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 700 }} onClick={handleAddShift}>
-                    + Add Shift
-                  </button>
-                </div>
-
-                {overlapError && (
-                  <div style={styles.errorBox}>
-                    <AlertTriangle size={16} color="var(--color-red)" />
-                    <span style={{ fontSize: '12px', color: 'var(--color-red)', fontWeight: 600 }}>{overlapError}</span>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {shifts.map((sh, idx) => (
-                    <div key={sh.id} style={styles.shiftCard}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>Shift {idx + 1}</span>
-                        {shifts.length > 1 && (
-                          <button type="button" onClick={() => handleRemoveShift(sh.id)} style={{ color: 'var(--color-red)' }}>
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <div>
-                          <label style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Worker Name</label>
-                          <select
-                            className="input-field select-field"
-                            style={{ height: '36px', fontSize: '12px' }}
-                            value={sh.workerName}
-                            onChange={e => updateShiftField(sh.id, 'workerName', e.target.value)}
-                          >
-                            <option value="Chamika Silva">Chamika Silva</option>
-                            <option value="Kavindu Perera">Kavindu Perera</option>
-                            <option value="Sunil Bandara">Sunil Bandara</option>
-                            <option value="Kasun Kalhara">Kasun Kalhara</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Date</label>
-                          <input
-                            type="date"
-                            className="input-field"
-                            style={{ height: '36px', fontSize: '12px' }}
-                            value={sh.date}
-                            onChange={e => updateShiftField(sh.id, 'date', e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
-                        <div>
-                          <label style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Start Time</label>
-                          <input
-                            type="time"
-                            className="input-field"
-                            style={{ height: '36px', fontSize: '12px' }}
-                            value={sh.startTime}
-                            onChange={e => updateShiftField(sh.id, 'startTime', e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>End Time</label>
-                          <input
-                            type="time"
-                            className="input-field"
-                            style={{ height: '36px', fontSize: '12px' }}
-                            value={sh.endTime}
-                            onChange={e => updateShiftField(sh.id, 'endTime', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <button className="btn-primary" onClick={handleSaveSoModal} style={{ marginTop: '16px' }}>
-              Save Sales Order
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -533,6 +444,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: 'var(--color-green)'
   },
+  stepNumCompleted: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--color-green)',
+    color: '#071B23',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '11px',
+    fontWeight: 800
+  },
   stepActive: {
     display: 'flex',
     alignItems: 'center',
@@ -541,36 +464,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: 'var(--primary-teal)'
   },
-  stepInactive: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '12px',
-    color: 'var(--text-muted)'
-  },
-  stepNumCompleted: {
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
-    backgroundColor: 'var(--color-green)',
-    color: '#041820',
-    fontSize: '11px',
-    fontWeight: 800,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
   stepNumActive: {
     width: '20px',
     height: '20px',
     borderRadius: '50%',
     backgroundColor: 'var(--primary-teal)',
-    color: '#041820',
-    fontSize: '11px',
-    fontWeight: 800,
+    color: '#071B23',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    fontSize: '11px',
+    fontWeight: 800
+  },
+  stepInactive: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '12px',
+    fontWeight: 600,
+    color: 'var(--text-muted)'
   },
   stepNumInactive: {
     width: '20px',
@@ -578,73 +490,33 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '50%',
     backgroundColor: 'var(--bg-surface-2)',
     color: 'var(--text-muted)',
-    fontSize: '11px',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  stepDivider: {
-    width: '14px',
-    height: '1px',
-    backgroundColor: 'var(--border-color)'
-  },
-  totalBadge: {
-    backgroundColor: 'var(--bg-surface-1)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '10px',
-    padding: '6px 12px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-end'
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 9999,
-    padding: '16px'
+    fontSize: '11px',
+    fontWeight: 700
   },
-  modalContent: {
-    backgroundColor: 'var(--bg-surface-1)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '24px',
-    padding: '20px',
-    width: '100%',
-    maxWidth: '400px'
-  },
-  closeBtn: {
-    background: 'none',
-    border: 'none',
-    padding: '4px'
+  stepDivider: {
+    flex: 1,
+    height: '1px',
+    backgroundColor: 'var(--border-color)',
+    margin: '0 8px'
   },
   label: {
+    display: 'block',
     fontSize: '11px',
     fontWeight: 700,
     color: 'var(--text-secondary)',
     marginBottom: '4px',
-    display: 'block'
+    textTransform: 'uppercase'
   },
-  shiftCard: {
-    backgroundColor: 'var(--bg-surface-2)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '10px',
-    padding: '10px'
-  },
-  errorBox: {
-    backgroundColor: 'rgba(239, 92, 92, 0.12)',
-    border: '1px solid var(--color-red)',
-    borderRadius: '8px',
-    padding: '8px',
+  totalBadge: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    marginBottom: '8px'
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    backgroundColor: 'var(--bg-surface-1)',
+    padding: '8px 14px',
+    borderRadius: '12px',
+    border: '1px solid var(--border-color)'
   }
 };

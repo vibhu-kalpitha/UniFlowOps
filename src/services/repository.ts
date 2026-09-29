@@ -1,4 +1,4 @@
-import { ProductionOrder, ActiveJob, UserRole, User, AlertItem, PackingBox, AQLSession } from '../types';
+import { ProductionOrder, ActiveJob, UserRole, User, AlertItem, PackingBox, AQLSession, SalesOrder } from '../types';
 import { INITIAL_PRODUCTION_ORDERS, MOCK_USERS, INITIAL_ALERTS, INITIAL_PACKING_BOXES } from '../data/mockData';
 
 // ─── Bump this version whenever structure changes or resetting demo data ──────
@@ -70,10 +70,22 @@ export const repository = {
     const data = localStorage.getItem(KEYS.ACTIVE_JOB);
     if (!data) {
       const pos = this.getProductionOrders();
-      if (pos.length > 0 && pos[0].salesOrders.length > 0) {
-        const defaultPo = pos[0];
-        const defaultSo = defaultPo.salesOrders[0];
-        const defaultShift = defaultSo.shifts[0] || {
+      const defaultPo = pos.find(p => (p.salesOrders && p.salesOrders.length > 0) || (p.productConfigurations && p.productConfigurations.length > 0));
+      if (defaultPo) {
+        const defaultSo: SalesOrder = defaultPo.salesOrders?.[0] || {
+          id: `SO-PO-${defaultPo.id}`,
+          mapSo: `MAP-SO-${defaultPo.id}`,
+          lineId: 'Line 1',
+          product: defaultPo.styleName || 'Standard Product',
+          styleCode: defaultPo.styleCode || 'ST-01',
+          colour: 'Default',
+          sizeRange: 'M',
+          boxCapacity: 20,
+          quantity: 100,
+          progress: { qcPassed: 0, qcFailed: 0, testPassed: 0, testFailed: 0, packed: 0, aqlPassed: 0, aqlFailed: 0, issuesCount: 0, status: 'In Progress' },
+          shifts: []
+        };
+        const defaultShift = defaultSo.shifts?.[0] || {
           id: `shf-${Date.now()}`,
           salesOrderId: defaultSo.id,
           workerId: 'usr-001',
