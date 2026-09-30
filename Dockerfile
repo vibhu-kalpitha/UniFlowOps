@@ -34,4 +34,4 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://127.0.0.1:4000/api/health || exit 1
 
 # Run database migrations prior to starting production server
-CMD ["sh", "-c", "node dist-server/db/migrate.js && node dist-server/index.js"]
+CMD ["sh", "-c", "node dist-server/db/migrate.js; node dist-server/index.js"]

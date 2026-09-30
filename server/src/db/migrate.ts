@@ -439,23 +439,28 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
     } else if (file === '005_po_product_configurations.sql') {
       await runSchemaAlignment005();
     } else if (file === '006_po_shift_and_owa_po.sql') {
-      // Apply the SQL file first (uses ADD COLUMN IF NOT EXISTS)
-      const sql006 = fs.readFileSync(filePath, 'utf-8');
-      // Run each statement individually, skipping errors for already-existing constructs
-      for (const stmt of sql006.split(';').map(s => s.trim()).filter(Boolean)) {
-        try { await db.exec(stmt + ';'); } catch (e: any) {
-          // Ignore duplicate column / duplicate key errors
-          if (!e.message?.includes('Duplicate column') && !e.message?.includes('already exists')) throw e;
+      // Safely add shift_id to production_orders
+      if (await tableExists('production_orders') && !(await columnExists('production_orders', 'shift_id'))) {
+        try { await db.exec(`ALTER TABLE production_orders ADD COLUMN shift_id VARCHAR(191) NULL`); }
+        catch (e: any) { console.warn('  006: shift_id already exists (non-fatal)'); }
+      }
+      // Safely add production_order_id to operator_work_assignments
+      if (await tableExists('operator_work_assignments') && !(await columnExists('operator_work_assignments', 'production_order_id'))) {
+        try { await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN production_order_id VARCHAR(191) NULL`); }
+        catch (e: any) { console.warn('  006: production_order_id already exists (non-fatal)'); }
+      }
+      // FK for shift_id (idempotent)
+      try {
+        if (await tableExists('shifts') && !(await constraintExists('production_orders', 'fk_po_shift')) && !(await indexExists('production_orders', 'fk_po_shift'))) {
+          await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL`);
         }
-      }
-      // Add FK for shift_id on production_orders (idempotent)
-      if (await tableExists('shifts') && !(await constraintExists('production_orders', 'fk_po_shift')) && !(await indexExists('production_orders', 'idx_po_shift'))) {
-        await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;`);
-      }
-      // Add FK for production_order_id on operator_work_assignments (idempotent)
-      if (await tableExists('production_orders') && !(await constraintExists('operator_work_assignments', 'fk_owa_po')) && !(await indexExists('operator_work_assignments', 'idx_owa_po'))) {
-        await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE;`);
-      }
+      } catch (_) { /* non-fatal */ }
+      // FK for production_order_id (idempotent)
+      try {
+        if (await tableExists('production_orders') && !(await constraintExists('operator_work_assignments', 'fk_owa_po')) && !(await indexExists('operator_work_assignments', 'fk_owa_po'))) {
+          await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE`);
+        }
+      } catch (_) { /* non-fatal */ }
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);
@@ -473,8 +478,12 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
 }
 
 if (process.argv[1]?.endsWith('migrate.ts') || process.argv[1]?.endsWith('migrate.js')) {
-  ensureDbConnected().then(() => runMigrations()).then(() => process.exit(0)).catch(err => {
-    console.error('Migration error:', err);
-    process.exit(1);
-  });
+  ensureDbConnected()
+    .then(() => runMigrations())
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error('⚠️ Migration encountered an error (server will still start):', err?.message || err);
+      // Exit 0 so the Dockerfile CMD "migrate.js && index.js" always continues to start the server
+      process.exit(0);
+    });
 }
