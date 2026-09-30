@@ -47,51 +47,31 @@ router.get('/current-work', authenticateToken, requireRole('OPERATOR'), async (r
   }
 });
 
-// GET /api/operators/me/assignments?operation=...
+// GET /api/operators/me/assignments
 router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (req: AuthRequest, res, next) => {
   try {
     const operatorId = req.user!.id;
     const operatorUsername = req.user!.username;
-    const { operation } = req.query;
 
-    let dbOp = '';
-    let dbOpAlt = '';
-    if (operation) {
-      const opStr = String(operation).trim().toUpperCase();
-      if (opStr === 'QC TEST' || opStr === 'QC' || opStr === 'TEST' || opStr === 'QC_TEST') {
-        dbOp = 'QC_TEST';
-        dbOpAlt = 'QC Test';
-      } else if (opStr === 'PACKING' || opStr === 'PACK') {
-        dbOp = 'PACKING';
-        dbOpAlt = 'Packing';
-      } else if (opStr === 'AQL CHECKER' || opStr === 'AQL') {
-        dbOp = 'AQL';
-        dbOpAlt = 'AQL Checker';
-      } else if (opStr === 'BOX TRANSFER' || opStr === 'BOX_TRANSFER') {
-        dbOp = 'BOX_TRANSFER';
-        dbOpAlt = 'Box Transfer';
-      }
-    }
-
-    // Query active POs allocated to THIS operator in operator_work_assignments
-    const poRows = await db.prepare(`
+    // 1. Query active POs allocated to THIS operator in operator_work_assignments
+    let poRows = await db.prepare(`
       SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
       FROM operator_work_assignments owa
       JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
       WHERE (owa.operator_id = ? OR owa.operator_id = ?)
         AND owa.active = 1
-        AND (
-          owa.operation IS NULL 
-          OR owa.operation = '' 
-          OR owa.operation = 'ALL' 
-          OR UPPER(owa.operation) = UPPER(?) 
-          OR UPPER(owa.operation) = UPPER(?)
-          OR UPPER(REPLACE(owa.operation, ' ', '_')) = UPPER(?)
-          OR ? = ''
-        )
         AND (po.status IS NULL OR UPPER(po.status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
       ORDER BY po.created_at DESC
-    `).all(operatorId, operatorUsername, dbOp || 'ALL', dbOpAlt || 'ALL', dbOp || 'ALL', dbOp || '') as any[];
+    `).all(operatorId, operatorUsername) as any[];
+
+    // 2. Fallback: If no explicit work assignments exist for this operator, return all active CURRENT POs
+    if (poRows.length === 0) {
+      poRows = await db.prepare(`
+        SELECT * FROM production_orders
+        WHERE (status IS NULL OR UPPER(status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
+        ORDER BY created_at DESC
+      `).all() as any[];
+    }
 
     const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
     const assignments = formattedPos.filter(Boolean);

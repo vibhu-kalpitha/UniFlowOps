@@ -111,14 +111,21 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
 
   // Strictly enforce Operator Visibility Rule using operator_work_assignments
   if (reqUser && reqUser.role === 'OPERATOR') {
-    const isAllocated = await db.prepare(`
+    const totalAssignments = await db.prepare(`
       SELECT COUNT(*) as cnt FROM operator_work_assignments
-      WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND (operator_id = ? OR operator_id = ?) AND active = 1
-    `).get(po.id, po.id, reqUser.id, reqUser.username || reqUser.id) as any;
+      WHERE (operator_id = ? OR operator_id = ?) AND active = 1
+    `).get(reqUser.id, reqUser.username || reqUser.id) as any;
 
-    if (!isAllocated || isAllocated.cnt === 0) {
-      return null;
+    if (totalAssignments && totalAssignments.cnt > 0) {
+      const isAllocated = await db.prepare(`
+        SELECT COUNT(*) as cnt FROM operator_work_assignments
+        WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+          AND (operator_id = ? OR operator_id = ?) AND active = 1
+      `).get(po.id, po.id, reqUser.id, reqUser.username || reqUser.id) as any;
+
+      if (!isAllocated || isAllocated.cnt === 0) {
+        return null;
+      }
     }
   }
 
