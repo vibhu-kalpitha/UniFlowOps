@@ -11,7 +11,7 @@ import '../../styles/tokens.css';
 
 export const AQLSamplesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { aqlSession, saveAQLSession, showToast, activeJob, incrementAQLPassed, incrementAQLFailed } = useApp();
+  const { aqlSession, saveAQLSession, showToast, activeJob, incrementAQLPassed, incrementAQLFailed, packingBoxes } = useApp();
 
   React.useEffect(() => {
     if (!aqlSession) {
@@ -154,7 +154,11 @@ export const AQLSamplesPage: React.FC = () => {
       }
 
       try {
-        const payload = { result: finalResult, boxNumber: session.boxNumber || 'BX-000218' };
+        const payload = { 
+          result: finalResult, 
+          boxNumber: session.boxNumber || 'BX-000218',
+          samples: updatedSamples
+        };
         if (session.inspectionId) {
           await apiFetch(`/api/aql/inspections/${session.inspectionId}/complete`, {
             method: 'POST',
@@ -203,7 +207,26 @@ export const AQLSamplesPage: React.FC = () => {
             reason: removeReason || 'Damaged Garment Permanently Scrapped'
           })
         });
-        showToast(`Item ${targetQr} permanently removed from database & archived`, 'warning');
+
+        // Remove permanently removed item QR from boxItems in active session & local storage
+        const updatedBoxItems = (session.boxItems || []).filter(
+          (qr: string) => qr.toUpperCase() !== targetQr.toUpperCase()
+        );
+
+        if (session.boxNumber && packingBoxes[session.boxNumber]) {
+          packingBoxes[session.boxNumber].items = (packingBoxes[session.boxNumber].items || []).filter(
+            (it: any) => it.qr.toUpperCase() !== targetQr.toUpperCase()
+          );
+          localStorage.setItem('uniflow_packing_boxes', JSON.stringify(packingBoxes));
+        }
+
+        saveAQLSession({
+          ...session,
+          boxItems: updatedBoxItems,
+          sampleRequired: updatedBoxItems.length > 0 ? updatedBoxItems.length : Math.max(1, (session.sampleRequired || 1) - 1)
+        });
+
+        showToast(`Item ${targetQr} permanently removed from box & database`, 'warning');
         setShowFailModal(false);
         setIsProcessingAction(false);
         await handleNextSampleInternal('FAIL', 'PERMANENTLY_REMOVE', removeReason || 'Damaged Garment Scrapped');

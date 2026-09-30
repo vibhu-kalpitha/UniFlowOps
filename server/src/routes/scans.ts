@@ -1236,7 +1236,15 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
       WHERE bi.box_id = ? AND bi.active = 1
     `).all(box.id) as any[];
 
-    const totalItems = items.length;
+    // Fetch permanently removed items for this box or PO to ensure they NEVER re-appear
+    const permanentlyRemovedRows = await db.prepare(`
+      SELECT item_qr FROM permanently_removed_items WHERE box_id = ? OR production_order_id = ?
+    `).all(box.id, box.production_order_id) as any[];
+    const permanentlyRemovedQrs = Array.from(new Set(permanentlyRemovedRows.map(r => r.item_qr ? r.item_qr.trim().toUpperCase() : '')));
+
+    // Filter items to strictly exclude permanently removed QRs
+    const activeItems = items.filter(i => !permanentlyRemovedQrs.includes(i.qr_code.trim().toUpperCase()));
+    const totalItems = activeItems.length;
     const inspectionId = `aql-${Date.now()}`;
 
     // Load previous sample records for items in this box that PASSED
@@ -1246,6 +1254,16 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
       JOIN aql_inspections ai ON ai.id = asamp.inspection_id
       JOIN item_units u ON u.id = asamp.item_id
       WHERE ai.box_id = ? AND asamp.result = 'PASS'
+    `).all(box.id) as any[];
+
+    // Load item-wise AQL inspection history
+    const itemAqlHistory = await db.prepare(`
+      SELECT u.qr_code as itemQr, asamp.result, asamp.action_type as actionType, asamp.failure_reason as failureReason, asamp.scanned_at as scannedAt
+      FROM aql_samples asamp
+      JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+      JOIN item_units u ON u.id = asamp.item_id
+      WHERE ai.box_id = ?
+      ORDER BY asamp.scanned_at DESC
     `).all(box.id) as any[];
 
     await db.prepare(`
@@ -1258,11 +1276,13 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
         box_number: box.box_code || box.box_number,
         production_order_id: box.production_order_id,
         item_count: totalItems,
-        items
+        items: activeItems
       },
       inspectionId,
       requiredSamples: totalItems > 0 ? totalItems : 3,
-      previousPassedSamples: previousPassedSamples || []
+      previousPassedSamples: previousPassedSamples || [],
+      permanentlyRemovedQrs,
+      itemAqlHistory
     });
   } catch (err) {
     next(err);
@@ -1354,6 +1374,16 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
           VALUES (?, ?, ?, ?, NOW(3))
         `).run(failId, itemId, operatorId, `PERMANENTLY_REMOVED: ${reason || 'Damaged Garment Scrapped'}`);
       }
+
+      // 4. Record sample in aql_samples if inspectionId provided
+      if (inspectionId && itemId) {
+        const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+        await tx.prepare(`
+          INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, failure_reason, scanned_at)
+          VALUES (?, ?, ?, 1, 'FAIL', 'PERMANENTLY_REMOVE', ?, NOW(3))
+          ON DUPLICATE KEY UPDATE result = 'FAIL', action_type = 'PERMANENTLY_REMOVE', failure_reason = VALUES(failure_reason), scanned_at = NOW(3)
+        `).run(sampleId, inspectionId, itemId, reason || 'Damaged Garment Scrapped');
+      }
     });
 
     await recordScanEvent('', operatorId, 'AQL', qr, 'REJECTED', 'PERMANENTLY_REMOVED', reason || 'Item permanently removed');
@@ -1399,7 +1429,7 @@ router.post('/api/aql/inspections/direct-complete', authenticateToken, async (re
 router.post('/aql/inspections/:id/complete', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     let inspectionId = req.params.id;
-    const { result, failureReason, boxNumber } = req.body;
+    const { result, failureReason, boxNumber, samples } = req.body;
     const operatorId = req.user!.id;
 
     let insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
@@ -1420,6 +1450,23 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
         SET result = ?, failure_reason = ?, completed_at = NOW(3) 
         WHERE id = ?
       `).run(result, failureReason || null, inspectionId);
+    }
+
+    // Upsert all completed samples into aql_samples to guarantee complete item-wise database storage
+    if (Array.isArray(samples) && samples.length > 0) {
+      for (const s of samples) {
+        if (!s.itemQr) continue;
+        const item = await db.prepare(`SELECT id FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(s.itemQr.trim().toUpperCase()) as any;
+        if (item) {
+          const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+          const actType = s.actionType || (s.result === 'PASS' ? 'PASSED' : 'REUSED');
+          await db.prepare(`
+            INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, failure_reason, scanned_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3))
+            ON DUPLICATE KEY UPDATE result = VALUES(result), action_type = VALUES(action_type), failure_reason = VALUES(failure_reason), scanned_at = NOW(3)
+          `).run(sampleId, inspectionId, item.id, s.sampleIndex || 1, s.result || 'PASS', actType, s.failureReason || null);
+        }
+      }
     }
 
     const boxStatus = result === 'PASSED' ? 'AQL_PASSED' : 'AQL_FAILED';

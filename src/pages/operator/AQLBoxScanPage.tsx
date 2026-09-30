@@ -91,8 +91,8 @@ export const AQLBoxScanPage: React.FC = () => {
     let inspectionId: string | undefined;
     let totalItems = localItems.length || 0;
     let sampleRequirement = 12;
-
     let previousPassedSamples: any[] = [];
+    let permanentlyRemovedQrs: string[] = [];
 
     try {
       const res = await apiFetch('/aql/boxes/scan', {
@@ -104,18 +104,33 @@ export const AQLBoxScanPage: React.FC = () => {
       totalItems       = res.box?.item_count || serverItems.length || totalItems;
       sampleRequirement = res.requiredSamples || totalItems || 12;
       previousPassedSamples = res.previousPassedSamples || [];
+      permanentlyRemovedQrs = res.permanentlyRemovedQrs || [];
     } catch { /* offline — use local packing data */ }
 
-    // Combine server items and local items (case-insensitive deduplication)
+    const permRemovedSet = new Set(permanentlyRemovedQrs.map(q => q.toUpperCase()));
+
+    // Combine server items and local items (excluding permanently removed items)
     const combinedSet = new Set<string>();
-    serverItems.forEach(qr => { if (qr) combinedSet.add(qr.trim().toUpperCase()); });
-    localItems.forEach(qr => { if (qr) combinedSet.add(qr.trim().toUpperCase()); });
+    serverItems.forEach(qr => { if (qr && !permRemovedSet.has(qr.trim().toUpperCase())) combinedSet.add(qr.trim().toUpperCase()); });
+    if (serverItems.length === 0) {
+      localItems.forEach(qr => { if (qr && !permRemovedSet.has(qr.trim().toUpperCase())) combinedSet.add(qr.trim().toUpperCase()); });
+    }
+
     const finalItems = Array.from(combinedSet);
     const reqSamples = finalItems.length > 0 ? finalItems.length : (totalItems || 12);
 
+    // Sync local storage packingBoxes so permanently scrapped items don't linger in local state
+    if (packingBoxes[code]) {
+      const updatedLocalItems = (packingBoxes[code].items || []).filter(
+        (it: any) => !permRemovedSet.has(it.qr.trim().toUpperCase())
+      );
+      packingBoxes[code].items = updatedLocalItems;
+      localStorage.setItem('uniflow_packing_boxes', JSON.stringify(packingBoxes));
+    }
+
     const details: ScannedBoxInfo & { previousPassedSamples?: any[] } = {
       boxNumber:         code,
-      totalItems:        finalItems.length || totalItems || 0,
+      totalItems:        finalItems.length,
       sampleRequirement: reqSamples || 0,
       inspectionId,
       packedItemQrs:     finalItems,
@@ -125,7 +140,7 @@ export const AQLBoxScanPage: React.FC = () => {
     setScannedBox(details as any);
     return {
       status:  'accepted' as const,
-      message: `📦 Box ${code} loaded — Ready for AQL Inspection.`,
+      message: `📦 Box ${code} loaded (${finalItems.length} active items) — Ready for AQL Inspection.`,
       code,
     };
   };
