@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ArrowRight, BoxSelect, ScanLine, Package, Search } from 'lucide-react';
+import { ArrowRight, BoxSelect, ScanLine, Package, Search, ArrowLeftRight } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
@@ -20,10 +21,12 @@ interface ScannedBoxInfo {
 
 export const AQLBoxScanPage: React.FC = () => {
   const navigate = useNavigate();
-  const { packingBoxes, saveAQLSession, activeJob } = useApp();
+  const { packingBoxes, saveAQLSession, activeJob, setActiveJob } = useApp();
 
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
+
+  const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
 
   const targetSoQty = so?.quantity || 10;
   const aqlPassedQty = so?.progress?.aqlPassed || 0;
@@ -89,15 +92,48 @@ export const AQLBoxScanPage: React.FC = () => {
     navigate('/operator/aql/samples');
   };
 
+  if (!po || showPoSelector) {
+    return (
+      <div style={{ padding: 'var(--spacing-md)' }}>
+        <SelectPOForOperation
+          operationName="AQL Checker"
+          selectedPoId={po?.id || po?.dbId}
+          onSelectPo={(selectedPo) => {
+            setActiveJob({ productionOrder: selectedPo });
+            setShowPoSelector(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Header */}
-      <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>AQL Inspection — Step 1</h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Scan the packing box barcode to load its contents for inspection.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>
+            AQL Inspection — {po?.id || (po as any)?.poNumber} ({po?.styleName || po?.styleCode || 'Style'})
+          </h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            Scan the packing box barcode to load its contents for inspection.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowPoSelector(true)}
+          className="btn btn-secondary"
+          style={{
+            padding: '6px 12px',
+            fontSize: '0.8rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            borderRadius: 'var(--radius-md)'
+          }}
+        >
+          <ArrowLeftRight size={14} /> Switch PO
+        </button>
       </div>
 
       {/* Step indicator */}

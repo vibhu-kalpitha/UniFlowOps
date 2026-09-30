@@ -4,7 +4,8 @@ import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine } from 'lucide-react';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -31,11 +32,12 @@ interface QcHistoryData {
 }
 
 export const QCTestPage: React.FC = () => {
-  const { activeJob, incrementQCPassed, showToast } = useApp();
+  const { activeJob, setActiveJob, incrementQCPassed, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
   const qcMode = po?.qcTestMode || 'QC & Test';
 
+  const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
@@ -285,6 +287,21 @@ export const QCTestPage: React.FC = () => {
     }, 1200);
   };
 
+  if (!po || showPoSelector) {
+    return (
+      <div style={{ padding: 'var(--spacing-md)' }}>
+        <SelectPOForOperation
+          operationName="QC Test"
+          selectedPoId={po?.id || po?.dbId}
+          onSelectPo={(selectedPo) => {
+            setActiveJob({ productionOrder: selectedPo });
+            setShowPoSelector(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top Banner */}
@@ -293,19 +310,35 @@ export const QCTestPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <FileText size={20} color="var(--primary-teal)" />
             <div>
-              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
-                QC Inspection • {po?.id || 'PO-2026-0184'} — {po?.styleName || po?.styleCode || 'Garment Style'}
+              <h3 style={{ fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                QC Inspection • {po?.id || (po as any)?.poNumber} — {po?.styleName || po?.styleCode || 'Garment Style'}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Configured QC Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <CheckCircle2 size={16} color="var(--color-green)" />
-            <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
-              Scanner Active
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setShowPoSelector(true)}
+              className="btn btn-secondary"
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeftRight size={14} /> Switch PO
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CheckCircle2 size={16} color="var(--color-green)" />
+              <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+                Scanner Active
+              </span>
+            </div>
           </div>
         </div>
       </div>

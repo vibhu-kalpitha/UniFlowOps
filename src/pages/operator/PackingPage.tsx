@@ -5,7 +5,8 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
-import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine } from 'lucide-react';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
+import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
@@ -25,10 +26,12 @@ interface ActiveBox {
 
 export const PackingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { activeJob, packingBoxes, savePackingBox, incrementPacked, showToast } = useApp();
+  const { activeJob, setActiveJob, packingBoxes, savePackingBox, incrementPacked, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
+
+  const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
 
   const targetSoQty = so?.quantity || 10;
   const packedQty = so?.progress?.packed || 0;
@@ -154,6 +157,21 @@ export const PackingPage: React.FC = () => {
 
   const isFull = box ? box.items.length >= box.capacity : false;
 
+  if (!po || showPoSelector) {
+    return (
+      <div style={{ padding: 'var(--spacing-md)' }}>
+        <SelectPOForOperation
+          operationName="Packing"
+          selectedPoId={po?.id || po?.dbId}
+          onSelectPo={(selectedPo) => {
+            setActiveJob({ productionOrder: selectedPo });
+            setShowPoSelector(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -164,18 +182,34 @@ export const PackingPage: React.FC = () => {
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
-                Packing Station • {po?.id || 'PO-2026-0184'} — {po?.styleName || po?.styleCode || 'Garment Style'}
+                Packing Station • {po?.id || (po as any)?.poNumber} — {po?.styleName || po?.styleCode || 'Garment Style'}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <CheckCircle2 size={16} color="var(--color-green)" />
-            <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
-              Scanner Ready
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setShowPoSelector(true)}
+              className="btn btn-secondary"
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeftRight size={14} /> Switch PO
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CheckCircle2 size={16} color="var(--color-green)" />
+              <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+                Scanner Ready
+              </span>
+            </div>
           </div>
         </div>
       </div>
