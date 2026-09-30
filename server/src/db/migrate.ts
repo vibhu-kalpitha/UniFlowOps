@@ -263,93 +263,123 @@ async function runSchemaAlignment005(): Promise<void> {
  * runStartupColumnChecks — Runs on EVERY server startup.
  * Adds any missing critical columns that may not exist on servers where
  * older migrations were already recorded as applied before the columns were added.
- * All operations here are fully idempotent.
+ * Each statement is individually try/caught. The whole function is also wrapped
+ * so it NEVER crashes the server — only logs warnings on failure.
  */
 async function runStartupColumnChecks(): Promise<void> {
-  console.log('🔍 Running startup column checks (idempotent)...');
+  try {
+    console.log('🔍 Running startup column checks (idempotent)...');
 
-  // production_orders: qc_test_mode
-  if (await tableExists('production_orders')) {
-    if (!(await columnExists('production_orders', 'qc_test_mode'))) {
-      await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_test_mode VARCHAR(50) NOT NULL DEFAULT 'QC_AND_TEST' AFTER supervisor_id;`);
-      console.log('  ✅ Added production_orders.qc_test_mode');
-    }
-    // production_orders: shift_id (THE MISSING COLUMN causing the "unknown column" error)
-    if (!(await columnExists('production_orders', 'shift_id'))) {
-      await db.exec(`ALTER TABLE production_orders ADD COLUMN shift_id VARCHAR(191) NULL AFTER qc_test_mode;`);
-      console.log('  ✅ Added production_orders.shift_id');
-    }
-    // FK for shift_id
-    if (await tableExists('shifts') && !(await constraintExists('production_orders', 'fk_po_shift')) && !(await indexExists('production_orders', 'idx_po_shift'))) {
+    // ── production_orders columns ────────────────────────────────────
+    if (await tableExists('production_orders')) {
+      // qc_test_mode
+      if (!(await columnExists('production_orders', 'qc_test_mode'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_test_mode VARCHAR(50) NOT NULL DEFAULT 'QC_AND_TEST' AFTER supervisor_id`);
+          console.log('  ✅ Added production_orders.qc_test_mode');
+        } catch (e: any) { console.warn('  ⚠️ qc_test_mode:', e.message); }
+      }
+
+      // shift_id — the column missing on live server causing "unknown column" error
+      if (!(await columnExists('production_orders', 'shift_id'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN shift_id VARCHAR(191) NULL AFTER qc_test_mode`);
+          console.log('  ✅ Added production_orders.shift_id');
+        } catch (e: any) { console.warn('  ⚠️ shift_id:', e.message); }
+      }
+
+      // FK fk_po_shift (only if shifts table exists and FK not already there)
       try {
-        await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;`);
-        console.log('  ✅ Added FK fk_po_shift');
-      } catch (_) { /* FK already exists */ }
+        if (await tableExists('shifts')
+          && !(await constraintExists('production_orders', 'fk_po_shift'))
+          && !(await indexExists('production_orders', 'idx_po_shift'))
+          && !(await indexExists('production_orders', 'fk_po_shift'))) {
+          await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL`);
+          console.log('  ✅ Added FK fk_po_shift');
+        }
+      } catch (e: any) { console.warn('  ⚠️ FK fk_po_shift (non-fatal):', e.message); }
     }
-  }
 
-  // operator_work_assignments: production_order_id
-  if (await tableExists('operator_work_assignments')) {
-    if (!(await columnExists('operator_work_assignments', 'production_order_id'))) {
-      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN production_order_id VARCHAR(191) NULL AFTER id;`);
-      console.log('  ✅ Added operator_work_assignments.production_order_id');
+    // ── operator_work_assignments columns ────────────────────────────
+    if (await tableExists('operator_work_assignments')) {
+      if (!(await columnExists('operator_work_assignments', 'production_order_id'))) {
+        try {
+          await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN production_order_id VARCHAR(191) NULL AFTER id`);
+          console.log('  ✅ Added operator_work_assignments.production_order_id');
+        } catch (e: any) { console.warn('  ⚠️ production_order_id:', e.message); }
+      }
+      if (!(await columnExists('operator_work_assignments', 'assigned_by'))) {
+        try {
+          await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN assigned_by VARCHAR(191) NULL AFTER source`);
+        } catch (e: any) { console.warn('  ⚠️ assigned_by:', e.message); }
+      }
+      if (!(await columnExists('operator_work_assignments', 'updated_at'))) {
+        try {
+          await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN updated_at DATETIME(3) NULL AFTER created_at`);
+        } catch (e: any) { console.warn('  ⚠️ updated_at:', e.message); }
+      }
+
+      // Make sales_order_id nullable (safe to run even if already nullable)
+      try {
+        await db.exec(`ALTER TABLE operator_work_assignments MODIFY COLUMN sales_order_id VARCHAR(191) NULL`);
+      } catch (_) { /* non-fatal */ }
+
+      // FK fk_owa_po
+      try {
+        if (await tableExists('production_orders')
+          && !(await constraintExists('operator_work_assignments', 'fk_owa_po'))
+          && !(await indexExists('operator_work_assignments', 'fk_owa_po'))) {
+          await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE`);
+          console.log('  ✅ Added FK fk_owa_po');
+        }
+      } catch (e: any) { console.warn('  ⚠️ FK fk_owa_po (non-fatal):', e.message); }
     }
-    if (!(await columnExists('operator_work_assignments', 'assigned_by'))) {
-      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN assigned_by VARCHAR(191) NULL AFTER source;`);
-    }
-    if (!(await columnExists('operator_work_assignments', 'updated_at'))) {
-      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN updated_at DATETIME(3) NULL AFTER created_at;`);
-    }
-    // Ensure sales_order_id is nullable
+
+    // ── production_order_configs table ───────────────────────────────
     try {
-      await db.exec(`ALTER TABLE operator_work_assignments MODIFY COLUMN sales_order_id VARCHAR(191) NULL;`);
-    } catch (_) { /* ignore */ }
-    // FK for production_order_id
-    if (await tableExists('production_orders') && !(await constraintExists('operator_work_assignments', 'fk_owa_po')) && !(await indexExists('operator_work_assignments', 'idx_owa_po'))) {
-      try {
-        await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE;`);
-        console.log('  ✅ Added FK fk_owa_po');
-      } catch (_) { /* FK already exists */ }
-    }
-  }
+      if (!(await tableExists('production_order_configs'))) {
+        await db.exec(`
+          CREATE TABLE production_order_configs (
+            id VARCHAR(191) PRIMARY KEY,
+            production_order_id VARCHAR(191) NOT NULL,
+            config_code VARCHAR(191) NOT NULL,
+            product_type VARCHAR(50) NULL,
+            size VARCHAR(50) NULL,
+            product_qr_prefix VARCHAR(191) NOT NULL,
+            product_serial_start BIGINT NOT NULL,
+            product_serial_end BIGINT NOT NULL,
+            quantity INT NOT NULL,
+            created_at DATETIME(3) NOT NULL,
+            updated_at DATETIME(3) NOT NULL,
+            INDEX idx_poc_po (production_order_id),
+            INDEX idx_poc_prefix (product_qr_prefix),
+            FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created production_order_configs table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ production_order_configs:', e.message); }
 
-  // production_order_configs table
-  if (!(await tableExists('production_order_configs'))) {
-    await db.exec(`
-      CREATE TABLE production_order_configs (
-        id VARCHAR(191) PRIMARY KEY,
-        production_order_id VARCHAR(191) NOT NULL,
-        config_code VARCHAR(191) NOT NULL,
-        product_type VARCHAR(50) NULL,
-        size VARCHAR(50) NULL,
-        product_qr_prefix VARCHAR(191) NOT NULL,
-        product_serial_start BIGINT NOT NULL,
-        product_serial_end BIGINT NOT NULL,
-        quantity INT NOT NULL,
-        created_at DATETIME(3) NOT NULL,
-        updated_at DATETIME(3) NOT NULL,
-        INDEX idx_poc_po (production_order_id),
-        INDEX idx_poc_prefix (product_qr_prefix),
-        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-    console.log('  ✅ Created production_order_configs table');
-  }
+    // ── production_order_operations table ────────────────────────────
+    try {
+      if (!(await tableExists('production_order_operations'))) {
+        await db.exec(`
+          CREATE TABLE production_order_operations (
+            production_order_id VARCHAR(191) NOT NULL,
+            operation ENUM('QC_TEST','PACKING','AQL','BOX_TRANSFER') NOT NULL,
+            PRIMARY KEY (production_order_id, operation),
+            FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created production_order_operations table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ production_order_operations:', e.message); }
 
-  // production_order_operations table
-  if (!(await tableExists('production_order_operations'))) {
-    await db.exec(`
-      CREATE TABLE production_order_operations (
-        production_order_id VARCHAR(191) NOT NULL,
-        operation ENUM('QC_TEST','PACKING','AQL','BOX_TRANSFER') NOT NULL,
-        PRIMARY KEY (production_order_id, operation),
-        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-    console.log('  ✅ Created production_order_operations table');
+    console.log('✅ Startup column checks complete.');
+  } catch (outerErr: any) {
+    // NEVER crash the server — just log and continue
+    console.error('⚠️ runStartupColumnChecks encountered an error (non-fatal, server will continue):', outerErr?.message || outerErr);
   }
-
-  console.log('✅ Startup column checks complete.');
 }
 
 export async function runMigrations(): Promise<{ applied: string[]; skipped: string[] }> {
