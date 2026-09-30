@@ -145,25 +145,87 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
 });
 
 // GET /api/dashboard/admin
-router.get('/dashboard/admin', authenticateToken, requireRole('ADMIN'), async (req, res, next) => {
+router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
-    const currentPosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders WHERE status = 'CURRENT'`).get() as any;
-    const totalPosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders`).get() as any;
+    const { poId, styleName } = req.query as { poId?: string; styleName?: string };
+
+    // Fetch filter dropdown options
+    const stylesList = await db.prepare(`
+      SELECT DISTINCT style_name 
+      FROM production_orders 
+      WHERE style_name IS NOT NULL AND TRIM(style_name) != '' 
+      ORDER BY style_name ASC
+    `).all() as any[];
+    const availableStyles = stylesList.map(s => s.style_name);
+
+    const posList = await db.prepare(`
+      SELECT id, po_number, style_name 
+      FROM production_orders 
+      ORDER BY created_at DESC
+    `).all() as any[];
+
+    // Target PO condition for SQL queries
+    let poIdsTarget: string[] = [];
+    if (poId && poId.trim()) {
+      const match = await db.prepare(`SELECT id FROM production_orders WHERE id = ? OR po_number = ?`).get(poId.trim(), poId.trim()) as any;
+      if (match) poIdsTarget = [match.id];
+    } else if (styleName && styleName.trim()) {
+      const matches = await db.prepare(`SELECT id FROM production_orders WHERE UPPER(TRIM(style_name)) = ?`).all(styleName.trim().toUpperCase()) as any[];
+      poIdsTarget = matches.map(m => m.id);
+    }
+
+    const filterActive = poIdsTarget.length > 0;
+
+    // 1. Executive KPIs
+    let currentPosQuery = `SELECT COUNT(*) as cnt FROM production_orders WHERE status = 'CURRENT'`;
+    let totalPosQuery = `SELECT COUNT(*) as cnt FROM production_orders`;
+    let itemsProcessedQuery = `SELECT COUNT(*) as cnt FROM item_units`;
+    let packedUnitsQuery = `SELECT COUNT(*) as cnt FROM box_items bi JOIN boxes b ON b.id = bi.box_id WHERE bi.active = 1`;
+    let scrappedQuery = `SELECT COUNT(*) as cnt FROM permanently_removed_items`;
+    let boxesQuery = `SELECT COUNT(*) as cnt FROM boxes`;
+
+    if (filterActive) {
+      const placeholders = poIdsTarget.map(() => '?').join(',');
+      currentPosQuery += ` AND id IN (${placeholders})`;
+      totalPosQuery += ` WHERE id IN (${placeholders})`;
+      itemsProcessedQuery += ` WHERE production_order_id IN (${placeholders}) OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))`;
+      packedUnitsQuery += ` AND b.production_order_id IN (${placeholders})`;
+      scrappedQuery += ` WHERE production_order_id IN (${placeholders})`;
+      boxesQuery += ` WHERE production_order_id IN (${placeholders})`;
+    }
+
+    const currentPosRow = await db.prepare(currentPosQuery).get(...(filterActive ? poIdsTarget : [])) as any;
+    const totalPosRow = await db.prepare(totalPosQuery).get(...(filterActive ? poIdsTarget : [])) as any;
     const salesOrdersRow = await db.prepare(`SELECT COUNT(*) as cnt FROM sales_orders`).get() as any;
-    const itemsProcessedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM item_units`).get() as any;
-    const packedUnitsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE active = 1`).get() as any;
-    const totalBoxesRow = await db.prepare(`SELECT COUNT(*) as cnt FROM boxes`).get() as any;
+    const itemsProcessedRow = await db.prepare(itemsProcessedQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
+    const packedUnitsRow = await db.prepare(packedUnitsQuery).get(...(filterActive ? poIdsTarget : [])) as any;
+    const totalBoxesRow = await db.prepare(boxesQuery).get(...(filterActive ? poIdsTarget : [])) as any;
     const boxTransfersRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_transfers`).get() as any;
-    const scrappedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM permanently_removed_items`).get() as any;
+    const scrappedRow = await db.prepare(scrappedQuery).get(...(filterActive ? poIdsTarget : [])) as any;
     const activeOperatorsRow = await db.prepare(`SELECT COUNT(DISTINCT operator_id) as cnt FROM operator_work_assignments WHERE active = 1`).get() as any;
 
-    // Quality Rates
-    const totalQcRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results`).get() as any;
-    const passQcRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE qc_result = 'PASS'`).get() as any;
-    const passTestRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE test_result = 'PASS'`).get() as any;
+    // 2. Quality Rates
+    let totalQcQuery = `SELECT COUNT(*) as cnt FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id`;
+    let passQcQuery = `SELECT COUNT(*) as cnt FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE qr.qc_result = 'PASS'`;
+    let passTestQuery = `SELECT COUNT(*) as cnt FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE qr.test_result = 'PASS'`;
+    let totalAqlQuery = `SELECT COUNT(*) as cnt FROM aql_inspections ai`;
+    let passAqlQuery = `SELECT COUNT(*) as cnt FROM aql_inspections ai WHERE ai.result = 'PASSED'`;
 
-    const totalAqlRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections`).get() as any;
-    const passAqlRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE result = 'PASSED'`).get() as any;
+    if (filterActive) {
+      const placeholders = poIdsTarget.map(() => '?').join(',');
+      totalQcQuery += ` WHERE iu.production_order_id IN (${placeholders}) OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))`;
+      passQcQuery += ` AND (iu.production_order_id IN (${placeholders}) OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders})))`;
+      passTestQuery += ` AND (iu.production_order_id IN (${placeholders}) OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders})))`;
+      totalAqlQuery += ` WHERE ai.production_order_id IN (${placeholders})`;
+      passAqlQuery += ` AND ai.production_order_id IN (${placeholders})`;
+    }
+
+    const totalQcRow = await db.prepare(totalQcQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
+    const passQcRow = await db.prepare(passQcQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
+    const passTestRow = await db.prepare(passTestQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
+
+    const totalAqlRow = await db.prepare(totalAqlQuery).get(...(filterActive ? poIdsTarget : [])) as any;
+    const passAqlRow = await db.prepare(passAqlQuery).get(...(filterActive ? poIdsTarget : [])) as any;
 
     const totalQc = totalQcRow?.cnt || 0;
     const passQc = passQcRow?.cnt || 0;
@@ -177,31 +239,58 @@ router.get('/dashboard/admin', authenticateToken, requireRole('ADMIN'), async (r
     const overallQualityIndex = parseFloat(((qcPassRate * 0.4 + testPassRate * 0.3 + aqlPassRate * 0.3)).toFixed(1));
 
     // Exceptions
-    const qcFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE qc_result = 'FAIL'`).get() as any;
-    const testFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE test_result = 'FAIL'`).get() as any;
-    const aqlFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE result = 'FAILED'`).get() as any;
-    const pendingPackRow = await db.prepare(`SELECT COUNT(*) as cnt FROM item_units WHERE status = 'QC_PASSED'`).get() as any;
+    let qcFailedQuery = `SELECT COUNT(*) as cnt FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE qr.qc_result = 'FAIL'`;
+    let testFailedQuery = `SELECT COUNT(*) as cnt FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE qr.test_result = 'FAIL'`;
+    let aqlFailedQuery = `SELECT COUNT(*) as cnt FROM aql_inspections ai WHERE ai.result = 'FAILED'`;
+    let pendingPackQuery = `SELECT COUNT(*) as cnt FROM item_units WHERE status = 'QC_PASSED'`;
+
+    if (filterActive) {
+      const placeholders = poIdsTarget.map(() => '?').join(',');
+      qcFailedQuery += ` AND (iu.production_order_id IN (${placeholders}) OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders})))`;
+      testFailedQuery += ` AND (iu.production_order_id IN (${placeholders}) OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders})))`;
+      aqlFailedQuery += ` AND ai.production_order_id IN (${placeholders})`;
+      pendingPackQuery += ` AND (production_order_id IN (${placeholders}) OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders})))`;
+    }
+
+    const qcFailedRow = await db.prepare(qcFailedQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
+    const testFailedRow = await db.prepare(testFailedQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
+    const aqlFailedRow = await db.prepare(aqlFailedQuery).get(...(filterActive ? poIdsTarget : [])) as any;
+    const pendingPackRow = await db.prepare(pendingPackQuery).get(...(filterActive ? [...poIdsTarget, ...poIdsTarget] : [])) as any;
 
     // Live Production Orders Summary
+    let poWhereClause = '';
+    if (filterActive) {
+      const placeholders = poIdsTarget.map(() => '?').join(',');
+      poWhereClause = `WHERE po.id IN (${placeholders})`;
+    }
+
     const activeProductionOrders = await db.prepare(`
       SELECT 
         po.id, po.po_number, po.style_name, po.total_quantity, po.status, po.created_at,
-        (SELECT COUNT(bi.id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id WHERE b.production_order_id = po.id AND bi.active = 1) as packed_count,
+        (SELECT COUNT(bi.id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id WHERE (b.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count,
         (SELECT COUNT(id) FROM aql_inspections WHERE production_order_id = po.id AND result = 'PASSED') as aql_passed_boxes,
         (SELECT COUNT(id) FROM permanently_removed_items WHERE production_order_id = po.id) as scrapped_count
       FROM production_orders po
+      ${poWhereClause}
       ORDER BY po.created_at DESC
-      LIMIT 10
-    `).all() as any[];
+      LIMIT 15
+    `).all(...(filterActive ? poIdsTarget : [])) as any[];
 
     // Recent Scrapped Items Log
+    let scrappedWhereClause = '';
+    if (filterActive) {
+      const placeholders = poIdsTarget.map(() => '?').join(',');
+      scrappedWhereClause = `WHERE prm.production_order_id IN (${placeholders})`;
+    }
+
     const recentScrapped = await db.prepare(`
       SELECT prm.*, u.full_name as operator_name
       FROM permanently_removed_items prm
       LEFT JOIN users u ON u.id = prm.removed_by
+      ${scrappedWhereClause}
       ORDER BY prm.removed_at DESC
-      LIMIT 5
-    `).all() as any[];
+      LIMIT 10
+    `).all(...(filterActive ? poIdsTarget : [])) as any[];
 
     // Recent Audit Logs
     const recentAuditLogs = await db.prepare(`
@@ -213,6 +302,12 @@ router.get('/dashboard/admin', authenticateToken, requireRole('ADMIN'), async (r
     `).all() as any[];
 
     return res.json({
+      filter: {
+        poId: poId || null,
+        styleName: styleName || null,
+        availableStyles,
+        availablePos: posList
+      },
       kpis: {
         currentPos: currentPosRow?.cnt || 0,
         totalPos: totalPosRow?.cnt || 0,

@@ -12,6 +12,7 @@ import {
   Box,
   CheckCircle2,
   Clock,
+  Filter,
   Layers,
   ListFilter,
   Package,
@@ -19,9 +20,11 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  Tag,
   Trash2,
   TrendingUp,
   Users,
+  X,
   Zap
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
@@ -36,24 +39,50 @@ export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'orders' | 'quality' | 'scrapped' | 'audit'>('orders');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const fetchDashboardData = async () => {
+  // Dropdown filter states
+  const [selectedStyle, setSelectedStyle] = useState<string>('');
+  const [selectedPoId, setSelectedPoId] = useState<string>('');
+
+  const fetchDashboardData = async (styleFilter = selectedStyle, poFilter = selectedPoId) => {
     setLoading(true);
     try {
-      const res = await apiFetch('/api/dashboard/admin');
+      const params = new URLSearchParams();
+      if (styleFilter) params.set('styleName', styleFilter);
+      if (poFilter) params.set('poId', poFilter);
+
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const res = await apiFetch(`/api/dashboard/admin${queryString}`);
       setData(res);
     } catch (err) {
-      console.error('Failed to load admin dashboard:', err);
+      console.error('Failed to load admin dashboard data:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDashboardData();
-    // Auto-refresh metrics every 30 seconds
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    fetchDashboardData(selectedStyle, selectedPoId);
+  }, [selectedStyle, selectedPoId]);
+
+  const filterOptions = data?.filter || { availableStyles: [], availablePos: [] };
+
+  const handleStyleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const styleVal = e.target.value;
+    setSelectedStyle(styleVal);
+    // Reset PO selection if changing style
+    setSelectedPoId('');
+  };
+
+  const handlePoChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const poVal = e.target.value;
+    setSelectedPoId(poVal);
+  };
+
+  const handleClearFilters = () => {
+    setSelectedStyle('');
+    setSelectedPoId('');
+    setSearchTerm('');
+  };
 
   const kpis = data?.kpis || {
     currentPos: 0,
@@ -95,6 +124,8 @@ export const AdminDashboard: React.FC = () => {
     (po.style_name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const isFiltered = Boolean(selectedStyle || selectedPoId);
+
   return (
     <div className="desktop-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* ── Top Header & Executive Control Bar ─────────────────── */}
@@ -134,7 +165,7 @@ export const AdminDashboard: React.FC = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
-            onClick={fetchDashboardData}
+            onClick={() => fetchDashboardData(selectedStyle, selectedPoId)}
             className="btn btn-secondary"
             style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
             disabled={loading}
@@ -150,6 +181,110 @@ export const AdminDashboard: React.FC = () => {
             <Zap size={14} /> + New Production Order
           </button>
         </div>
+      </div>
+
+      {/* ── STYLE & PO FILTER BAR ─────────────────────────────── */}
+      <div style={{
+        backgroundColor: 'var(--bg-surface-1)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '14px',
+        padding: '14px 18px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '14px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Filter size={16} color="var(--color-teal)" />
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            Data Filters:
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-start' }}>
+          {/* Style Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Tag size={14} color="var(--text-muted)" />
+            <select
+              value={selectedStyle}
+              onChange={handleStyleChange}
+              style={{
+                backgroundColor: 'var(--bg-surface-2)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                borderRadius: '8px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                outline: 'none',
+                minWidth: '160px'
+              }}
+            >
+              <option value="">All Garment Styles</option>
+              {filterOptions.availableStyles?.map((style: string) => (
+                <option key={style} value={style}>
+                  {style}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Production Order Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Box size={14} color="var(--text-muted)" />
+            <select
+              value={selectedPoId}
+              onChange={handlePoChange}
+              style={{
+                backgroundColor: 'var(--bg-surface-2)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                borderRadius: '8px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                outline: 'none',
+                minWidth: '200px'
+              }}
+            >
+              <option value="">All Production Orders (POs)</option>
+              {filterOptions.availablePos?.map((po: any) => (
+                <option key={po.id} value={po.id}>
+                  {po.po_number} ({po.style_name || 'Style'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isFiltered && (
+            <button
+              onClick={handleClearFilters}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '5px 10px',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                color: '#EF4444',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              <X size={12} /> Clear Filter
+            </button>
+          )}
+        </div>
+
+        {isFiltered && (
+          <StatusPill
+            label={`Filtered: ${selectedStyle ? `Style "${selectedStyle}"` : ''} ${selectedPoId ? `PO ID "${selectedPoId}"` : ''}`}
+            variant="teal"
+          />
+        )}
       </div>
 
       {/* ── 6 Primary Executive KPI Cards ─────────────────────── */}
@@ -362,7 +497,7 @@ export const AdminDashboard: React.FC = () => {
 
             {filteredOrders.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No active production orders found in database.
+                No active production orders found for the selected filter.
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
@@ -550,7 +685,7 @@ export const AdminDashboard: React.FC = () => {
 
             {recentScrapped.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No permanently removed garments logged in database.
+                No permanently removed garments logged in database for this filter.
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
