@@ -47,17 +47,44 @@ router.get('/current-work', authenticateToken, requireRole('OPERATOR'), async (r
   }
 });
 
-// GET /api/operators/me/assignments
+// GET /api/operators/me/assignments?operation=...
 router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (req: AuthRequest, res, next) => {
   try {
     const operatorId = req.user!.id;
+    const { operation } = req.query;
 
-    const poRows = await db.prepare(`
-      SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
-      FROM operator_work_assignments owa
-      JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
-      WHERE owa.operator_id = ? AND owa.active = 1 AND po.status = 'CURRENT'
-    `).all(operatorId) as any[];
+    let dbOp: string | null = null;
+    if (operation) {
+      const opStr = String(operation).trim().toUpperCase();
+      if (opStr === 'QC TEST' || opStr === 'QC' || opStr === 'TEST' || opStr === 'QC_TEST') dbOp = 'QC_TEST';
+      else if (opStr === 'PACKING' || opStr === 'PACK') dbOp = 'PACKING';
+      else if (opStr === 'AQL CHECKER' || opStr === 'AQL') dbOp = 'AQL';
+      else if (opStr === 'BOX TRANSFER' || opStr === 'BOX_TRANSFER') dbOp = 'BOX_TRANSFER';
+    }
+
+    let poRows: any[] = [];
+    if (dbOp) {
+      poRows = await db.prepare(`
+        SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
+        FROM operator_work_assignments owa
+        JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
+        JOIN production_order_operations poo ON poo.production_order_id = po.id
+        WHERE owa.operator_id = ?
+          AND owa.active = 1
+          AND (owa.operation = 'ALL' OR owa.operation = ? OR owa.operation IS NULL OR owa.operation = '')
+          AND poo.operation = ?
+          AND UPPER(po.status) IN ('CURRENT', 'IN_PROGRESS', 'ACTIVE')
+      `).all(operatorId, dbOp, dbOp) as any[];
+    } else {
+      poRows = await db.prepare(`
+        SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
+        FROM operator_work_assignments owa
+        JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
+        WHERE owa.operator_id = ?
+          AND owa.active = 1
+          AND UPPER(po.status) IN ('CURRENT', 'IN_PROGRESS', 'ACTIVE')
+      `).all(operatorId) as any[];
+    }
 
     const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
     const assignments = formattedPos.filter(Boolean);

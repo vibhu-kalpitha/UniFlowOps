@@ -23,13 +23,10 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<ProductionOrder[]>('/api/operators/me/assignments');
+      const queryParam = operationName ? `?operation=${encodeURIComponent(operationName)}` : '';
+      const data = await apiFetch<ProductionOrder[]>(`/api/operators/me/assignments${queryParam}`);
       if (Array.isArray(data)) {
         setPos(data);
-        // If only 1 PO assigned and not currently selected, auto-select it
-        if (data.length === 1 && !selectedPoId) {
-          onSelectPo(data[0]);
-        }
       } else {
         setPos([]);
       }
@@ -165,11 +162,11 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--spacing-xs)' }}>
                   <span style={{
-                    fontSize: '1.1rem',
+                    fontSize: '1.15rem',
                     fontWeight: 700,
                     color: 'var(--color-text-primary)'
                   }}>
-                    {po.id}
+                    {po.styleName || po.styleCode || 'Garment Style'} - {po.id}
                   </span>
                   {po.status && (
                     <span style={{
@@ -187,6 +184,7 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
 
                 <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 'var(--spacing-sm)' }}>
                   Map PO: <strong style={{ color: 'var(--color-text-secondary)' }}>{po.mapPo || 'N/A'}</strong>
+                  {po.customer && <span> • Customer: <strong style={{ color: 'var(--color-text-secondary)' }}>{po.customer}</strong></span>}
                 </div>
 
                 <div style={{

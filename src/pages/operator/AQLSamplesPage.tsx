@@ -13,32 +13,25 @@ export const AQLSamplesPage: React.FC = () => {
   const navigate = useNavigate();
   const { aqlSession, saveAQLSession, showToast, activeJob, incrementAQLPassed, incrementAQLFailed } = useApp();
 
-  const session: any = aqlSession || {
-    boxNumber: 'BX-000218',
-    totalBoxQuantity: 12,
-    sampleRequired: 12,
-    currentSampleIndex: 1,
-    samples: [],
-    status: 'SAMPLE_SCAN',
-    inspectionId: 'aql-insp-001',
-    boxItems: [
-      'PNFLS092632670', 'PNFLS092632671', 'PNFLS092632672', 'PNFLS092632673',
-      'PNFLS092632674', 'PNFLS092632675', 'PNFLS092632676', 'PNFLS092632677'
-    ]
-  };
+  React.useEffect(() => {
+    if (!aqlSession) {
+      navigate('/operator/aql');
+    }
+  }, [aqlSession, navigate]);
 
+  if (!aqlSession) {
+    return null;
+  }
+
+  const session: any = aqlSession;
   const po = activeJob?.productionOrder;
 
   const [currentIdx, setCurrentIdx] = useState(session.currentSampleIndex || 1);
-  const [currentQr, setCurrentQr] = useState('PNFLS092632677');
+  const [currentQr, setCurrentQr] = useState('');
   const [sampleResult, setSampleResult] = useState<'PASS' | 'FAIL'>('PASS');
-  const [completedSamples, setCompletedSamples] = useState(session.samples || []);
+  const [completedSamples, setCompletedSamples] = useState<any[]>(session.samples || []);
 
-  const boxItemsList: string[] = session.boxItems?.length > 0 ? session.boxItems : [
-    'PNFLS092632670', 'PNFLS092632671', 'PNFLS092632672', 'PNFLS092632673',
-    'PNFLS092632674', 'PNFLS092632675', 'PNFLS092632676', 'PNFLS092632677'
-  ];
-
+  const boxItemsList: string[] = session.boxItems?.length > 0 ? session.boxItems : [];
   const totalRequiredSamples = session.sampleRequired || boxItemsList.length || 12;
 
   const handleScanSample = async (code: string) => {

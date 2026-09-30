@@ -60,10 +60,10 @@ export const AQLBoxScanPage: React.FC = () => {
 
     const details: ScannedBoxInfo = {
       boxNumber:         code,
-      totalItems:        finalItems.length || totalItems || 3,
-      sampleRequirement: reqSamples || 3,
+      totalItems:        finalItems.length || totalItems || 0,
+      sampleRequirement: reqSamples || 0,
       inspectionId,
-      packedItemQrs:     finalItems.length > 0 ? finalItems : ['BX-000218', 'BX-000245', 'BX-000300'],
+      packedItemQrs:     finalItems,
     };
 
     setScannedBox(details);

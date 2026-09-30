@@ -11,19 +11,17 @@ export const AQLResultPage: React.FC = () => {
   const navigate = useNavigate();
   const { aqlSession, saveAQLSession, showToast } = useApp();
 
-  const session = aqlSession || {
-    boxNumber: 'BX-000218',
-    totalBoxQuantity: 12,
-    sampleRequired: 12,
-    currentSampleIndex: 12,
-    samples: [
-      { sampleIndex: 1, itemQr: 'PNFLS092632670', size: 'L', result: 'PASS' as const },
-      { sampleIndex: 2, itemQr: 'PNFLS092632671', size: 'L', result: 'PASS' as const },
-      { sampleIndex: 3, itemQr: 'PNFLS092632672', size: 'L', result: 'PASS' as const }
-    ],
-    status: 'RESULT' as const,
-    overallResult: 'PASSED' as const
-  };
+  React.useEffect(() => {
+    if (!aqlSession) {
+      navigate('/operator/aql');
+    }
+  }, [aqlSession, navigate]);
+
+  if (!aqlSession) {
+    return null;
+  }
+
+  const session = aqlSession;
 
   const hasFailedSample = session.samples.some(s => s.result === 'FAIL');
   const isPassed = session.overallResult === 'PASSED' && !hasFailedSample;
