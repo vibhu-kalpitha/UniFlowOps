@@ -73,41 +73,25 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
       }
     }
 
-    let poRows: any[] = [];
-    if (dbOp) {
-      poRows = await db.prepare(`
-        SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
-        FROM operator_work_assignments owa
-        JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
-        LEFT JOIN production_order_operations poo ON poo.production_order_id = po.id
-        WHERE (owa.operator_id = ? OR owa.operator_id = ?)
-          AND owa.active = 1
-          AND (
-            owa.operation IS NULL 
-            OR owa.operation = '' 
-            OR owa.operation = 'ALL' 
-            OR UPPER(owa.operation) = UPPER(?) 
-            OR UPPER(owa.operation) = UPPER(?)
-            OR UPPER(REPLACE(owa.operation, ' ', '_')) = UPPER(?)
-          )
-          AND (
-            poo.operation IS NULL
-            OR UPPER(poo.operation) = UPPER(?)
-            OR UPPER(poo.operation) = UPPER(?)
-            OR UPPER(REPLACE(poo.operation, ' ', '_')) = UPPER(?)
-          )
-          AND (po.status IS NULL OR UPPER(po.status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
-      `).all(operatorId, operatorUsername, dbOp, dbOpAlt, dbOp, dbOp, dbOpAlt, dbOp) as any[];
-    } else {
-      poRows = await db.prepare(`
-        SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
-        FROM operator_work_assignments owa
-        JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
-        WHERE (owa.operator_id = ? OR owa.operator_id = ?)
-          AND owa.active = 1
-          AND (po.status IS NULL OR UPPER(po.status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
-      `).all(operatorId, operatorUsername) as any[];
-    }
+    // Query active POs allocated to THIS operator in operator_work_assignments
+    const poRows = await db.prepare(`
+      SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
+      FROM operator_work_assignments owa
+      JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
+      WHERE (owa.operator_id = ? OR owa.operator_id = ?)
+        AND owa.active = 1
+        AND (
+          owa.operation IS NULL 
+          OR owa.operation = '' 
+          OR owa.operation = 'ALL' 
+          OR UPPER(owa.operation) = UPPER(?) 
+          OR UPPER(owa.operation) = UPPER(?)
+          OR UPPER(REPLACE(owa.operation, ' ', '_')) = UPPER(?)
+          OR ? = ''
+        )
+        AND (po.status IS NULL OR UPPER(po.status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
+      ORDER BY po.created_at DESC
+    `).all(operatorId, operatorUsername, dbOp || 'ALL', dbOpAlt || 'ALL', dbOp || 'ALL', dbOp || '') as any[];
 
     const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
     const assignments = formattedPos.filter(Boolean);

@@ -78,7 +78,7 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
 // Helper to map DB PO to API contract
 export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   const opsRows = await db.prepare(`SELECT operation FROM production_order_operations WHERE production_order_id = ?`).all(po.id) as any[];
-  const selectedOperations = opsRows.map(r => {
+  let selectedOperations = opsRows.map(r => {
     switch (r.operation) {
       case 'QC_TEST': return 'QC Test';
       case 'PACKING': return 'Packing';
@@ -88,6 +88,25 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     }
   });
 
+  if (selectedOperations.length === 0 && po.operations) {
+    try {
+      const parsed = typeof po.operations === 'string' ? JSON.parse(po.operations) : po.operations;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        selectedOperations = parsed.map((op: string) => {
+          if (op === 'QC_TEST' || op === 'QC') return 'QC Test';
+          if (op === 'PACKING' || op === 'PACK') return 'Packing';
+          if (op === 'AQL' || op === 'AQL_CHECKER') return 'AQL Checker';
+          if (op === 'BOX_TRANSFER') return 'Box Transfer';
+          return op;
+        });
+      }
+    } catch (e) {}
+  }
+
+  if (selectedOperations.length === 0) {
+    selectedOperations = ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
+  }
+
   const style = po.style_id ? await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(po.style_id) as any : null;
 
   // Strictly enforce Operator Visibility Rule using operator_work_assignments
@@ -95,8 +114,8 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     const isAllocated = await db.prepare(`
       SELECT COUNT(*) as cnt FROM operator_work_assignments
       WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND operator_id = ? AND active = 1
-    `).get(po.id, po.id, reqUser.id) as any;
+        AND (operator_id = ? OR operator_id = ?) AND active = 1
+    `).get(po.id, po.id, reqUser.id, reqUser.username || reqUser.id) as any;
 
     if (!isAllocated || isAllocated.cnt === 0) {
       return null;
