@@ -402,8 +402,8 @@ router.get('/packing/progress/:poId', authenticateToken, async (req: AuthRequest
       SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
       JOIN boxes b ON b.id = bi.box_id
       WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND bi.active = 1 AND (b.created_by = ? OR b.id IN (SELECT box_id FROM box_items WHERE active = 1))
-    `).get(po.id, po.id, operatorId) as any;
+        AND bi.active = 1 AND (bi.packed_by = ? OR bi.packed_by = ?)
+    `).get(po.id, po.id, operatorId, req.user!.username) as any;
     const operatorPackedCount = opPackedRow?.cnt || 0;
 
     // Logged-in Operator's Fail Count for this PO
@@ -411,8 +411,8 @@ router.get('/packing/progress/:poId', authenticateToken, async (req: AuthRequest
       SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
       JOIN item_units iu ON iu.id = qf.item_id
       WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND qf.operator_id = ?
-    `).get(po.id, po.id, operatorId) as any;
+        AND (qf.operator_id = ? OR qf.operator_id = ?)
+    `).get(po.id, po.id, operatorId, req.user!.username) as any;
     const operatorFailCount = opFailRow?.cnt || 0;
 
     const remainingToPack = Math.max(0, targetQuantity - packedCount);
@@ -441,6 +441,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
   try {
     const poParam = req.params.poId;
     const operatorId = req.user!.id;
+    const operatorUsername = req.user!.username;
 
     const po = await resolvePO(poParam);
     if (!po) {
@@ -454,38 +455,71 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 500;
     }
 
+    // Overall AQL Passed Item Count for this PO (sum items in passed boxes)
     const aqlPassRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections ai
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) > 0 
+          THEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1)
+          ELSE COALESCE(ai.required_samples, 1)
+        END
+      ), 0) as cnt
+      FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
       WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND UPPER(ai.result) IN ('PASS', 'PASSED')
     `).get(po.id, po.id) as any;
-    const aqlPassedCount = aqlPassRow?.cnt || 0;
+    const aqlPassedCount = Number(aqlPassRow?.cnt || 0);
 
+    // Overall AQL Failed Item Count for this PO (sum items in failed boxes)
     const aqlFailRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections ai
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) > 0 
+          THEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1)
+          ELSE COALESCE(ai.required_samples, 1)
+        END
+      ), 0) as cnt
+      FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
       WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND UPPER(ai.result) IN ('FAIL', 'FAILED')
     `).get(po.id, po.id) as any;
-    const aqlFailedCount = aqlFailRow?.cnt || 0;
+    const aqlFailedCount = Number(aqlFailRow?.cnt || 0);
 
-    // Operator specific AQL counts
+    // Operator specific AQL Passed Item Count
     const opAqlPassRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections ai
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) > 0 
+          THEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1)
+          ELSE COALESCE(ai.required_samples, 1)
+        END
+      ), 0) as cnt
+      FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
       WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND ai.inspector_id = ? AND UPPER(ai.result) IN ('PASS', 'PASSED')
-    `).get(po.id, po.id, operatorId) as any;
-    const operatorPassedCount = opAqlPassRow?.cnt || 0;
+        AND (ai.inspector_id = ? OR ai.inspector_id = ?)
+        AND UPPER(ai.result) IN ('PASS', 'PASSED')
+    `).get(po.id, po.id, operatorId, operatorUsername) as any;
+    const operatorPassedCount = Number(opAqlPassRow?.cnt || 0);
 
+    // Operator specific AQL Failed Item Count
     const opAqlFailRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections ai
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) > 0 
+          THEN (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1)
+          ELSE COALESCE(ai.required_samples, 1)
+        END
+      ), 0) as cnt
+      FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
       WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND ai.inspector_id = ? AND UPPER(ai.result) IN ('FAIL', 'FAILED')
-    `).get(po.id, po.id, operatorId) as any;
-    const operatorFailedCount = opAqlFailRow?.cnt || 0;
+        AND (ai.inspector_id = ? OR ai.inspector_id = ?)
+        AND UPPER(ai.result) IN ('FAIL', 'FAILED')
+    `).get(po.id, po.id, operatorId, operatorUsername) as any;
+    const operatorFailedCount = Number(opAqlFailRow?.cnt || 0);
 
     return res.json({
       poId: po.id,
@@ -1250,13 +1284,76 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
     }
 
     const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    await db.prepare(`
-      INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, scanned_at)
-      VALUES (?, ?, ?, ?, ?, NOW(3))
-      ON DUPLICATE KEY UPDATE result = VALUES(result), scanned_at = NOW(3)
-    `).run(sampleId, inspectionId, item.id, sampleNumber, result);
+    const { actionType, failureReason } = req.body;
+    const actType = actionType || (result === 'PASS' ? 'PASSED' : 'REUSED');
 
-    return res.json({ message: 'Sample recorded', sampleNumber, result, itemQr });
+    await db.prepare(`
+      INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, failure_reason, scanned_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3))
+      ON DUPLICATE KEY UPDATE result = VALUES(result), action_type = VALUES(action_type), failure_reason = VALUES(failure_reason), scanned_at = NOW(3)
+    `).run(sampleId, inspectionId, item.id, sampleNumber, result, actType, failureReason || null);
+
+    return res.json({ message: 'Sample recorded', sampleNumber, result, actionType: actType, itemQr });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/aql/items/permanently-remove
+const removeSchema = z.object({
+  itemQr: z.string().min(1),
+  boxNumber: z.string().optional(),
+  inspectionId: z.string().optional(),
+  reason: z.string().optional()
+});
+
+router.post('/aql/items/permanently-remove', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const { itemQr, boxNumber, inspectionId, reason } = removeSchema.parse(req.body);
+    const operatorId = req.user!.id;
+
+    const qr = itemQr.trim().toUpperCase();
+    const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qr) as any;
+    let box = boxNumber ? await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any : null;
+
+    const removeId = `prm-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    const poId = item?.production_order_id || box?.production_order_id || null;
+    const boxId = box?.id || null;
+    const itemId = item?.id || null;
+
+    await db.transaction(async (tx) => {
+      // 1. Record in permanently_removed_items
+      await tx.prepare(`
+        INSERT INTO permanently_removed_items (id, item_id, item_qr, box_id, production_order_id, removed_by, action_type, reason, removed_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'PERMANENTLY_REMOVE', ?, NOW(3))
+      `).run(removeId, itemId, qr, boxId, poId, operatorId, reason || 'Irreparable Damaged Item removed during AQL Inspection');
+
+      // 2. Deactivate from box_items if item exists
+      if (itemId) {
+        await tx.prepare(`UPDATE box_items SET active = 0 WHERE item_id = ?`).run(itemId);
+        await tx.prepare(`UPDATE item_units SET status = 'PERMANENTLY_REMOVED', updated_at = NOW(3) WHERE id = ?`).run(itemId);
+      } else if (boxId) {
+        await tx.prepare(`UPDATE box_items SET active = 0 WHERE box_id = ? AND item_id IN (SELECT id FROM item_units WHERE UPPER(TRIM(qr_code)) = ?)`).run(boxId, qr);
+      }
+
+      // 3. Log fail result in qc_fail_log if item exists
+      if (itemId) {
+        const failId = `qcf-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+        await tx.prepare(`
+          INSERT INTO qc_fail_log (id, item_id, operator_id, failure_reason, created_at)
+          VALUES (?, ?, ?, ?, NOW(3))
+        `).run(failId, itemId, operatorId, `PERMANENTLY_REMOVED: ${reason || 'Damaged Garment Scrapped'}`);
+      }
+    });
+
+    await recordScanEvent('', operatorId, 'AQL', qr, 'REJECTED', 'PERMANENTLY_REMOVED', reason || 'Item permanently removed');
+    await auditLog(operatorId, 'PERMANENTLY_REMOVE_ITEM', 'permanently_removed_items', removeId, { itemQr: qr, reason });
+
+    return res.status(201).json({
+      message: `Item ${qr} has been permanently removed from database and archived`,
+      removeId,
+      itemQr: qr
+    });
   } catch (err) {
     next(err);
   }

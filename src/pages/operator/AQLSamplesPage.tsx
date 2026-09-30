@@ -34,6 +34,11 @@ export const AQLSamplesPage: React.FC = () => {
   const boxItemsList: string[] = session.boxItems?.length > 0 ? session.boxItems : [];
   const totalRequiredSamples = session.sampleRequired || boxItemsList.length || 12;
 
+  const [showFailModal, setShowFailModal] = useState(false);
+  const [failAction, setFailAction] = useState<'REUSED' | 'PERMANENTLY_REMOVE'>('REUSED');
+  const [removeReason, setRemoveReason] = useState('');
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+
   const handleScanSample = async (code: string) => {
     const trimmed = code.trim();
     if (!trimmed) {
@@ -49,7 +54,8 @@ export const AQLSamplesPage: React.FC = () => {
         body: JSON.stringify({
           sampleNumber: currentIdx,
           itemQr: trimmed,
-          result: 'PASS'
+          result: 'PASS',
+          actionType: 'PASSED'
         }),
       }).catch(() => {});
     }
@@ -61,12 +67,18 @@ export const AQLSamplesPage: React.FC = () => {
     };
   };
 
-  const handleNextSample = async () => {
+  const handleNextSampleInternal = async (overrideResult?: 'PASS' | 'FAIL', actionType?: string, reason?: string) => {
+    const res = overrideResult || sampleResult;
+    const actType = actionType || (res === 'PASS' ? 'PASSED' : 'REUSED');
+    const failReason = reason || (res === 'FAIL' ? 'REWORK' : undefined);
+
     const newSample = {
       sampleIndex: currentIdx,
       itemQr: currentQr,
       size: 'L',
-      result: sampleResult
+      result: res,
+      actionType: actType,
+      failureReason: failReason
     };
 
     const updatedSamples = [...completedSamples, newSample];
@@ -80,7 +92,9 @@ export const AQLSamplesPage: React.FC = () => {
           body: JSON.stringify({
             sampleNumber: currentIdx,
             itemQr: currentQr,
-            result: sampleResult,
+            result: res,
+            actionType: actType,
+            failureReason: failReason
           }),
         });
       }
@@ -144,6 +158,35 @@ export const AQLSamplesPage: React.FC = () => {
     }
   };
 
+  const handleConfirmFailAction = async () => {
+    setIsProcessingAction(true);
+    try {
+      if (failAction === 'PERMANENTLY_REMOVE') {
+        await apiFetch('/api/aql/items/permanently-remove', {
+          method: 'POST',
+          body: JSON.stringify({
+            itemQr: currentQr,
+            boxNumber: session.boxNumber,
+            inspectionId: session.inspectionId,
+            reason: removeReason || 'Damaged Garment Permanently Scrapped'
+          })
+        });
+        showToast(`Item ${currentQr} permanently removed from database & archived`, 'warning');
+        setShowFailModal(false);
+        setIsProcessingAction(false);
+        await handleNextSampleInternal('FAIL', 'PERMANENTLY_REMOVE', removeReason || 'Damaged Garment Scrapped');
+      } else {
+        showToast(`Item ${currentQr} recorded as FAIL (Reusable for Rework)`, 'info');
+        setShowFailModal(false);
+        setIsProcessingAction(false);
+        await handleNextSampleInternal('FAIL', 'REUSED', 'REWORK');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to process fail action', 'error');
+      setIsProcessingAction(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* 3 Step Indicator */}
@@ -204,7 +247,7 @@ export const AQLSamplesPage: React.FC = () => {
                   bg = 'rgba(239, 68, 68, 0.15)';
                   border = '1px solid #EF4444';
                   color = '#EF4444';
-                  icon = ' ✗';
+                  icon = sampled.actionType === 'PERMANENTLY_REMOVE' ? ' 🗑️' : ' ✗';
                 }
               } else if (isCurrent) {
                 bg = 'rgba(139, 92, 246, 0.2)';
@@ -277,7 +320,10 @@ export const AQLSamplesPage: React.FC = () => {
           </button>
           <button
             style={sampleResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-            onClick={() => setSampleResult('FAIL')}
+            onClick={() => {
+              setSampleResult('FAIL');
+              setShowFailModal(true);
+            }}
           >
             <XCircle size={18} /> FAIL
           </button>
@@ -287,7 +333,13 @@ export const AQLSamplesPage: React.FC = () => {
       {/* Next Sample Action */}
       <button
         className="btn-primary"
-        onClick={handleNextSample}
+        onClick={() => {
+          if (sampleResult === 'FAIL') {
+            setShowFailModal(true);
+          } else {
+            handleNextSampleInternal();
+          }
+        }}
         style={{
           marginTop: 'auto',
           background: 'linear-gradient(135deg, var(--color-purple) 0%, #A78BFA 100%)'
@@ -299,6 +351,165 @@ export const AQLSamplesPage: React.FC = () => {
           <>Complete All Samples ({totalRequiredSamples}/{totalRequiredSamples}) <CheckCircle2 size={18} style={{ marginLeft: '6px' }} /></>
         )}
       </button>
+
+      {/* ── Defect Action Modal ──────────────────────────────────── */}
+      {showFailModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: '#0f172a',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            borderRadius: '20px',
+            width: '94%',
+            maxWidth: '520px',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <XCircle size={22} color="#ef4444" />
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#f8fafc' }}>
+                  Sample Defect Action — Item Damaged
+                </h3>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
+                Item <strong>{currentQr}</strong> in Box <strong>{session.boxNumber}</strong> was marked as FAILED. Select how to handle this damaged product:
+              </p>
+            </div>
+
+            {/* Action Selection Cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* Option 1: Reused / Rework */}
+              <div
+                onClick={() => setFailAction('REUSED')}
+                style={{
+                  padding: '14px',
+                  borderRadius: '12px',
+                  backgroundColor: failAction === 'REUSED' ? 'rgba(139, 92, 246, 0.15)' : '#1e293b',
+                  border: failAction === 'REUSED' ? '2px solid #8b5cf6' : '1px solid rgba(255, 255, 255, 0.1)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: failAction === 'REUSED' ? '#a78bfa' : '#f8fafc' }}>
+                    🔄 Reusable (Send to Rework)
+                  </span>
+                  <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa', fontWeight: 700 }}>
+                    REUSED
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4' }}>
+                  Item remains in database. Factory operators can repair the product so it can pass future AQL/QC inspections.
+                </p>
+              </div>
+
+              {/* Option 2: Permanently Remove */}
+              <div
+                onClick={() => setFailAction('PERMANENTLY_REMOVE')}
+                style={{
+                  padding: '14px',
+                  borderRadius: '12px',
+                  backgroundColor: failAction === 'PERMANENTLY_REMOVE' ? 'rgba(239, 68, 68, 0.15)' : '#1e293b',
+                  border: failAction === 'PERMANENTLY_REMOVE' ? '2px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.1)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: failAction === 'PERMANENTLY_REMOVE' ? '#f87171' : '#f8fafc' }}>
+                    🗑️ Permanently Remove (Scrap Item)
+                  </span>
+                  <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171', fontWeight: 700 }}>
+                    DELETE DATA
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4' }}>
+                  Permanently remove item from active box/database tables. Audit record is archived in Permanently Removed Items archive.
+                </p>
+              </div>
+            </div>
+
+            {/* Optional Reason Input if Permanently Remove */}
+            {failAction === 'PERMANENTLY_REMOVE' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f87171' }}>
+                  Defect / Removal Reason:
+                </label>
+                <input
+                  type="text"
+                  value={removeReason}
+                  onChange={(e) => setRemoveReason(e.target.value)}
+                  placeholder="e.g. Torn material, non-repairable defect..."
+                  style={{
+                    backgroundColor: '#1e293b',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    color: '#f8fafc',
+                    fontSize: '0.85rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+              <button
+                onClick={() => setShowFailModal(false)}
+                disabled={isProcessingAction}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  color: '#94a3b8',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmFailAction}
+                disabled={isProcessingAction}
+                style={{
+                  flex: 2,
+                  padding: '10px',
+                  borderRadius: '10px',
+                  backgroundColor: failAction === 'PERMANENTLY_REMOVE' ? '#dc2626' : '#7c3aed',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isProcessingAction ? 'Processing...' : failAction === 'PERMANENTLY_REMOVE' ? 'Confirm Permanent Removal' : 'Confirm Fail (Rework)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

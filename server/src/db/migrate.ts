@@ -473,7 +473,40 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
     console.log(`✅ Applied MySQL Migration: ${file}`);
   }
 
+async function runSchemaAlignment007(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (007 Permanently Removed Items & AQL Sample Actions)...');
+
+  if (!(await tableExists('permanently_removed_items'))) {
+    await db.exec(`
+      CREATE TABLE permanently_removed_items (
+        id VARCHAR(191) PRIMARY KEY,
+        item_id VARCHAR(191) NULL,
+        item_qr VARCHAR(191) NOT NULL,
+        box_id VARCHAR(191) NULL,
+        production_order_id VARCHAR(191) NULL,
+        removed_by VARCHAR(191) NOT NULL,
+        action_type VARCHAR(100) NOT NULL DEFAULT 'PERMANENTLY_REMOVE',
+        reason TEXT NULL,
+        removed_at DATETIME(3) NOT NULL,
+        INDEX idx_prm_qr (item_qr),
+        INDEX idx_prm_po (production_order_id),
+        INDEX idx_prm_box (box_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  }
+
+  if (await tableExists('aql_samples')) {
+    if (!(await columnExists('aql_samples', 'action_type'))) {
+      await db.exec(`ALTER TABLE aql_samples ADD COLUMN action_type VARCHAR(100) NULL AFTER result;`);
+    }
+    if (!(await columnExists('aql_samples', 'failure_reason'))) {
+      await db.exec(`ALTER TABLE aql_samples ADD COLUMN failure_reason TEXT NULL AFTER action_type;`);
+    }
+  }
+}
+
   console.log(`🎉 Migrations summary: ${applied.length} applied, ${skipped.length} already up-to-date.`);
+  await runSchemaAlignment007();
   return { applied, skipped };
 }
 
