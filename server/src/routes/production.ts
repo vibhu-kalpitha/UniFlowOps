@@ -26,6 +26,23 @@ router.get('/styles', authenticateToken, async (req, res, next) => {
   }
 });
 
+// GET /api/operators — List all active operators (for supervisor PO & shift management)
+router.get('/operators', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req, res, next) => {
+  try {
+    const operators = await db.prepare(`
+      SELECT id, full_name, username, employee_no
+      FROM users
+      WHERE role = 'OPERATOR' AND active = 1
+      ORDER BY full_name ASC
+    `).all();
+    return res.json(operators);
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+
 const createStyleSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
@@ -372,7 +389,8 @@ async function syncPoAllocations(
   tx: any,
   poDbId: string,
   requestedAssignments: any[],
-  assignedByUserId: string
+  assignedByUserId: string,
+  fallbackOperations?: string[]
 ) {
   if (!requestedAssignments || !Array.isArray(requestedAssignments) || requestedAssignments.length === 0) return;
 
@@ -393,17 +411,29 @@ async function syncPoAllocations(
       SELECT id FROM shifts WHERE id = ? OR code = ? OR name = ?
     `).get(rawShift, rawShift, rawShift) as any;
 
-    const shiftId = shiftRow ? shiftRow.id : 'shift-c';
-    const operation = item.operation || (Array.isArray(item.enabledOperations) ? item.enabledOperations[0] : 'ALL') || 'ALL';
+    const shiftId = shiftRow ? shiftRow.id : rawShift;
 
-    activeOpAssignments.push({
-      operatorId: opUser.id,
-      shiftId,
-      operation
-    });
+    // Build list of operations for this allocation
+    // If the item has enabledOperations array, expand each one; else use single operation or fallback
+    const rawOpsArray: string[] = Array.isArray(item.enabledOperations) && item.enabledOperations.length > 0
+      ? item.enabledOperations
+      : item.operation
+        ? [item.operation]
+        : fallbackOperations || ['ALL'];
+
+    // Map frontend operation names to DB codes
+    for (const opName of rawOpsArray) {
+      let opCode = opName;
+      if (opName === 'QC Test') opCode = 'QC_TEST';
+      else if (opName === 'Packing') opCode = 'PACKING';
+      else if (opName === 'AQL Checker') opCode = 'AQL';
+      else if (opName === 'Box Transfer') opCode = 'BOX_TRANSFER';
+
+      activeOpAssignments.push({ operatorId: opUser.id, shiftId, operation: opCode });
+    }
   }
 
-  const activeOpIds = activeOpAssignments.map(a => a.operatorId);
+  const activeOpIds = [...new Set(activeOpAssignments.map(a => a.operatorId))];
 
   if (activeOpIds.length > 0) {
     const placeholders = activeOpIds.map(() => '?').join(',');
@@ -429,6 +459,7 @@ async function syncPoAllocations(
     `).run(owaId, poDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
   }
 }
+
 
 // POST /api/production-orders (SUPERVISOR / ADMIN)
 router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
@@ -521,7 +552,7 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
       // Sync PO shift allocations
       const assignmentsToSync = body.shifts || body.allocations || [];
-      await syncPoAllocations(tx, poDbId, assignmentsToSync, req.user!.id);
+      await syncPoAllocations(tx, poDbId, assignmentsToSync, req.user!.id, body.selectedOperations);
     });
 
     await auditLog(req.user!.id, 'CREATE_PO', 'production_orders', poDbId, { poNumber: body.id, styleId });
