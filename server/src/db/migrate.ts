@@ -259,6 +259,99 @@ async function runSchemaAlignment005(): Promise<void> {
   }
 }
 
+/**
+ * runStartupColumnChecks — Runs on EVERY server startup.
+ * Adds any missing critical columns that may not exist on servers where
+ * older migrations were already recorded as applied before the columns were added.
+ * All operations here are fully idempotent.
+ */
+async function runStartupColumnChecks(): Promise<void> {
+  console.log('🔍 Running startup column checks (idempotent)...');
+
+  // production_orders: qc_test_mode
+  if (await tableExists('production_orders')) {
+    if (!(await columnExists('production_orders', 'qc_test_mode'))) {
+      await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_test_mode VARCHAR(50) NOT NULL DEFAULT 'QC_AND_TEST' AFTER supervisor_id;`);
+      console.log('  ✅ Added production_orders.qc_test_mode');
+    }
+    // production_orders: shift_id (THE MISSING COLUMN causing the "unknown column" error)
+    if (!(await columnExists('production_orders', 'shift_id'))) {
+      await db.exec(`ALTER TABLE production_orders ADD COLUMN shift_id VARCHAR(191) NULL AFTER qc_test_mode;`);
+      console.log('  ✅ Added production_orders.shift_id');
+    }
+    // FK for shift_id
+    if (await tableExists('shifts') && !(await constraintExists('production_orders', 'fk_po_shift')) && !(await indexExists('production_orders', 'idx_po_shift'))) {
+      try {
+        await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;`);
+        console.log('  ✅ Added FK fk_po_shift');
+      } catch (_) { /* FK already exists */ }
+    }
+  }
+
+  // operator_work_assignments: production_order_id
+  if (await tableExists('operator_work_assignments')) {
+    if (!(await columnExists('operator_work_assignments', 'production_order_id'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN production_order_id VARCHAR(191) NULL AFTER id;`);
+      console.log('  ✅ Added operator_work_assignments.production_order_id');
+    }
+    if (!(await columnExists('operator_work_assignments', 'assigned_by'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN assigned_by VARCHAR(191) NULL AFTER source;`);
+    }
+    if (!(await columnExists('operator_work_assignments', 'updated_at'))) {
+      await db.exec(`ALTER TABLE operator_work_assignments ADD COLUMN updated_at DATETIME(3) NULL AFTER created_at;`);
+    }
+    // Ensure sales_order_id is nullable
+    try {
+      await db.exec(`ALTER TABLE operator_work_assignments MODIFY COLUMN sales_order_id VARCHAR(191) NULL;`);
+    } catch (_) { /* ignore */ }
+    // FK for production_order_id
+    if (await tableExists('production_orders') && !(await constraintExists('operator_work_assignments', 'fk_owa_po')) && !(await indexExists('operator_work_assignments', 'idx_owa_po'))) {
+      try {
+        await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE;`);
+        console.log('  ✅ Added FK fk_owa_po');
+      } catch (_) { /* FK already exists */ }
+    }
+  }
+
+  // production_order_configs table
+  if (!(await tableExists('production_order_configs'))) {
+    await db.exec(`
+      CREATE TABLE production_order_configs (
+        id VARCHAR(191) PRIMARY KEY,
+        production_order_id VARCHAR(191) NOT NULL,
+        config_code VARCHAR(191) NOT NULL,
+        product_type VARCHAR(50) NULL,
+        size VARCHAR(50) NULL,
+        product_qr_prefix VARCHAR(191) NOT NULL,
+        product_serial_start BIGINT NOT NULL,
+        product_serial_end BIGINT NOT NULL,
+        quantity INT NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        INDEX idx_poc_po (production_order_id),
+        INDEX idx_poc_prefix (product_qr_prefix),
+        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('  ✅ Created production_order_configs table');
+  }
+
+  // production_order_operations table
+  if (!(await tableExists('production_order_operations'))) {
+    await db.exec(`
+      CREATE TABLE production_order_operations (
+        production_order_id VARCHAR(191) NOT NULL,
+        operation ENUM('QC_TEST','PACKING','AQL','BOX_TRANSFER') NOT NULL,
+        PRIMARY KEY (production_order_id, operation),
+        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('  ✅ Created production_order_operations table');
+  }
+
+  console.log('✅ Startup column checks complete.');
+}
+
 export async function runMigrations(): Promise<{ applied: string[]; skipped: string[] }> {
   const connected = await ensureDbConnected();
   if (!connected) {
@@ -273,6 +366,10 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       applied_at DATETIME(3) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  // 2. Always run critical column checks on every startup (idempotent)
+  //    This handles cases where migrations were already applied before new columns were added
+  await runStartupColumnChecks();
 
   const appliedRows = await db.query<{ version: string }>(`SELECT version FROM schema_migrations`);
   const appliedSet = new Set(appliedRows.map(r => r.version));
@@ -311,6 +408,24 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
       await runSchemaAlignment004();
     } else if (file === '005_po_product_configurations.sql') {
       await runSchemaAlignment005();
+    } else if (file === '006_po_shift_and_owa_po.sql') {
+      // Apply the SQL file first (uses ADD COLUMN IF NOT EXISTS)
+      const sql006 = fs.readFileSync(filePath, 'utf-8');
+      // Run each statement individually, skipping errors for already-existing constructs
+      for (const stmt of sql006.split(';').map(s => s.trim()).filter(Boolean)) {
+        try { await db.exec(stmt + ';'); } catch (e: any) {
+          // Ignore duplicate column / duplicate key errors
+          if (!e.message?.includes('Duplicate column') && !e.message?.includes('already exists')) throw e;
+        }
+      }
+      // Add FK for shift_id on production_orders (idempotent)
+      if (await tableExists('shifts') && !(await constraintExists('production_orders', 'fk_po_shift')) && !(await indexExists('production_orders', 'idx_po_shift'))) {
+        await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;`);
+      }
+      // Add FK for production_order_id on operator_work_assignments (idempotent)
+      if (await tableExists('production_orders') && !(await constraintExists('operator_work_assignments', 'fk_owa_po')) && !(await indexExists('operator_work_assignments', 'idx_owa_po'))) {
+        await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE;`);
+      }
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);
