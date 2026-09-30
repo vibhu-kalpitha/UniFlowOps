@@ -94,19 +94,64 @@ export const PackingPage: React.FC = () => {
   const [showFinishModal, setShowFinishModal] = useState(false);
 
   /* ── Phase 1: Box barcode scan ─────────────────────────────── */
-  const handleScanBox = async (code: string) => {
-    const newBox: ActiveBox = {
+  const handleScanBox = async (rawCode: string) => {
+    const code = rawCode.trim().toUpperCase();
+    const localBox = packingBoxes[code] || Object.values(packingBoxes).find((b: any) => b.boxNumber?.toUpperCase() === code);
+
+    let dbItems: BoxItem[] = [];
+    let dbStatus = 'OPEN';
+    let dbCapacity = so?.boxCapacity || 12;
+
+    try {
+      const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}`);
+      if (res && res.box) {
+        dbCapacity = res.box.capacity || dbCapacity;
+        dbStatus = res.box.status || 'OPEN';
+        if (Array.isArray(res.box.items)) {
+          dbItems = res.box.items.map((i: any) => {
+            const timeStr = i.packed_at ? new Date(i.packed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '06:51';
+            return {
+              qr: i.qr_code || i.qr,
+              scannedAt: timeStr
+            };
+          });
+        }
+      }
+    } catch {
+      /* offline or box not in DB yet */
+    }
+
+    const combinedMap = new Map<string, BoxItem>();
+    if (localBox?.items) {
+      localBox.items.forEach((item: BoxItem) => {
+        if (item.qr) combinedMap.set(item.qr.trim().toUpperCase(), item);
+      });
+    }
+    dbItems.forEach((item: BoxItem) => {
+      if (item.qr) combinedMap.set(item.qr.trim().toUpperCase(), item);
+    });
+
+    const finalItems = Array.from(combinedMap.values());
+    const isCompleted = finalItems.length >= dbCapacity || dbStatus === 'COMPLETE' || dbStatus === 'COMPLETED';
+
+    const loadedBox: ActiveBox = {
       boxNumber: code,
-      capacity:  so?.boxCapacity || 12,
-      soId:      so?.id || 'SO-77201',
-      status:    'OPEN',
-      items:     [],
+      capacity: dbCapacity,
+      soId: so?.id || 'SO-77201',
+      status: isCompleted ? 'COMPLETED' : 'OPEN',
+      items: finalItems,
     };
-    setBox(newBox);
-    savePackingBox(newBox);
+
+    setBox(loadedBox);
+    savePackingBox(loadedBox);
+    await fetchPackingProgress();
+
+    const count = finalItems.length;
     return {
-      status:  'accepted' as const,
-      message: `📦 Box ${code} activated — now scan products to pack.`,
+      status: 'accepted' as const,
+      message: count > 0
+        ? `📦 Box ${code} loaded with ${count} existing items.`
+        : `📦 Box ${code} activated — now scan products to pack.`,
       code,
     };
   };
@@ -178,6 +223,7 @@ export const PackingPage: React.FC = () => {
     setBox(updatedBox);
     savePackingBox(updatedBox);
     incrementPacked();
+    await fetchPackingProgress();
 
     return {
       status:  'accepted' as const,
@@ -196,6 +242,7 @@ export const PackingPage: React.FC = () => {
     } catch { /* offline */ }
     const completed = { ...box, status: 'COMPLETED' as const };
     savePackingBox(completed);
+    await fetchPackingProgress();
     showToast(`📦 Box ${box.boxNumber} sealed & saved!`, 'success');
     setShowFinishModal(true);
   };
