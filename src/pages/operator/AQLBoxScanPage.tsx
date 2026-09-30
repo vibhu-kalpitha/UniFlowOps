@@ -94,10 +94,12 @@ export const AQLBoxScanPage: React.FC = () => {
 
   if (!po || showPoSelector) {
     return (
-      <div style={{ padding: 'var(--spacing-md)' }}>
+      <div className="workflow-container">
         <SelectPOForOperation
           operationName="AQL Checker"
+          isModal={true}
           selectedPoId={po?.id || po?.dbId}
+          onClose={po ? () => setShowPoSelector(false) : undefined}
           onSelectPo={(selectedPo) => {
             setActiveJob({ productionOrder: selectedPo });
             setShowPoSelector(false);

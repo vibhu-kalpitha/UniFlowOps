@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerStatus } from '../../components/ScannerStatus';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { ProductionOrder, SalesOrder } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect } from 'lucide-react';
 import { apiFetch } from '../../services/api';
@@ -71,11 +72,11 @@ export const OperatorHome: React.FC = () => {
   const selectedOps = po?.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
 
   const handleOpClick = (opName: string, route: string) => {
-    if (po && po.selectedOperations && !po.selectedOperations.includes(opName as any)) {
-      showToast(`${opName} is not enabled for Production Order ${po.id}`, 'warning');
+    if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') {
+      navigate(route);
       return;
     }
-    navigate(route);
+    setPendingOperation({ name: opName, route });
   };
 
   const handleSelectSoJob = (selectedSo: SalesOrder) => {
@@ -522,116 +523,19 @@ export const OperatorHome: React.FC = () => {
         </div>
       )}
 
-      {/* ── 2-Step PO → SO Selection Modal ───────────────────── */}
+      {/* ── Production Order Selection Modal ───────────────────── */}
       {pendingOperation && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {!selectedPoForModal ? 'Step 1: Select Production Order (PO)' : 'Step 2: Select Sales Order (SO)'}
-                </h3>
-                <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-                  For {pendingOperation.name} {!selectedPoForModal ? '' : `• PO: ${selectedPoForModal.id}`}
-                </span>
-              </div>
-              <button style={styles.closeBtn} onClick={() => { setPendingOperation(null); setSelectedPoForModal(null); }}>
-                <X size={20} color="var(--text-secondary)" />
-              </button>
-            </div>
-
-            {/* Step 1: List POs */}
-            {!selectedPoForModal ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '360px', overflowY: 'auto' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                  Assigned Production Orders ({productionOrders.length})
-                </span>
-                {productionOrders.map(p => {
-                  const isCurrentActivePo = po?.id === p.id;
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() => setSelectedPoForModal(p)}
-                      style={{
-                        backgroundColor: isCurrentActivePo ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-2)',
-                        border: `1.5px solid ${isCurrentActivePo ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                        borderRadius: '12px',
-                        padding: '14px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-                            {p.id}
-                          </span>
-                          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                            • {p.customer}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                          Style: {p.styleName || p.customer} • Configs/Orders: {(p.productConfigurations || []).length || (p.salesOrders || []).length} • {p.remarks || 'No remarks'}
-                        </div>
-                      </div>
-                      <ChevronRight size={22} color="var(--primary-teal)" />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* Step 2: List SOs for selected PO */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '360px', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                    Sales Orders in {selectedPoForModal.id} ({(selectedPoForModal.salesOrders || []).length})
-                  </span>
-                  <button
-                    onClick={() => setSelectedPoForModal(null)}
-                    style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textDecoration: 'underline' }}
-                  >
-                    ← Change PO
-                  </button>
-                </div>
-
-                {(selectedPoForModal.salesOrders || []).map(s => {
-                  const isCurrentActiveSo = po?.id === selectedPoForModal.id && so?.id === s.id;
-                  return (
-                    <div
-                      key={s.id}
-                      onClick={() => handleSelectSoJob(s)}
-                      style={{
-                        backgroundColor: isCurrentActiveSo ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-2)',
-                        border: `1.5px solid ${isCurrentActiveSo ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                        borderRadius: '12px',
-                        padding: '14px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                            {s.product}
-                          </span>
-                          {isCurrentActiveSo && <StatusPill label="Active" variant="teal" />}
-                        </div>
-                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          <span style={{ color: 'var(--primary-teal)', fontWeight: 700 }}>{s.id}</span> • {s.colour} ({s.sizeRange}) • Qty: {s.quantity}
-                        </div>
-                      </div>
-                      <ChevronRight size={22} color="var(--primary-teal)" />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <SelectPOForOperation
+          operationName={pendingOperation.name as any}
+          isModal={true}
+          onClose={() => setPendingOperation(null)}
+          onSelectPo={(selectedPo) => {
+            setActiveJob({ productionOrder: selectedPo });
+            const targetRoute = pendingOperation.route;
+            setPendingOperation(null);
+            navigate(targetRoute);
+          }}
+        />
       )}
     </div>
   );
