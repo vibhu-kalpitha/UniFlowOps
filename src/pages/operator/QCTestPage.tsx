@@ -55,6 +55,11 @@ export const QCTestPage: React.FC = () => {
     failedUnique: number;
     remainingToInspect: number;
     remainingToPass: number;
+    operatorStats: {
+      operatorName: string;
+      passedCount: number;
+      failedCount: number;
+    };
     error?: string;
   }>({
     loading: true,
@@ -64,6 +69,11 @@ export const QCTestPage: React.FC = () => {
     failedUnique: 0,
     remainingToInspect: po?.totalQuantity || 10,
     remainingToPass: po?.totalQuantity || 10,
+    operatorStats: {
+      operatorName: 'Operator',
+      passedCount: 0,
+      failedCount: 0
+    }
   });
 
   const fetchProgress = async () => {
@@ -80,6 +90,11 @@ export const QCTestPage: React.FC = () => {
           failedUnique: res.failedUnique,
           remainingToInspect: res.remainingToInspect,
           remainingToPass: res.remainingToPass,
+          operatorStats: res.operatorStats || {
+            operatorName: 'Operator',
+            passedCount: 0,
+            failedCount: 0
+          }
         });
       } else {
         setPoProgress(prev => ({ ...prev, loading: false }));
@@ -126,7 +141,8 @@ export const QCTestPage: React.FC = () => {
       });
 
       if (res?.progress) {
-        setPoProgress({
+        setPoProgress(prev => ({
+          ...prev,
           loading: false,
           targetQuantity: res.progress.targetQuantity,
           inspectedUnique: res.progress.inspectedUnique,
@@ -134,7 +150,7 @@ export const QCTestPage: React.FC = () => {
           failedUnique: res.progress.failedUnique,
           remainingToInspect: res.progress.remainingToInspect,
           remainingToPass: res.progress.remainingToPass,
-        });
+        }));
       }
 
       const isDup = res.status === 'DUPLICATE';
@@ -252,7 +268,8 @@ export const QCTestPage: React.FC = () => {
     }
 
     if (saveRes?.progress) {
-      setPoProgress({
+      setPoProgress(prev => ({
+        ...prev,
         loading: false,
         targetQuantity: saveRes.progress.targetQuantity,
         inspectedUnique: saveRes.progress.inspectedUnique,
@@ -260,7 +277,7 @@ export const QCTestPage: React.FC = () => {
         failedUnique: saveRes.progress.failedUnique,
         remainingToInspect: saveRes.progress.remainingToInspect,
         remainingToPass: saveRes.progress.remainingToPass,
-      });
+      }));
     }
     await fetchProgress();
 
@@ -374,6 +391,27 @@ export const QCTestPage: React.FC = () => {
             </div>
 
             <ProgressBar current={qcPassedQty} total={targetPoQty} height={8} />
+
+            {/* Operator Personal Stats Banner */}
+            <div style={{
+              marginTop: '10px',
+              padding: '8px 12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '8px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '12px'
+            }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Operator: <strong style={{ color: '#f8fafc' }}>{poProgress.operatorStats.operatorName}</strong>
+              </span>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <span style={{ color: '#10b981', fontWeight: 700 }}>Your Passed: {poProgress.operatorStats.passedCount}</span>
+                <span style={{ color: '#ef4444', fontWeight: 700 }}>Your Failed: {poProgress.operatorStats.failedCount}</span>
+              </div>
+            </div>
 
             {isQCComplete && (
               <div style={{ padding: '10px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>

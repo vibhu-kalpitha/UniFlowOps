@@ -103,7 +103,11 @@ export const AQLBoxScanPage: React.FC = () => {
       sampleRequirement = res.requiredSamples || totalItems || 12;
     } catch { /* offline — use local packing data */ }
 
-    const finalItems = serverItems.length > 0 ? serverItems : localItems;
+    // Combine server items and local items (case-insensitive deduplication)
+    const combinedSet = new Set<string>();
+    serverItems.forEach(qr => { if (qr) combinedSet.add(qr.trim().toUpperCase()); });
+    localItems.forEach(qr => { if (qr) combinedSet.add(qr.trim().toUpperCase()); });
+    const finalItems = Array.from(combinedSet);
     const reqSamples = finalItems.length > 0 ? finalItems.length : (totalItems || 12);
 
     const details: ScannedBoxInfo = {
