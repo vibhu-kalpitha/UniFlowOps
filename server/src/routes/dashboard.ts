@@ -148,54 +148,94 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
 router.get('/dashboard/admin', authenticateToken, requireRole('ADMIN'), async (req, res, next) => {
   try {
     const currentPosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders WHERE status = 'CURRENT'`).get() as any;
-    const currentPos = currentPosRow?.cnt || 0;
-
+    const totalPosRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders`).get() as any;
     const salesOrdersRow = await db.prepare(`SELECT COUNT(*) as cnt FROM sales_orders`).get() as any;
-    const salesOrders = salesOrdersRow?.cnt || 0;
-
     const itemsProcessedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM item_units`).get() as any;
-    const itemsProcessed = itemsProcessedRow?.cnt || 0;
-
-    const packedUnitsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items`).get() as any;
-    const packedUnits = packedUnitsRow?.cnt || 0;
+    const packedUnitsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE active = 1`).get() as any;
+    const totalBoxesRow = await db.prepare(`SELECT COUNT(*) as cnt FROM boxes`).get() as any;
+    const boxTransfersRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_transfers`).get() as any;
+    const scrappedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM permanently_removed_items`).get() as any;
+    const activeOperatorsRow = await db.prepare(`SELECT COUNT(DISTINCT operator_id) as cnt FROM operator_work_assignments WHERE active = 1`).get() as any;
 
     // Quality Rates
     const totalQcRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results`).get() as any;
-    const totalQc = totalQcRow?.cnt || 0;
-
     const passQcRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE qc_result = 'PASS'`).get() as any;
-    const passQc = passQcRow?.cnt || 0;
-    const qcPassRate = totalQc > 0 ? parseFloat(((passQc / totalQc) * 100).toFixed(1)) : 100;
-
-    const totalTest = totalQc;
     const passTestRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE test_result = 'PASS'`).get() as any;
-    const passTest = passTestRow?.cnt || 0;
-    const testPassRate = totalTest > 0 ? parseFloat(((passTest / totalTest) * 100).toFixed(1)) : 100;
 
     const totalAqlRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections`).get() as any;
-    const totalAql = totalAqlRow?.cnt || 0;
-
     const passAqlRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE result = 'PASSED'`).get() as any;
+
+    const totalQc = totalQcRow?.cnt || 0;
+    const passQc = passQcRow?.cnt || 0;
+    const passTest = passTestRow?.cnt || 0;
+    const totalAql = totalAqlRow?.cnt || 0;
     const passAql = passAqlRow?.cnt || 0;
+
+    const qcPassRate = totalQc > 0 ? parseFloat(((passQc / totalQc) * 100).toFixed(1)) : 100;
+    const testPassRate = totalQc > 0 ? parseFloat(((passTest / totalQc) * 100).toFixed(1)) : 100;
     const aqlPassRate = totalAql > 0 ? parseFloat(((passAql / totalAql) * 100).toFixed(1)) : 100;
+    const overallQualityIndex = parseFloat(((qcPassRate * 0.4 + testPassRate * 0.3 + aqlPassRate * 0.3)).toFixed(1));
 
     // Exceptions
     const qcFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE qc_result = 'FAIL'`).get() as any;
-    const qcFailed = qcFailedRow?.cnt || 0;
-
     const testFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_results WHERE test_result = 'FAIL'`).get() as any;
-    const testFailed = testFailedRow?.cnt || 0;
-
     const aqlFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE result = 'FAILED'`).get() as any;
-    const aqlFailed = aqlFailedRow?.cnt || 0;
-
     const pendingPackRow = await db.prepare(`SELECT COUNT(*) as cnt FROM item_units WHERE status = 'QC_PASSED'`).get() as any;
-    const pendingPack = pendingPackRow?.cnt || 0;
+
+    // Live Production Orders Summary
+    const activeProductionOrders = await db.prepare(`
+      SELECT 
+        po.id, po.po_number, po.style_name, po.total_quantity, po.status, po.created_at,
+        (SELECT COUNT(bi.id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id WHERE b.production_order_id = po.id AND bi.active = 1) as packed_count,
+        (SELECT COUNT(id) FROM aql_inspections WHERE production_order_id = po.id AND result = 'PASSED') as aql_passed_boxes,
+        (SELECT COUNT(id) FROM permanently_removed_items WHERE production_order_id = po.id) as scrapped_count
+      FROM production_orders po
+      ORDER BY po.created_at DESC
+      LIMIT 10
+    `).all() as any[];
+
+    // Recent Scrapped Items Log
+    const recentScrapped = await db.prepare(`
+      SELECT prm.*, u.full_name as operator_name
+      FROM permanently_removed_items prm
+      LEFT JOIN users u ON u.id = prm.removed_by
+      ORDER BY prm.removed_at DESC
+      LIMIT 5
+    `).all() as any[];
+
+    // Recent Audit Logs
+    const recentAuditLogs = await db.prepare(`
+      SELECT al.*, u.full_name as user_name, u.role as user_role
+      FROM audit_log al
+      LEFT JOIN users u ON u.id = al.user_id
+      ORDER BY al.timestamp DESC
+      LIMIT 8
+    `).all() as any[];
 
     return res.json({
-      kpis: { currentPos, salesOrders, itemsProcessed, packedUnits },
-      qualityRates: { qcPassRate, testPassRate, aqlPassRate },
-      exceptions: { qcFailed, testFailed, aqlFailed, pendingPack }
+      kpis: {
+        currentPos: currentPosRow?.cnt || 0,
+        totalPos: totalPosRow?.cnt || 0,
+        salesOrders: salesOrdersRow?.cnt || 0,
+        itemsProcessed: itemsProcessedRow?.cnt || 0,
+        packedUnits: packedUnitsRow?.cnt || 0,
+        totalBoxes: totalBoxesRow?.cnt || 0,
+        boxTransfers: boxTransfersRow?.cnt || 0,
+        scrappedUnits: scrappedRow?.cnt || 0,
+        activeOperators: activeOperatorsRow?.cnt || 0,
+        overallQualityIndex
+      },
+      qualityRates: { qcPassRate, testPassRate, aqlPassRate, totalQc, totalAql, passQc, passAql },
+      exceptions: {
+        qcFailed: qcFailedRow?.cnt || 0,
+        testFailed: testFailedRow?.cnt || 0,
+        aqlFailed: aqlFailedRow?.cnt || 0,
+        pendingPack: pendingPackRow?.cnt || 0,
+        scrappedCount: scrappedRow?.cnt || 0
+      },
+      activeProductionOrders,
+      recentScrapped,
+      recentAuditLogs
     });
   } catch (err) {
     next(err);
