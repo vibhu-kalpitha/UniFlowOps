@@ -8,25 +8,44 @@ export async function seedDatabase() {
   const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
   const passwordHash = bcrypt.hashSync('demo123', 10);
 
-  if (process.env.RESET_DB === 'true') {
-    await db.exec(`
-      DELETE FROM scan_events;
-      DELETE FROM alerts;
-      DELETE FROM aql_samples;
-      DELETE FROM aql_inspections;
-      DELETE FROM box_transfer_items;
-      DELETE FROM box_transfers;
-      DELETE FROM box_items;
-      DELETE FROM boxes;
-      DELETE FROM qc_fail_log;
-      DELETE FROM qc_results;
-      DELETE FROM item_units;
-      DELETE FROM so_operator_allocations;
-      DELETE FROM operator_work_assignments;
-      DELETE FROM sales_orders;
-      DELETE FROM production_order_operations;
-      DELETE FROM production_orders;
-    `);
+  // Always reset demo POs/SOs/scans and preserve only default active styles
+  await db.exec(`
+    DELETE FROM scan_events;
+    DELETE FROM alerts;
+    DELETE FROM aql_samples;
+    DELETE FROM aql_inspections;
+    DELETE FROM box_transfer_items;
+    DELETE FROM box_transfers;
+    DELETE FROM box_items;
+    DELETE FROM boxes;
+    DELETE FROM qc_fail_log;
+    DELETE FROM qc_results;
+    DELETE FROM item_units;
+    DELETE FROM operator_work_assignments;
+    DELETE FROM sales_orders;
+    DELETE FROM production_order_configs;
+    DELETE FROM production_order_operations;
+    DELETE FROM production_orders;
+    DELETE FROM styles WHERE id NOT IN ('style-biotab-2', 'style-beacon');
+  `);
+
+  // Seed Default Styles: BioTab 2 Style & Beacon Style
+  const styles = [
+    { id: 'style-biotab-2', code: 'ST-BIOTAB-2', name: 'BioTab 2 Style', customer: 'BioTab Healthcare', season: '2026' },
+    { id: 'style-beacon', code: 'ST-BEACON', name: 'Beacon Style', customer: 'Beacon Medical', season: '2026' }
+  ];
+
+  for (const st of styles) {
+    await db.execute(`
+      INSERT INTO styles (id, code, name, customer, season, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        code = VALUES(code),
+        name = VALUES(name),
+        customer = VALUES(customer),
+        season = VALUES(season),
+        updated_at = VALUES(updated_at)
+    `, [st.id, st.code, st.name, st.customer, st.season, now, now]);
   }
 
   // 1. Users

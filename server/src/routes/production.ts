@@ -9,7 +9,17 @@ const router = ExpressRouter();
 // GET /api/production/styles (or /api/styles)
 router.get('/styles', authenticateToken, async (req, res, next) => {
   try {
-    const styles = await db.prepare(`SELECT * FROM styles ORDER BY code ASC`).all();
+    let styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
+    if (styles.length === 0) {
+      const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
+      await db.execute(`
+        INSERT INTO styles (id, code, name, customer, season, created_at, updated_at)
+        VALUES 
+          ('style-biotab-2', 'ST-BIOTAB-2', 'BioTab 2 Style', 'BioTab Healthcare', '2026', ?, ?),
+          ('style-beacon', 'ST-BEACON', 'Beacon Style', 'Beacon Medical', '2026', ?, ?)
+      `, [now, now, now, now]);
+      styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
+    }
     return res.json(styles);
   } catch (err) {
     next(err);

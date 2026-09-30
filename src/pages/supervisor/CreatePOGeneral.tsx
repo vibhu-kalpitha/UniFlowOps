@@ -238,68 +238,69 @@ export const CreatePOGeneral: React.FC = () => {
             {(['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'] as OperationType[]).map(op => {
               const isChecked = selectedOps.includes(op);
               return (
-                <div
-                  key={op}
-                  style={{
-                    ...styles.opCheckRow,
-                    borderColor: isChecked ? 'var(--primary-teal)' : 'var(--border-color)',
-                    backgroundColor: isChecked ? 'rgba(22, 184, 174, 0.08)' : 'var(--bg-surface-1)'
-                  }}
-                  onClick={() => toggleOp(op)}
-                >
-                  {isChecked ? (
-                    <CheckSquare size={20} color="var(--primary-teal)" />
-                  ) : (
-                    <Square size={20} color="var(--text-muted)" />
+                <React.Fragment key={op}>
+                  <div
+                    style={{
+                      ...styles.opCheckRow,
+                      borderColor: isChecked ? 'var(--primary-teal)' : 'var(--border-color)',
+                      backgroundColor: isChecked ? 'rgba(22, 184, 174, 0.08)' : 'var(--bg-surface-1)'
+                    }}
+                    onClick={() => toggleOp(op)}
+                  >
+                    {isChecked ? (
+                      <CheckSquare size={20} color="var(--primary-teal)" />
+                    ) : (
+                      <Square size={20} color="var(--text-muted)" />
+                    )}
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {op}
+                    </span>
+                  </div>
+
+                  {/* QC Test mode sub-selection immediately underneath QC Test */}
+                  {op === 'QC Test' && isChecked && (
+                    <div style={{ marginLeft: '12px', padding: '12px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                      <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>
+                        QC Test Mode
+                      </label>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        Specify whether operator must perform both QC & Test, QC Only, or Test Only.
+                      </p>
+                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                        {(['QC & Test', 'QC Only', 'Test Only'] as QcTestMode[]).map(mode => (
+                          <label
+                            key={mode}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 14px',
+                              borderRadius: '10px',
+                              border: `2px solid ${qcTestMode === mode ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                              backgroundColor: qcTestMode === mode ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: 700
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="qcTestMode"
+                              value={mode}
+                              checked={qcTestMode === mode}
+                              onChange={() => setQcTestMode(mode)}
+                              style={{ accentColor: 'var(--primary-teal)' }}
+                            />
+                            {mode}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   )}
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {op}
-                  </span>
-                </div>
+                </React.Fragment>
               );
             })}
           </div>
-
-          {/* QC Test mode sub-selection */}
-          {selectedOps.includes('QC Test') && (
-            <div style={{ marginTop: '12px', padding: '14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-              <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>
-                QC / Test Mode Sub-Selection (Required)
-              </label>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                Specify whether operator must perform both QC & Test, QC Only, or Test Only.
-              </p>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                {(['QC & Test', 'QC Only', 'Test Only'] as QcTestMode[]).map(mode => (
-                  <label
-                    key={mode}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      border: `2px solid ${qcTestMode === mode ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                      backgroundColor: qcTestMode === mode ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 700
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="qcTestMode"
-                      value={mode}
-                      checked={qcTestMode === mode}
-                      onChange={() => setQcTestMode(mode)}
-                      style={{ accentColor: 'var(--primary-teal)' }}
-                    />
-                    {mode}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Remarks / Instructions */}

@@ -24,9 +24,13 @@ export const CreatePOSalesOrders: React.FC = () => {
   const [draftPoGeneral, setDraftPoGeneral] = useState<any>(null);
   const [styleDetails, setStyleDetails] = useState<StyleItem | null>(null);
 
-  // BioTab 2 Selection State
-  const [selectedLegSizes, setSelectedLegSizes] = useState<string[]>(['SS', 'SM', 'TM']);
-  const [selectedCoreSizes, setSelectedCoreSizes] = useState<string[]>(['SS', 'TS', 'TL']);
+  // BioTab 2 Product Type Selection (Multiple Choice: LEG, CORE, or BOTH)
+  const [enableLeg, setEnableLeg] = useState<boolean>(true);
+  const [enableCore, setEnableCore] = useState<boolean>(true);
+
+  // BioTab 2 Size Selection State
+  const [selectedLegSizes, setSelectedLegSizes] = useState<string[]>(['SS', 'SM']);
+  const [selectedCoreSizes, setSelectedCoreSizes] = useState<string[]>(['TS', 'TL']);
 
   // Dynamic Product Configurations List
   const [configs, setConfigs] = useState<ProductConfiguration[]>([]);
@@ -62,75 +66,92 @@ export const CreatePOSalesOrders: React.FC = () => {
     }
   }, []);
 
-  const isBioTab2 = styleDetails?.name?.toLowerCase().includes('biotab') || styleDetails?.code?.toLowerCase().includes('biotab');
-  const isBeacon = styleDetails?.name?.toLowerCase().includes('beacon') || styleDetails?.code?.toLowerCase().includes('beacon');
+  const styleName = styleDetails?.name || draftPoGeneral?.styleName || '';
+  const styleCode = styleDetails?.code || draftPoGeneral?.styleCode || '';
 
-  // BioTab 2 Generator
+  const isBioTab2 = styleName.toLowerCase().includes('biotab') || styleCode.toLowerCase().includes('biotab');
+  const isBeacon = styleName.toLowerCase().includes('beacon') || styleCode.toLowerCase().includes('beacon');
+
+  // BioTab 2 / Beacon Configuration Generator
   useEffect(() => {
     if (isBioTab2) {
       const newConfigs: ProductConfiguration[] = [];
+      let startSeq = 100;
 
-      // Generate LEG configs (PNFL)
-      selectedLegSizes.forEach((sz, idx) => {
-        const code = `PNFL${sz}`;
-        const prefix = `PNFL${sz}0926`;
-        const start = 1 + idx * 500;
-        const end = start + 499;
-        newConfigs.push({
-          configCode: code,
-          productType: 'LEG',
-          size: sz,
-          productQrPrefix: prefix,
-          productSerialStart: start,
-          productSerialEnd: end,
-          quantity: end - start + 1
-        });
-      });
+      // 1. Generate LEG configs (PNFL) if LEG is enabled
+      if (enableLeg) {
+        selectedLegSizes.forEach(sz => {
+          const code = `PNFL${sz}`;
+          const prefix = `PNFL${sz}0926`;
+          const existing = configs.find(c => c.configCode === code);
+          const start = existing ? existing.productSerialStart : startSeq;
+          const end = existing ? existing.productSerialEnd : start + 99;
+          if (!existing) startSeq += 100;
 
-      // Generate CORE configs (PNCR)
-      selectedCoreSizes.forEach((sz, idx) => {
-        const code = `PNCR${sz}`;
-        const prefix = `PNCR${sz}0926`;
-        const start = 1 + (selectedLegSizes.length + idx) * 500;
-        const end = start + 499;
-        newConfigs.push({
-          configCode: code,
-          productType: 'CORE',
-          size: sz,
-          productQrPrefix: prefix,
-          productSerialStart: start,
-          productSerialEnd: end,
-          quantity: end - start + 1
+          newConfigs.push({
+            id: existing?.id,
+            configCode: code,
+            productType: 'LEG',
+            size: sz,
+            productQrPrefix: existing?.productQrPrefix || prefix,
+            productSerialStart: start,
+            productSerialEnd: end,
+            quantity: end - start + 1
+          });
         });
-      });
+      }
+
+      // 2. Generate CORE configs (PNCR) if CORE is enabled
+      if (enableCore) {
+        selectedCoreSizes.forEach(sz => {
+          const code = `PNCR${sz}`;
+          const prefix = `PNCR${sz}0926`;
+          const existing = configs.find(c => c.configCode === code);
+          const start = existing ? existing.productSerialStart : startSeq;
+          const end = existing ? existing.productSerialEnd : start + 99;
+          if (!existing) startSeq += 100;
+
+          newConfigs.push({
+            id: existing?.id,
+            configCode: code,
+            productType: 'CORE',
+            size: sz,
+            productQrPrefix: existing?.productQrPrefix || prefix,
+            productSerialStart: start,
+            productSerialEnd: end,
+            quantity: end - start + 1
+          });
+        });
+      }
 
       setConfigs(newConfigs);
-    } else if (isBeacon && configs.length === 0) {
-      // Beacon default config
-      setConfigs([
-        {
-          configCode: '009735535',
-          productType: 'BEACON',
-          productQrPrefix: '009735535',
-          productSerialStart: 1,
-          productSerialEnd: 1000,
-          quantity: 1000
-        }
-      ]);
+    } else if (isBeacon) {
+      if (configs.length === 0 || configs.some(c => c.productType === 'LEG' || c.productType === 'CORE')) {
+        setConfigs([
+          {
+            configCode: '009735535',
+            productType: 'BEACON',
+            productQrPrefix: '009735535',
+            productSerialStart: 1,
+            productSerialEnd: 1000,
+            quantity: 1000
+          }
+        ]);
+      }
     } else if (configs.length === 0) {
-      // General style default config
+      // General custom style default config
       setConfigs([
         {
-          configCode: styleDetails?.code || 'PROD-CONFIG-1',
+          configCode: styleCode || 'PROD-CONFIG-1',
           productType: 'STANDARD',
-          productQrPrefix: `${styleDetails?.code || 'PNFL'}0926`,
+          productQrPrefix: `${styleCode || 'PNFL'}0926`,
           productSerialStart: 1,
           productSerialEnd: 500,
           quantity: 500
         }
       ]);
     }
-  }, [isBioTab2, isBeacon, selectedLegSizes, selectedCoreSizes, styleDetails]);
+  }, [isBioTab2, isBeacon, enableLeg, enableCore, selectedLegSizes, selectedCoreSizes, styleDetails]);
 
   const toggleLegSize = (sz: string) => {
     if (selectedLegSizes.includes(sz)) {
@@ -241,75 +262,147 @@ export const CreatePOSalesOrders: React.FC = () => {
 
       {/* BioTab 2 Specific Selection UI */}
       {isBioTab2 && (
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={20} color="var(--primary-teal)" />
-            <h3 style={{ fontSize: '16px', fontWeight: 800 }}>BioTab 2 Style — Size Selection</h3>
-          </div>
-
-          {/* LEG (PNFL) Sizes */}
-          <div>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>
-              LEG (Prefix: PNFL)
-            </span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-              {BIOTAB_LEG_SIZES.map(sz => {
-                const isSelected = selectedLegSizes.includes(sz);
-                return (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => toggleLegSize(sz)}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      border: `2px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                      backgroundColor: isSelected ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
-                      color: isSelected ? 'var(--primary-teal)' : 'var(--text-primary)',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} PNFL{sz}
-                  </button>
-                );
-              })}
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>BioTab 2 Style — Product Types & Size Selection</h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Select product types (LEG, CORE, or both) and choose required sizes.
+              </p>
             </div>
           </div>
 
-          {/* CORE (PNCR) Sizes */}
+          {/* Product Type Checkboxes (Multiple Choice: LEG, CORE, or BOTH) */}
           <div>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-purple)', textTransform: 'uppercase' }}>
-              CORE (Prefix: PNCR)
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+              Select Product Types (Multiple Choice)
             </span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-              {BIOTAB_CORE_SIZES.map(sz => {
-                const isSelected = selectedCoreSizes.includes(sz);
-                return (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => toggleCoreSize(sz)}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      border: `2px solid ${isSelected ? 'var(--color-purple)' : 'var(--border-color)'}`,
-                      backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--bg-surface-1)',
-                      color: isSelected ? 'var(--color-purple)' : 'var(--text-primary)',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} PNCR{sz}
-                  </button>
-                );
-              })}
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  border: `2px solid ${enableLeg ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                  backgroundColor: enableLeg ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                  fontSize: '14px',
+                  color: enableLeg ? 'var(--primary-teal)' : 'var(--text-primary)'
+                }}
+                onClick={() => setEnableLeg(!enableLeg)}
+              >
+                {enableLeg ? <CheckSquare size={18} color="var(--primary-teal)" /> : <Square size={18} color="var(--text-muted)" />}
+                LEG (PNFL)
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  border: `2px solid ${enableCore ? 'var(--color-purple)' : 'var(--border-color)'}`,
+                  backgroundColor: enableCore ? 'rgba(168, 85, 247, 0.12)' : 'var(--bg-surface-1)',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                  fontSize: '14px',
+                  color: enableCore ? 'var(--color-purple)' : 'var(--text-primary)'
+                }}
+                onClick={() => setEnableCore(!enableCore)}
+              >
+                {enableCore ? <CheckSquare size={18} color="var(--color-purple)" /> : <Square size={18} color="var(--text-muted)" />}
+                CORE (PNCR)
+              </div>
+            </div>
+          </div>
+
+          {/* LEG (PNFL) Sizes */}
+          {enableLeg && (
+            <div style={{ paddingTop: '12px', borderTop: '1px dashed var(--border-color)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>
+                LEG (PNFL) Sizes
+              </span>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                {BIOTAB_LEG_SIZES.map(sz => {
+                  const isSelected = selectedLegSizes.includes(sz);
+                  return (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => toggleLegSize(sz)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        border: `2px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                        backgroundColor: isSelected ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
+                        color: isSelected ? 'var(--primary-teal)' : 'var(--text-primary)',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} {sz}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* CORE (PNCR) Sizes */}
+          {enableCore && (
+            <div style={{ paddingTop: '12px', borderTop: '1px dashed var(--border-color)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-purple)', textTransform: 'uppercase' }}>
+                CORE (PNCR) Sizes
+              </span>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                {BIOTAB_CORE_SIZES.map(sz => {
+                  const isSelected = selectedCoreSizes.includes(sz);
+                  return (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => toggleCoreSize(sz)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        border: `2px solid ${isSelected ? 'var(--color-purple)' : 'var(--border-color)'}`,
+                        backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--bg-surface-1)',
+                        color: isSelected ? 'var(--color-purple)' : 'var(--text-primary)',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} {sz}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Beacon Style Selection Header */}
+      {isBeacon && (
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', padding: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Layers size={20} color="var(--primary-teal)" />
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Beacon Style Configuration</h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Direct numeric configuration for Beacon style products.
+              </p>
             </div>
           </div>
         </div>

@@ -120,8 +120,8 @@ export async function ensureDbConnected(): Promise<boolean> {
   try {
     const pool = getPool();
     const result = await Promise.race([
-      pool.query('SELECT 1').then(() => true),
-      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1500))
+      pool.query('SELECT 1').then(() => true).catch(() => false),
+      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 800))
     ]);
     return result;
   } catch (err) {
