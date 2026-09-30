@@ -28,9 +28,57 @@ export const AQLBoxScanPage: React.FC = () => {
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
 
-  const targetSoQty = so?.quantity || 10;
-  const aqlPassedQty = so?.progress?.aqlPassed || 0;
-  const remainingAqlQty = Math.max(0, targetSoQty - aqlPassedQty);
+  const [aqlProgress, setAqlProgress] = useState<{
+    loading: boolean;
+    targetQuantity: number;
+    aqlPassedCount: number;
+    aqlFailedCount: number;
+    operatorStats: {
+      operatorName: string;
+      passedCount: number;
+      failedCount: number;
+    };
+  }>({
+    loading: true,
+    targetQuantity: po?.totalQuantity || 500,
+    aqlPassedCount: 0,
+    aqlFailedCount: 0,
+    operatorStats: {
+      operatorName: 'Operator',
+      passedCount: 0,
+      failedCount: 0
+    }
+  });
+
+  const fetchAqlProgress = async () => {
+    if (!po) return;
+    const targetPoKey = po.dbId || po.id;
+    try {
+      const res = await apiFetch(`/api/aql/progress/${targetPoKey}`);
+      if (res && typeof res.aqlPassedCount === 'number') {
+        setAqlProgress({
+          loading: false,
+          targetQuantity: res.targetQuantity,
+          aqlPassedCount: res.aqlPassedCount,
+          aqlFailedCount: res.aqlFailedCount,
+          operatorStats: res.operatorStats || {
+            operatorName: 'Operator',
+            passedCount: 0,
+            failedCount: 0
+          }
+        });
+      }
+    } catch {
+      setAqlProgress(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  React.useEffect(() => {
+    fetchAqlProgress();
+  }, [po?.dbId, po?.id]);
+
+  const targetSoQty = aqlProgress.targetQuantity || po?.totalQuantity || 500;
+  const aqlPassedQty = aqlProgress.aqlPassedCount;
 
   const [scannedBox, setScannedBox] = useState<ScannedBoxInfo | null>(null);
 
@@ -160,31 +208,52 @@ export const AQLBoxScanPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Box Scanner & Detected Box Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* AQL Inspection Progress & Remaining Counter */}
+          {/* AQL Inspection Progress & Operator Metrics */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
-                AQL INSPECTION QUANTITY PROGRESS
+                PRODUCTION ORDER AQL PROGRESS
               </span>
-              <StatusPill label={`Remaining: ${remainingAqlQty}`} variant={remainingAqlQty === 0 ? 'green' : 'purple'} />
+              <StatusPill label={`Passed: ${aqlPassedQty}`} variant={aqlPassedQty > 0 ? 'green' : 'purple'} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
               <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
                 <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
               </div>
               <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--color-purple)', display: 'block' }}>AQL Audited</span>
+                <span style={{ fontSize: '10px', color: 'var(--color-purple)', display: 'block' }}>AQL Passed</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-purple)' }}>{aqlPassedQty}</span>
               </div>
-              <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--color-amber)', display: 'block' }}>Remaining</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-amber)' }}>{remainingAqlQty}</span>
+              <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: '#ef4444', display: 'block' }}>AQL Failed</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: '#ef4444' }}>{aqlProgress.aqlFailedCount}</span>
               </div>
             </div>
 
             <ProgressBar current={aqlPassedQty} total={targetSoQty} height={8} color="var(--color-purple)" />
+
+            {/* Operator Personal Stats Banner */}
+            <div style={{
+              marginTop: '10px',
+              padding: '8px 12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '8px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '12px'
+            }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Inspector: <strong style={{ color: '#f8fafc' }}>{aqlProgress.operatorStats.operatorName}</strong>
+              </span>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <span style={{ color: '#8b5cf6', fontWeight: 700 }}>Your Passed: {aqlProgress.operatorStats.passedCount}</span>
+                <span style={{ color: '#ef4444', fontWeight: 700 }}>Your Failed: {aqlProgress.operatorStats.failedCount}</span>
+              </div>
+            </div>
           </div>
 
           <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />

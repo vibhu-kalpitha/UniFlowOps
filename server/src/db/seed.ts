@@ -8,26 +8,7 @@ export async function seedDatabase() {
   const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
   const passwordHash = bcrypt.hashSync('demo123', 10);
 
-  // Always reset demo POs/SOs/scans and preserve only default active styles
-  await db.exec(`
-    DELETE FROM scan_events;
-    DELETE FROM alerts;
-    DELETE FROM aql_samples;
-    DELETE FROM aql_inspections;
-    DELETE FROM box_transfer_items;
-    DELETE FROM box_transfers;
-    DELETE FROM box_items;
-    DELETE FROM boxes;
-    DELETE FROM qc_fail_log;
-    DELETE FROM qc_results;
-    DELETE FROM item_units;
-    DELETE FROM operator_work_assignments;
-    DELETE FROM sales_orders;
-    DELETE FROM production_order_configs;
-    DELETE FROM production_order_operations;
-    DELETE FROM production_orders;
-    DELETE FROM styles WHERE id NOT IN ('style-biotab-2', 'style-beacon');
-  `);
+  // Preserve all POs, assignments, scans and user data across restarts
 
   // Seed Default Styles: BioTab 2 Style & Beacon Style
   const styles = [
