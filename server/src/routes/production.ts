@@ -204,6 +204,11 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
 
   const calcTotalQty = totalQuantity || (salesOrders.reduce((sum, s) => sum + (s.quantity || 0), 0)) || 1000;
 
+  const shiftRow = po.shift_id ? await db.prepare(`SELECT * FROM shifts WHERE id = ? OR code = ?`).get(po.shift_id, po.shift_id) as any : null;
+  const resolvedShiftId = po.shift_id || shiftRow?.id || (shifts[0]?.shiftId || undefined);
+  const resolvedShiftName = shiftRow?.name || (shifts[0]?.shiftName || undefined);
+  const resolvedShiftCode = shiftRow?.code || undefined;
+
   return {
     id: po.po_number,
     dbId: po.id,
@@ -215,6 +220,9 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     startDate: po.start_date,
     dueDate: po.due_date,
     supervisorId: po.supervisor_id,
+    shiftId: resolvedShiftId,
+    shiftCode: resolvedShiftCode,
+    shiftName: resolvedShiftName,
     remarks: po.remarks || '',
     status: po.status === 'CURRENT' ? 'Current' : po.status === 'COMPLETED' ? 'Completed' : 'Draft',
     selectedOperations,
@@ -352,6 +360,8 @@ const createPoSchema = z.object({
   status: z.enum(['Current', 'Completed', 'Draft']).optional(),
   selectedOperations: z.array(z.string()),
   qcTestMode: z.string().optional(),
+  shiftId: z.string().optional(),
+  shift_id: z.string().optional(),
   productConfigurations: z.array(createPoProductConfigSchema).optional(),
   shifts: z.array(z.any()).optional(),
   allocations: z.array(z.any()).optional(),
@@ -472,11 +482,18 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       }
     }
 
+    const rawShiftId = body.shiftId || body.shift_id;
+    let poShiftId: string | null = null;
+    if (rawShiftId) {
+      const shiftRow = await db.prepare(`SELECT id FROM shifts WHERE id = ? OR code = ? OR name = ?`).get(rawShiftId, rawShiftId, rawShiftId) as any;
+      poShiftId = shiftRow ? shiftRow.id : rawShiftId;
+    }
+
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, shift_id, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, poShiftId, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = 'QC_TEST';

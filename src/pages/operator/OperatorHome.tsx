@@ -10,7 +10,7 @@ import '../../styles/tokens.css';
 
 export const OperatorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession, scannerConnected, setScannerConnected } = useApp();
+  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession, scannerConnected, setScannerConnected, showToast } = useApp();
 
   const [pendingOperation, setPendingOperation] = useState<{ name: string; route: string } | null>(null);
   const [selectedPoForModal, setSelectedPoForModal] = useState<ProductionOrder | null>(null);
@@ -68,9 +68,14 @@ export const OperatorHome: React.FC = () => {
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
+  const selectedOps = po?.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
+
   const handleOpClick = (opName: string, route: string) => {
-    setSelectedPoForModal(null);
-    setPendingOperation({ name: opName, route });
+    if (po && po.selectedOperations && !po.selectedOperations.includes(opName as any)) {
+      showToast(`${opName} is not enabled for Production Order ${po.id}`, 'warning');
+      return;
+    }
+    navigate(route);
   };
 
   const handleSelectSoJob = (selectedSo: SalesOrder) => {
@@ -289,72 +294,80 @@ export const OperatorHome: React.FC = () => {
             <h4 style={styles.sectionHeader}>Operations</h4>
             <div className="op-ops-grid-2x2" style={styles.opsGrid}>
               {/* QC Test */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTileGreen}
-                onClick={() => handleOpClick('QC Test', '/operator/qc')}
-              >
-                <div style={styles.opIconGreen}>
-                  <CheckCircle2 size={26} color="var(--color-green)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>QC Test</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Inspect product quality & validate barcode ranges
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('QC Test') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileGreen}
+                  onClick={() => handleOpClick('QC Test', '/operator/qc')}
+                >
+                  <div style={styles.opIconGreen}>
+                    <CheckCircle2 size={26} color="var(--color-green)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>QC Test</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Inspect product quality & validate barcode ranges
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* Packing */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTileBlue}
-                onClick={() => handleOpClick('Packing', '/operator/packing')}
-              >
-                <div style={styles.opIconBlue}>
-                  <Package size={26} color="var(--color-blue)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>Packing</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Pack passed items into box & seal shipping cartons
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('Packing') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileBlue}
+                  onClick={() => handleOpClick('Packing', '/operator/packing')}
+                >
+                  <div style={styles.opIconBlue}>
+                    <Package size={26} color="var(--color-blue)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>Packing</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Pack passed items into box & seal shipping cartons
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* AQL Checker */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTilePurple}
-                onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
-              >
-                <div style={styles.opIconPurple}>
-                  <Search size={26} color="var(--color-purple)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>AQL Checker</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Perform AQL sample audits on sealed boxes
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('AQL Checker') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTilePurple}
+                  onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
+                >
+                  <div style={styles.opIconPurple}>
+                    <Search size={26} color="var(--color-purple)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>AQL Checker</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Perform AQL sample audits on sealed boxes
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* Box Transfer */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTileOrange}
-                onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
-              >
-                <div style={styles.opIconOrange}>
-                  <ArrowLeftRight size={26} color="var(--color-orange)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>Box Transfer</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Transfer completed boxes to warehouse shipping
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('Box Transfer') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileOrange}
+                  onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
+                >
+                  <div style={styles.opIconOrange}>
+                    <ArrowLeftRight size={26} color="var(--color-orange)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>Box Transfer</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Transfer completed boxes to warehouse shipping
+                    </span>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>

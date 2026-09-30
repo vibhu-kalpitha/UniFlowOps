@@ -54,6 +54,7 @@ export const CreatePOReview: React.FC = () => {
       startDate: draftPoGeneral.startDate,
       dueDate: draftPoGeneral.dueDate,
       supervisorId: draftPoGeneral.supervisorId,
+      shiftId: draftPoGeneral.shiftId,
       remarks: draftPoGeneral.remarks,
       status: makeCurrent ? 'Current' : 'Draft',
       selectedOperations: draftPoGeneral.selectedOperations,
@@ -210,6 +211,18 @@ export const CreatePOReview: React.FC = () => {
             <span style={styles.sumLabel}>Responsible Supervisor</span>
             <span style={styles.sumVal}>{draftPoGeneral.supervisorId}</span>
           </div>
+          {draftPoGeneral.shiftName && (
+            <div>
+              <span style={styles.sumLabel}>Work Shift</span>
+              <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.shiftName}</span>
+            </div>
+          )}
+          {draftShifts.length > 0 && (
+            <div>
+              <span style={styles.sumLabel}>Assigned Operators</span>
+              <span style={styles.sumVal}>{draftShifts.map((s: any) => s.workerName || s.workerId).join(', ')}</span>
+            </div>
+          )}
           {draftPoGeneral.qcTestMode && (
             <div>
               <span style={styles.sumLabel}>QC Mode Sub-Selection</span>

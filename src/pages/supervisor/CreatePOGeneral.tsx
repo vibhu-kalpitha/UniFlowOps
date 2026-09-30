@@ -40,6 +40,11 @@ export const CreatePOGeneral: React.FC = () => {
 
   const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
 
+  const [shiftsList, setShiftsList] = useState<any[]>([]);
+  const [selectedShiftId, setSelectedShiftId] = useState<string>('shift-a');
+  const [operatorsList, setOperatorsList] = useState<any[]>([]);
+  const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>(['usr-001']);
+
   useEffect(() => {
     apiFetch<StyleItem[]>('/api/styles')
       .then(res => {
@@ -54,6 +59,29 @@ export const CreatePOGeneral: React.FC = () => {
       })
       .finally(() => {
         setLoadingStyles(false);
+      });
+
+    apiFetch<any[]>('/api/shifts')
+      .then(res => {
+        setShiftsList(res);
+        if (res.length > 0) setSelectedShiftId(res[0].id);
+      })
+      .catch(() => {
+        setShiftsList([
+          { id: 'shift-a', code: 'A', name: 'Shift A' },
+          { id: 'shift-b', code: 'B', name: 'Shift B' },
+          { id: 'shift-c', code: 'C', name: 'Shift C' },
+          { id: 'shift-d', code: 'D', name: 'Shift D' }
+        ]);
+      });
+
+    apiFetch<any[]>('/api/operators')
+      .then(res => setOperatorsList(res))
+      .catch(() => {
+        setOperatorsList([
+          { id: 'usr-001', name: 'Chamika Silva', username: 'chamika' },
+          { id: 'usr-004', name: 'Kavindu Perera', username: 'kavindu' }
+        ]);
       });
   }, []);
 
@@ -81,6 +109,18 @@ export const CreatePOGeneral: React.FC = () => {
     }
 
     const selectedStyleObj = stylesList.find(s => s.id === selectedStyleId);
+    const selectedShiftObj = shiftsList.find(s => s.id === selectedShiftId);
+
+    const poShifts = selectedOperatorIds.map(opId => {
+      const opObj = operatorsList.find(o => o.id === opId);
+      return {
+        workerId: opId,
+        workerName: opObj?.name || opObj?.full_name || opObj?.username || opId,
+        shiftId: selectedShiftId,
+        shiftName: selectedShiftObj?.name || selectedShiftId,
+        enabledOperations: selectedOps
+      };
+    });
 
     const draftPo = {
       id: poId,
@@ -92,6 +132,8 @@ export const CreatePOGeneral: React.FC = () => {
       startDate,
       dueDate,
       supervisorId: supervisor,
+      shiftId: selectedShiftId,
+      shiftName: selectedShiftObj?.name || selectedShiftId,
       remarks,
       selectedOperations: selectedOps,
       qcTestMode: selectedOps.includes('QC Test') ? qcTestMode : undefined
@@ -99,6 +141,7 @@ export const CreatePOGeneral: React.FC = () => {
 
     sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleId);
     sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftPo));
+    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(poShifts));
     navigate('/supervisor/production-orders/new/sales-orders');
   };
 
@@ -228,6 +271,70 @@ export const CreatePOGeneral: React.FC = () => {
               value={supervisor}
               onChange={e => setSupervisor(e.target.value)}
             />
+          </div>
+
+          {/* Work Shift Dropdown (PO Shift Allocation) */}
+          <div>
+            <label style={styles.label}>Work Shift for PO (Required)</label>
+            <select
+              className="input-field"
+              value={selectedShiftId}
+              onChange={e => setSelectedShiftId(e.target.value)}
+              required
+            >
+              {shiftsList.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name || s.code} {s.start_time ? `(${s.start_time} - ${s.end_time})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Operator Allocation for this PO + Shift */}
+        <div style={{ padding: '14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+          <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>
+            Assign Operators to PO ({shiftsList.find(s => s.id === selectedShiftId)?.name || 'Selected Shift'})
+          </label>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+            Operators checked here will be authorized to select and process this PO on their dashboard.
+          </p>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {operatorsList.map(op => {
+              const isAssigned = selectedOperatorIds.includes(op.id);
+              const displayName = op.name || op.full_name || op.username;
+              return (
+                <button
+                  key={op.id}
+                  type="button"
+                  onClick={() => {
+                    if (isAssigned) {
+                      if (selectedOperatorIds.length > 1) {
+                        setSelectedOperatorIds(selectedOperatorIds.filter(id => id !== op.id));
+                      }
+                    } else {
+                      setSelectedOperatorIds([...selectedOperatorIds, op.id]);
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    borderRadius: '10px',
+                    border: `2px solid ${isAssigned ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                    backgroundColor: isAssigned ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: isAssigned ? 'var(--primary-teal)' : 'var(--text-primary)'
+                  }}
+                >
+                  {isAssigned ? <CheckSquare size={16} /> : <Square size={16} />}
+                  {displayName}
+                </button>
+              );
+            })}
           </div>
         </div>
 

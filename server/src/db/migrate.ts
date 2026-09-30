@@ -163,6 +163,12 @@ async function runSchemaAlignment005(): Promise<void> {
     if (!(await columnExists('production_orders', 'qc_test_mode'))) {
       await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_test_mode VARCHAR(50) NOT NULL DEFAULT 'QC_AND_TEST' AFTER supervisor_id;`);
     }
+    if (!(await columnExists('production_orders', 'shift_id'))) {
+      await db.exec(`ALTER TABLE production_orders ADD COLUMN shift_id VARCHAR(191) NULL AFTER qc_test_mode;`);
+    }
+    if (await tableExists('shifts') && !(await constraintExists('production_orders', 'fk_po_shift')) && !(await indexExists('production_orders', 'idx_po_shift'))) {
+      await db.exec(`ALTER TABLE production_orders ADD CONSTRAINT fk_po_shift FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;`);
+    }
   }
 
   if (!(await tableExists('production_order_configs'))) {

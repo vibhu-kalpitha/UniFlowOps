@@ -67,6 +67,22 @@ export async function checkOperatorAllocation(operatorId: string, role: string, 
   return checkOperatorAllocationForPO(operatorId, role, soIdOrPoId);
 }
 
+// Helper to check if operation is enabled on PO level
+export async function checkOperationEnabledForPO(poId: string, opName: string): Promise<boolean> {
+  let dbOp = opName;
+  if (opName === 'QC Test' || opName === 'QC' || opName === 'TEST') dbOp = 'QC_TEST';
+  else if (opName === 'Packing' || opName === 'PACKING') dbOp = 'PACKING';
+  else if (opName === 'AQL Checker' || opName === 'AQL') dbOp = 'AQL';
+  else if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') dbOp = 'BOX_TRANSFER';
+
+  const row = await db.prepare(`
+    SELECT COUNT(*) as cnt FROM production_order_operations
+    WHERE production_order_id = ? AND (operation = ? OR operation = ?)
+  `).get(poId, opName, dbOp) as any;
+
+  return !!(row && row.cnt > 0);
+}
+
 // Product QR Range Validation Helper for PO
 export async function validateProductQrRangeForPO(po: any, rawCode: string): Promise<{ valid: boolean; config?: any; error?: string; message?: string; expectedRange?: string }> {
   if (!po) {
@@ -251,6 +267,19 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
     }
     const code = rawCode.trim().toUpperCase();
     const po = await resolvePO(targetPoKey);
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, po.id);
+    if (!isAllocated) {
+      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
+    }
+
+    const isOpEnabled = await checkOperationEnabledForPO(po.id, 'QC Test');
+    if (!isOpEnabled) {
+      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `QC Test operation is not enabled for Production Order ${po.po_number || po.id}.` });
+    }
 
     const rangeCheck = await validateProductQrRangeForPO(po, code);
     if (!rangeCheck.valid) {
@@ -326,6 +355,16 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     const po = await resolvePO(targetPoKey);
     if (!po) {
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const isAllocatedResults = await checkOperatorAllocationForPO(operatorId, userRole, po.id);
+    if (!isAllocatedResults) {
+      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
+    }
+
+    const isOpEnabledResults = await checkOperationEnabledForPO(po.id, 'QC Test');
+    if (!isOpEnabledResults) {
+      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `QC Test operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
     const mode = po.qc_test_mode || 'QC_AND_TEST';
@@ -667,6 +706,16 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production order not found for packing.' });
     }
 
+    const isAllocatedPack = await checkOperatorAllocationForPO(operatorId, req.user!.role, po.id);
+    if (!isAllocatedPack) {
+      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
+    }
+
+    const isOpEnabledPack = await checkOperationEnabledForPO(po.id, 'Packing');
+    if (!isOpEnabledPack) {
+      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Packing operation is not enabled for Production Order ${po.po_number || po.id}.` });
+    }
+
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
     if (!box) {
       const boxId = `box-${Date.now()}`;
@@ -787,6 +836,13 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
       return res.status(403).json({
         error: 'OPERATOR_UNAUTHORIZED',
         message: 'Operator is not authorized to transfer products for this Production Order.'
+      });
+    }
+
+    if (fromBox.production_order_id && !(await checkOperationEnabledForPO(fromBox.production_order_id, 'Box Transfer'))) {
+      return res.status(403).json({
+        error: 'OPERATION_DISABLED',
+        message: 'Box Transfer operation is not enabled for this Production Order.'
       });
     }
 
@@ -951,6 +1007,15 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
     if (!box) {
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box ${boxNumber} not found.` });
+    }
+
+    if (box.production_order_id) {
+      if (!(await checkOperatorAllocationForPO(operatorId, req.user!.role, box.production_order_id))) {
+        return res.status(403).json({ error: 'OPERATOR_UNAUTHORIZED', message: 'Operator is not authorized for this Production Order.' });
+      }
+      if (!(await checkOperationEnabledForPO(box.production_order_id, 'AQL Checker'))) {
+        return res.status(403).json({ error: 'OPERATION_DISABLED', message: 'AQL Checker operation is not enabled for this Production Order.' });
+      }
     }
 
     let items = await db.prepare(`
