@@ -1239,6 +1239,15 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     const totalItems = items.length;
     const inspectionId = `aql-${Date.now()}`;
 
+    // Load previous sample records for items in this box that PASSED
+    const previousPassedSamples = await db.prepare(`
+      SELECT DISTINCT u.qr_code as itemQr, asamp.result, asamp.action_type as actionType
+      FROM aql_samples asamp
+      JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+      JOIN item_units u ON u.id = asamp.item_id
+      WHERE ai.box_id = ? AND asamp.result = 'PASS'
+    `).all(box.id) as any[];
+
     await db.prepare(`
       INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, started_at)
       VALUES (?, ?, ?, ?, ?, 'PENDING', NOW(3))
@@ -1252,7 +1261,8 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
         items
       },
       inspectionId,
-      requiredSamples: totalItems > 0 ? totalItems : 3
+      requiredSamples: totalItems > 0 ? totalItems : 3,
+      previousPassedSamples: previousPassedSamples || []
     });
   } catch (err) {
     next(err);

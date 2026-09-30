@@ -26,13 +26,37 @@ export const AQLSamplesPage: React.FC = () => {
   const session: any = aqlSession;
   const po = activeJob?.productionOrder;
 
-  const [currentIdx, setCurrentIdx] = useState(session.currentSampleIndex || 1);
-  const [currentQr, setCurrentQr] = useState('');
-  const [sampleResult, setSampleResult] = useState<'PASS' | 'FAIL'>('PASS');
-  const [completedSamples, setCompletedSamples] = useState<any[]>(session.samples || []);
-
   const boxItemsList: string[] = session.boxItems?.length > 0 ? session.boxItems : [];
   const totalRequiredSamples = session.sampleRequired || boxItemsList.length || 12;
+
+  // Initial passed samples from database (from previous AQL inspection runs on this box)
+  const dbPassedSamples = Array.isArray(session.previousPassedSamples)
+    ? session.previousPassedSamples.map((ps: any, i: number) => ({
+        sampleIndex: i + 1,
+        itemQr: ps.itemQr,
+        size: 'L',
+        result: 'PASS',
+        actionType: 'PASSED'
+      }))
+    : [];
+
+  const initialCompletedSamples = session.samples?.length > 0 ? session.samples : dbPassedSamples;
+  const [completedSamples, setCompletedSamples] = useState<any[]>(initialCompletedSamples);
+
+  // Automatically find index of first unverified / pending item (skipping already passed items)
+  const getInitialIndex = () => {
+    if (session.currentSampleIndex && session.currentSampleIndex > 1) return session.currentSampleIndex;
+    const passedQrs = new Set(initialCompletedSamples.filter((s: any) => s.result === 'PASS').map((s: any) => s.itemQr?.toUpperCase()));
+    const firstPendingIdx = boxItemsList.findIndex((qr: string) => !passedQrs.has(qr.toUpperCase()));
+    return firstPendingIdx >= 0 ? firstPendingIdx + 1 : 1;
+  };
+
+  const initialIdxVal = getInitialIndex();
+  const [currentIdx, setCurrentIdx] = useState(initialIdxVal);
+
+  const initialQrVal = boxItemsList[initialIdxVal - 1] || session.currentQr || `PNFLS09263267${initialIdxVal + 5}`;
+  const [currentQr, setCurrentQr] = useState(initialQrVal);
+  const [sampleResult, setSampleResult] = useState<'PASS' | 'FAIL'>('PASS');
 
   const [showFailModal, setShowFailModal] = useState(false);
   const [failAction, setFailAction] = useState<'REUSED' | 'PERMANENTLY_REMOVE'>('REUSED');
@@ -68,20 +92,21 @@ export const AQLSamplesPage: React.FC = () => {
   };
 
   const handleNextSampleInternal = async (overrideResult?: 'PASS' | 'FAIL', actionType?: string, reason?: string) => {
+    const activeQr = (currentQr || boxItemsList[currentIdx - 1] || '').trim();
     const res = overrideResult || sampleResult;
     const actType = actionType || (res === 'PASS' ? 'PASSED' : 'REUSED');
     const failReason = reason || (res === 'FAIL' ? 'REWORK' : undefined);
 
     const newSample = {
       sampleIndex: currentIdx,
-      itemQr: currentQr,
+      itemQr: activeQr,
       size: 'L',
       result: res,
       actionType: actType,
       failureReason: failReason
     };
 
-    const updatedSamples = [...completedSamples, newSample];
+    const updatedSamples = [...completedSamples.filter(s => s.sampleIndex !== currentIdx && s.itemQr?.toUpperCase() !== activeQr.toUpperCase()), newSample];
     setCompletedSamples(updatedSamples);
 
     // Call REST API sample recording
@@ -91,7 +116,7 @@ export const AQLSamplesPage: React.FC = () => {
           method: 'POST',
           body: JSON.stringify({
             sampleNumber: currentIdx,
-            itemQr: currentQr,
+            itemQr: activeQr,
             result: res,
             actionType: actType,
             failureReason: failReason
@@ -160,23 +185,30 @@ export const AQLSamplesPage: React.FC = () => {
 
   const handleConfirmFailAction = async () => {
     setIsProcessingAction(true);
+    const targetQr = (currentQr || boxItemsList[currentIdx - 1] || '').trim();
+    if (!targetQr) {
+      showToast('Item QR code is required for permanent removal', 'warning');
+      setIsProcessingAction(false);
+      return;
+    }
+
     try {
       if (failAction === 'PERMANENTLY_REMOVE') {
         await apiFetch('/api/aql/items/permanently-remove', {
           method: 'POST',
           body: JSON.stringify({
-            itemQr: currentQr,
+            itemQr: targetQr,
             boxNumber: session.boxNumber,
             inspectionId: session.inspectionId,
             reason: removeReason || 'Damaged Garment Permanently Scrapped'
           })
         });
-        showToast(`Item ${currentQr} permanently removed from database & archived`, 'warning');
+        showToast(`Item ${targetQr} permanently removed from database & archived`, 'warning');
         setShowFailModal(false);
         setIsProcessingAction(false);
         await handleNextSampleInternal('FAIL', 'PERMANENTLY_REMOVE', removeReason || 'Damaged Garment Scrapped');
       } else {
-        showToast(`Item ${currentQr} recorded as FAIL (Reusable for Rework)`, 'info');
+        showToast(`Item ${targetQr} recorded as FAIL (Reusable for Rework)`, 'info');
         setShowFailModal(false);
         setIsProcessingAction(false);
         await handleNextSampleInternal('FAIL', 'REUSED', 'REWORK');

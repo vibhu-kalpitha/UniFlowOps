@@ -92,6 +92,8 @@ export const AQLBoxScanPage: React.FC = () => {
     let totalItems = localItems.length || 0;
     let sampleRequirement = 12;
 
+    let previousPassedSamples: any[] = [];
+
     try {
       const res = await apiFetch('/aql/boxes/scan', {
         method: 'POST',
@@ -101,6 +103,7 @@ export const AQLBoxScanPage: React.FC = () => {
       inspectionId     = res.inspectionId;
       totalItems       = res.box?.item_count || serverItems.length || totalItems;
       sampleRequirement = res.requiredSamples || totalItems || 12;
+      previousPassedSamples = res.previousPassedSamples || [];
     } catch { /* offline — use local packing data */ }
 
     // Combine server items and local items (case-insensitive deduplication)
@@ -110,15 +113,16 @@ export const AQLBoxScanPage: React.FC = () => {
     const finalItems = Array.from(combinedSet);
     const reqSamples = finalItems.length > 0 ? finalItems.length : (totalItems || 12);
 
-    const details: ScannedBoxInfo = {
+    const details: ScannedBoxInfo & { previousPassedSamples?: any[] } = {
       boxNumber:         code,
       totalItems:        finalItems.length || totalItems || 0,
       sampleRequirement: reqSamples || 0,
       inspectionId,
       packedItemQrs:     finalItems,
+      previousPassedSamples
     };
 
-    setScannedBox(details);
+    setScannedBox(details as any);
     return {
       status:  'accepted' as const,
       message: `📦 Box ${code} loaded — Ready for AQL Inspection.`,
@@ -139,6 +143,7 @@ export const AQLBoxScanPage: React.FC = () => {
       status:            'SAMPLE_SCAN',
       inspectionId:      scannedBox.inspectionId,
       boxItems:          scannedBox.packedItemQrs,
+      previousPassedSamples: (scannedBox as any).previousPassedSamples || []
     } as any);
 
     navigate('/operator/aql/samples');
