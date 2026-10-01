@@ -251,9 +251,17 @@ async function runSchemaAlignment005(): Promise<void> {
     if (await tableExists('boxes')) {
       await db.exec(`
         UPDATE aql_inspections ai
-        JOIN boxes b ON b.id = ai.box_id
+        JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
         SET ai.production_order_id = b.production_order_id
         WHERE ai.production_order_id IS NULL AND b.production_order_id IS NOT NULL;
+      `);
+    }
+    if (await tableExists('sales_orders')) {
+      await db.exec(`
+        UPDATE aql_inspections ai
+        JOIN sales_orders so ON so.id = ai.sales_order_id
+        SET ai.production_order_id = so.production_order_id
+        WHERE ai.production_order_id IS NULL AND so.production_order_id IS NOT NULL;
       `);
     }
   }

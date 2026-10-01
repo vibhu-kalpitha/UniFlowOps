@@ -208,9 +208,14 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
 
   const aqlPassedRow = await db.prepare(`
     SELECT COUNT(*) as cnt FROM aql_inspections ai
-    JOIN boxes b ON b.id = ai.box_id
-    WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND ai.result = 'PASSED'
-  `).get(po.id, po.id) as any;
+    LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
+    WHERE (
+      ai.production_order_id = ? 
+      OR b.production_order_id = ? 
+      OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+    ) AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+  `).get(po.id, po.id, po.id, po.id) as any;
   const aqlPassed = aqlPassedRow?.cnt || 0;
 
   // Legacy SO rows if present
