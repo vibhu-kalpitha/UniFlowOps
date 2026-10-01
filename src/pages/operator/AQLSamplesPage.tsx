@@ -69,26 +69,113 @@ export const AQLSamplesPage: React.FC = () => {
       return { status: 'rejected' as const, message: 'Please enter or scan a sample QR barcode', code };
     }
 
+    const activeQr = trimmed.toUpperCase();
+    const expectedQr = (boxItemsList[currentIdx - 1] || '').toUpperCase();
+
+    // Call REST API sample recording
+    try {
+      if (session.inspectionId) {
+        await apiFetch(`/api/aql/inspections/${session.inspectionId}/samples`, {
+          method: 'POST',
+          body: JSON.stringify({
+            sampleNumber: currentIdx,
+            itemQr: trimmed,
+            result: 'PASS',
+            actionType: 'PASSED'
+          }),
+        });
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || 'Verification failed';
+      showToast(errMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: errMsg,
+        code: trimmed
+      };
+    }
+
     setCurrentQr(trimmed);
     setSampleResult('PASS');
 
-    if (session.inspectionId) {
-      apiFetch(`/aql/inspections/${session.inspectionId}/samples`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sampleNumber: currentIdx,
-          itemQr: trimmed,
-          result: 'PASS',
-          actionType: 'PASSED'
-        }),
-      }).catch(() => {});
-    }
-
-    return {
-      status: 'accepted' as const,
-      message: `✅ Sample ${currentIdx} Verified (${trimmed}) -> PASS`,
-      code: trimmed,
+    const newSample = {
+      sampleIndex: currentIdx,
+      itemQr: trimmed,
+      size: 'L',
+      result: 'PASS',
+      actionType: 'PASSED'
     };
+
+    const updatedSamples = [...completedSamples.filter(s => s.sampleIndex !== currentIdx && s.itemQr?.toUpperCase() !== activeQr), newSample];
+    setCompletedSamples(updatedSamples);
+
+    if (currentIdx < totalRequiredSamples) {
+      const nextIndex = currentIdx + 1;
+      setCurrentIdx(nextIndex);
+      const nextItemQr = boxItemsList[nextIndex - 1] || '';
+      setCurrentQr(nextItemQr);
+
+      saveAQLSession({
+        ...session,
+        currentSampleIndex: nextIndex,
+        samples: updatedSamples
+      });
+
+      showToast(`✓ ${trimmed} verified. Next item: ${nextItemQr || 'Sample ' + nextIndex}`, 'success');
+      return {
+        status: 'accepted' as const,
+        message: `✅ ${trimmed} verified`,
+        code: trimmed,
+      };
+    } else {
+      // Completed all samples!
+      const hasAnyFail = updatedSamples.some(s => s.result === 'FAIL');
+      const finalResult: 'PASSED' | 'FAILED' = hasAnyFail ? 'FAILED' : 'PASSED';
+
+      if (finalResult === 'PASSED') {
+        incrementAQLPassed();
+      } else {
+        incrementAQLFailed();
+      }
+
+      try {
+        const payload = { 
+          result: finalResult, 
+          boxNumber: session.boxNumber || 'BX-000218',
+          samples: updatedSamples
+        };
+        if (session.inspectionId) {
+          await apiFetch(`/api/aql/inspections/${session.inspectionId}/complete`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+        } else {
+          await apiFetch('/api/aql/inspections/direct-complete', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to post AQL complete:', err);
+      }
+
+      const finalSession = {
+        ...session,
+        samples: updatedSamples,
+        status: 'RESULT' as const,
+        overallResult: finalResult
+      };
+
+      saveAQLSession(finalSession);
+      showToast(`All ${totalRequiredSamples} box items verified! AQL inspection complete!`, 'success');
+      navigate('/operator/aql/result');
+
+      return {
+        status: 'accepted' as const,
+        message: `✅ All ${totalRequiredSamples} box items verified`,
+        code: trimmed,
+      };
+    }
   };
 
   const handleNextSampleInternal = async (overrideResult?: 'PASS' | 'FAIL', actionType?: string, reason?: string) => {
@@ -130,8 +217,7 @@ export const AQLSamplesPage: React.FC = () => {
     if (currentIdx < totalRequiredSamples) {
       const nextIndex = currentIdx + 1;
       setCurrentIdx(nextIndex);
-      // Pre-fill next item QR if available from boxItemsList
-      const nextItemQr = boxItemsList[nextIndex - 1] || `PNFLS09263267${nextIndex + 5}`;
+      const nextItemQr = boxItemsList[nextIndex - 1] || '';
       setCurrentQr(nextItemQr);
       setSampleResult('PASS');
 

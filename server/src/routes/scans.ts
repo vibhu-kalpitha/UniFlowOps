@@ -1016,23 +1016,23 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
 
     let item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(itemQr.trim().toUpperCase()) as any;
     if (!item) {
-      const itemId = `itm-${itemQr.trim().toUpperCase().replace(/[^a-zA-Z0-9]/g, '')}`;
-      await db.prepare(`
-        INSERT INTO item_units (id, serial_number, qr_code, production_order_id, status, created_at)
-        VALUES (?, ?, ?, ?, 'QC_PASSED', NOW(3))
-      `).run(itemId, itemQr, itemQr, po.id);
-      item = { id: itemId, qr_code: itemQr, production_order_id: po.id, status: 'QC_PASSED' };
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ITEM_NOT_FOUND', 'Product not found for Production Order');
+      return res.status(400).json({ error: 'ITEM_NOT_FOUND', message: `Product not found for Production Order ${po.po_number || po.id}.` });
+    }
 
-      const qcResultId = `qcr-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-      await db.prepare(`
-        INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, created_at)
-        VALUES (?, ?, ?, 'PASS', 'PASS', NOW(3))
-      `).run(qcResultId, itemId, operatorId);
-    } else {
-      if (!item.production_order_id || item.production_order_id !== po.id) {
-        await db.prepare(`UPDATE item_units SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, item.id);
-        item.production_order_id = po.id;
-      }
+    const isPoMatch = !item.production_order_id || 
+      item.production_order_id === po.id || 
+      item.production_order_id === po.po_number || 
+      item.production_order_id === po.map_po;
+
+    if (!isPoMatch) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'PO_MISMATCH', 'Product belongs to a different Production Order');
+      return res.status(400).json({ error: 'PO_MISMATCH', message: `Product belongs to a different Production Order.` });
+    }
+
+    if (!item.production_order_id) {
+      await db.prepare(`UPDATE item_units SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, item.id);
+      item.production_order_id = po.id;
     }
 
     const existingActivePack = await db.prepare(`
@@ -1311,6 +1311,7 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
       FROM box_items bi 
       JOIN item_units u ON bi.item_id = u.id 
       WHERE bi.box_id = ? AND bi.active = 1
+      ORDER BY bi.packed_at ASC, bi.id ASC
     `).all(box.id) as any[];
 
     // Fetch permanently removed items for this box or PO to ensure they NEVER re-appear
@@ -1384,6 +1385,7 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
   try {
     const inspectionId = req.params.id;
     const { sampleNumber, itemQr, result } = req.body;
+    const code = itemQr ? itemQr.trim().toUpperCase() : '';
 
     const insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
     if (!insp) {
@@ -1391,22 +1393,56 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
     }
 
     if (insp.production_order_id) {
-      const configCheck = await validateProductForProductionOrder(insp.production_order_id, itemQr);
+      const configCheck = await validateProductForProductionOrder(insp.production_order_id, code);
       if (!configCheck.valid) {
         return res.status(400).json({ error: configCheck.error, message: configCheck.message });
       }
     }
 
-    let item = await db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(itemQr) as any;
+    let item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
     if (!item) {
-      return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: 'Item unit not found' });
+      return res.status(400).json({ error: 'ITEM_NOT_FOUND', message: `Product '${code}' not found for Production Order.` });
+    }
+
+    const isPoMatch = !item.production_order_id || 
+      item.production_order_id === insp.production_order_id;
+
+    if (!isPoMatch) {
+      return res.status(400).json({ error: 'PO_MISMATCH', message: `Product does not belong to this Production Order.` });
     }
 
     const inBox = await db.prepare(`SELECT * FROM box_items WHERE box_id = ? AND item_id = ? AND active = 1`).get(insp.box_id, item.id);
     if (!inBox) {
       return res.status(400).json({
         error: 'ITEM_NOT_IN_BOX',
-        message: `Sample barcode (${itemQr}) does not belong to the scanned box.`
+        message: `Sample barcode (${code}) does not belong to the scanned box.`
+      });
+    }
+
+    // Verify sequential order against active box items in DB
+    const orderedBoxItems = await db.prepare(`
+      SELECT u.id, u.qr_code 
+      FROM box_items bi 
+      JOIN item_units u ON bi.item_id = u.id 
+      WHERE bi.box_id = ? AND bi.active = 1
+      ORDER BY bi.packed_at ASC, bi.id ASC
+    `).all(insp.box_id) as any[];
+
+    const permanentlyRemovedRows = await db.prepare(`
+      SELECT item_qr FROM permanently_removed_items WHERE box_id = ? OR production_order_id = ?
+    `).all(insp.box_id, insp.production_order_id) as any[];
+    const permRemovedSet = new Set(permanentlyRemovedRows.map(r => r.item_qr ? r.item_qr.trim().toUpperCase() : ''));
+
+    const activeOrderedItems = orderedBoxItems.filter(i => !permRemovedSet.has(i.qr_code.trim().toUpperCase()));
+    const sNum = Number(sampleNumber) || 1;
+    const expectedItem = activeOrderedItems[sNum - 1];
+
+    if (expectedItem && code !== expectedItem.qr_code.trim().toUpperCase()) {
+      return res.status(400).json({
+        error: 'WRONG_SEQUENCE',
+        message: `Wrong product. Please scan ${expectedItem.qr_code} first.`,
+        expectedQr: expectedItem.qr_code,
+        scannedQr: code
       });
     }
 
