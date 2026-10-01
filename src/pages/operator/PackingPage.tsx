@@ -8,7 +8,7 @@ import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-import { isCodeInRange } from '../../utils/rangeValidation';
+import { isCodeInRange, validatePoQrRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
 
 interface BoxItem {
@@ -168,6 +168,18 @@ export const PackingPage: React.FC = () => {
       };
     }
 
+    // Validate PO product QR range
+    const rangeCheck = validatePoQrRange(po, code);
+    if (!rangeCheck.valid) {
+      const redMsg = rangeCheck.message || `Out of range — this QR does not belong to Production Order ${po?.id || ''}.`;
+      showToast(redMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: redMsg,
+        code,
+      };
+    }
+
     // Duplicate check inside active box or ANY packed box
     const packedInBox: any = Object.values(packingBoxes).find((b: any) =>
       b.items?.some((i: any) => i.qr.toUpperCase() === code.trim().toUpperCase())
@@ -200,6 +212,17 @@ export const PackingPage: React.FC = () => {
         }),
       });
     } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (err?.error === 'QR_OUT_OF_RANGE' || err?.error === 'QR_RANGE_NOT_CONFIGURED' || errMsg.includes('Out of range') || errMsg.includes('does not belong') || errMsg.includes('not configured')) {
+        const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
+        const redMsg = errMsg || `Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`;
+        showToast(redMsg, 'error');
+        return {
+          status: 'rejected' as const,
+          message: redMsg,
+          code,
+        };
+      }
       if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED')) {
         return {
           status:  'duplicate' as const,
@@ -207,6 +230,12 @@ export const PackingPage: React.FC = () => {
           code,
         };
       }
+      showToast(errMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: errMsg,
+        code,
+      };
     }
 
     const now = new Date();
