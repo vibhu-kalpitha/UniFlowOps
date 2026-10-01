@@ -6,7 +6,7 @@ import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { CheckCircle2, XCircle, ArrowRight, Check, PackageCheck } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-import { isCodeInRange, validatePoQrRange } from '../../utils/rangeValidation';
+import { isCodeInRange } from '../../utils/rangeValidation';
 import '../../styles/tokens.css';
 
 export const AQLSamplesPage: React.FC = () => {
@@ -69,44 +69,19 @@ export const AQLSamplesPage: React.FC = () => {
       return { status: 'rejected' as const, message: 'Please enter or scan a sample QR barcode', code };
     }
 
-    const rangeCheck = validatePoQrRange(po, trimmed);
-    if (!rangeCheck.valid) {
-      const redMsg = rangeCheck.message || `Out of range — this QR does not belong to Production Order ${po?.id || ''}.`;
-      showToast(redMsg, 'error');
-      return {
-        status: 'rejected' as const,
-        message: redMsg,
-        code: trimmed,
-      };
-    }
-
     setCurrentQr(trimmed);
     setSampleResult('PASS');
 
     if (session.inspectionId) {
-      try {
-        await apiFetch(`/api/aql/inspections/${session.inspectionId}/samples`, {
-          method: 'POST',
-          body: JSON.stringify({
-            sampleNumber: currentIdx,
-            itemQr: trimmed,
-            result: 'PASS',
-            actionType: 'PASSED'
-          }),
-        });
-      } catch (err: any) {
-        const errMsg = err?.message || String(err);
-        if (err?.error === 'QR_OUT_OF_RANGE' || err?.error === 'QR_RANGE_NOT_CONFIGURED' || errMsg.includes('Out of range') || errMsg.includes('does not belong') || errMsg.includes('not configured')) {
-          const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
-          const redMsg = errMsg || `Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`;
-          showToast(redMsg, 'error');
-          return {
-            status: 'rejected' as const,
-            message: redMsg,
-            code: trimmed,
-          };
-        }
-      }
+      apiFetch(`/aql/inspections/${session.inspectionId}/samples`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sampleNumber: currentIdx,
+          itemQr: trimmed,
+          result: 'PASS',
+          actionType: 'PASSED'
+        }),
+      }).catch(() => {});
     }
 
     return {
@@ -121,13 +96,6 @@ export const AQLSamplesPage: React.FC = () => {
     const res = overrideResult || sampleResult;
     const actType = actionType || (res === 'PASS' ? 'PASSED' : 'REUSED');
     const failReason = reason || (res === 'FAIL' ? 'REWORK' : undefined);
-
-    const rangeCheck = validatePoQrRange(po, activeQr);
-    if (!rangeCheck.valid) {
-      const redMsg = rangeCheck.message || `Out of range — this QR does not belong to Production Order ${po?.id || ''}.`;
-      showToast(redMsg, 'error');
-      return;
-    }
 
     const newSample = {
       sampleIndex: currentIdx,

@@ -927,16 +927,6 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Packing operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
-    const rangeCheckPack = await validateProductQrRangeForPO(po, itemQr);
-    if (!rangeCheckPack.valid) {
-      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', rangeCheckPack.error, rangeCheckPack.message);
-      return res.status(400).json({
-        error: rangeCheckPack.error,
-        message: rangeCheckPack.message,
-        expectedRange: rangeCheckPack.expectedRange
-      });
-    }
-
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
     if (!box) {
       const boxId = `box-${Date.now()}`;
@@ -1230,20 +1220,6 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box ${boxNumber} not found.` });
     }
 
-    const reqPoKey = req.body.productionOrderId || req.body.productionOrderNumber;
-    if (reqPoKey) {
-      const selectedPo = await resolvePO(reqPoKey);
-      if (selectedPo && box.production_order_id && box.production_order_id !== selectedPo.id) {
-        const boxPo = await resolvePO(box.production_order_id);
-        const boxPoNum = boxPo?.po_number || boxPo?.id || box.production_order_id;
-        const selPoNum = selectedPo.po_number || selectedPo.id;
-        return res.status(400).json({
-          error: 'BOX_PO_MISMATCH',
-          message: `Box ${boxNumber} belongs to Production Order ${boxPoNum}, not selected PO ${selPoNum}.`
-        });
-      }
-    }
-
     if (box.production_order_id) {
       if (!(await checkOperatorAllocationForPO(operatorId, req.user!.role, box.production_order_id))) {
         return res.status(403).json({ error: 'OPERATOR_UNAUTHORIZED', message: 'Operator is not authorized for this Production Order.' });
@@ -1322,20 +1298,6 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
     const insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
     if (!insp) {
       return res.status(404).json({ error: 'INSPECTION_NOT_FOUND', message: 'AQL inspection record not found' });
-    }
-
-    if (insp.production_order_id) {
-      const inspPo = await resolvePO(insp.production_order_id);
-      if (inspPo) {
-        const rangeCheckAql = await validateProductQrRangeForPO(inspPo, itemQr);
-        if (!rangeCheckAql.valid) {
-          return res.status(400).json({
-            error: rangeCheckAql.error,
-            message: rangeCheckAql.message,
-            expectedRange: rangeCheckAql.expectedRange
-          });
-        }
-      }
     }
 
     let item = await db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(itemQr) as any;

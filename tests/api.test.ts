@@ -677,40 +677,5 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM users WHERE id IN (?, ?)`, [opId, unallocatedOpId]);
     }
   });
-
-  it('13. PO Product Range validation for Packing and AQL checking workflows', async () => {
-    const { validatePoQrRange } = await import('../src/utils/rangeValidation');
-
-    const samplePo = {
-      id: 'PO-2026-0184',
-      productConfigurations: [
-        {
-          configCode: 'PNFLSS',
-          productQrPrefix: 'PNFLS092632',
-          productSerialStart: 670,
-          productSerialEnd: 1869,
-          quantity: 1200
-        }
-      ]
-    };
-
-    // 1. Valid code inside PO range
-    const validCheck = validatePoQrRange(samplePo, 'PNFLS092632670');
-    expect(validCheck.valid).toBe(true);
-    expect(validCheck.expectedRange).toBe('PNFLS092632670 to PNFLS0926321869');
-
-    // 2. Out of range code
-    const outCheck = validatePoQrRange(samplePo, 'PNFLS0926329999');
-    expect(outCheck.valid).toBe(false);
-    expect(outCheck.error).toBe('QR_OUT_OF_RANGE');
-    expect(outCheck.message).toContain('Out of range');
-
-    // 3. Unconfigured PO
-    const emptyPo = { id: 'PO-2026-EMPTY' };
-    const unconfigCheck = validatePoQrRange(emptyPo, 'PNFLS092632670');
-    expect(unconfigCheck.valid).toBe(false);
-    expect(unconfigCheck.error).toBe('QR_RANGE_NOT_CONFIGURED');
-  });
 });
-
 

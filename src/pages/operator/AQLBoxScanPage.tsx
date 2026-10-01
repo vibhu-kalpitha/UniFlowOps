@@ -21,7 +21,7 @@ interface ScannedBoxInfo {
 
 export const AQLBoxScanPage: React.FC = () => {
   const navigate = useNavigate();
-  const { packingBoxes, saveAQLSession, activeJob, setActiveJob, showToast } = useApp();
+  const { packingBoxes, saveAQLSession, activeJob, setActiveJob } = useApp();
 
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
@@ -97,11 +97,7 @@ export const AQLBoxScanPage: React.FC = () => {
     try {
       const res = await apiFetch('/aql/boxes/scan', {
         method: 'POST',
-        body: JSON.stringify({
-          boxNumber: code,
-          productionOrderId: po?.dbId || po?.id,
-          productionOrderNumber: po?.id
-        }),
+        body: JSON.stringify({ boxNumber: code }),
       });
       serverItems      = res.box?.items?.map((i: any) => i.qr_code) || [];
       inspectionId     = res.inspectionId;
@@ -109,15 +105,7 @@ export const AQLBoxScanPage: React.FC = () => {
       sampleRequirement = res.requiredSamples || totalItems || 12;
       previousPassedSamples = res.previousPassedSamples || [];
       permanentlyRemovedQrs = res.permanentlyRemovedQrs || [];
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      showToast(errMsg, 'error');
-      return {
-        status: 'rejected' as const,
-        message: errMsg,
-        code,
-      };
-    }
+    } catch { /* offline — use local packing data */ }
 
     const permRemovedSet = new Set(permanentlyRemovedQrs.map(q => q.toUpperCase()));
 
