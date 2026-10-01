@@ -72,10 +72,10 @@ export const PackingPage: React.FC = () => {
           packedCount: res.packedCount,
           remainingToPack: res.remainingToPack,
           totalFailCount: res.totalFailCount || 0,
-          operatorStats: res.operatorStats || {
-            operatorName: 'Operator',
-            packedCount: res.packedCount,
-            failCount: 0
+          operatorStats: {
+            operatorName: res.operatorStats?.operatorName || 'Operator',
+            packedCount: typeof res.operatorStats?.packedCount === 'number' ? res.operatorStats.packedCount : 0,
+            failCount: typeof res.operatorStats?.failCount === 'number' ? res.operatorStats.failCount : 0
           }
         });
       }
@@ -201,9 +201,10 @@ export const PackingPage: React.FC = () => {
       };
     }
 
+    let scanRes: any = null;
     // Try API
     try {
-      await apiFetch('/api/packing/items/scan', {
+      scanRes = await apiFetch('/api/packing/items/scan', {
         method: 'POST',
         body: JSON.stringify({
           boxNumber:              box.boxNumber,
@@ -220,6 +221,13 @@ export const PackingPage: React.FC = () => {
           code,
         };
       }
+      const errMsg = err?.message || String(err);
+      showToast(errMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: errMsg,
+        code,
+      };
     }
 
     const now = new Date();
@@ -237,22 +245,22 @@ export const PackingPage: React.FC = () => {
     savePackingBox(updatedBox);
     incrementPacked();
 
-    // Optimistically update packing progress box
-    setPackProgress(prev => {
-      const newPacked = prev.packedCount + 1;
-      const newRemaining = Math.max(0, prev.targetQuantity - newPacked);
-      return {
-        ...prev,
-        packedCount: newPacked,
-        remainingToPack: newRemaining,
+    if (scanRes?.progress) {
+      setPackProgress({
+        loading: false,
+        targetQuantity: scanRes.progress.targetQuantity,
+        packedCount: scanRes.progress.packedCount,
+        remainingToPack: scanRes.progress.remainingToPack,
+        totalFailCount: scanRes.progress.totalFailCount || 0,
         operatorStats: {
-          ...prev.operatorStats,
-          packedCount: prev.operatorStats.packedCount + 1
+          operatorName: scanRes.progress.operatorStats?.operatorName || 'Operator',
+          packedCount: typeof scanRes.progress.operatorStats?.packedCount === 'number' ? scanRes.progress.operatorStats.packedCount : 0,
+          failCount: typeof scanRes.progress.operatorStats?.failCount === 'number' ? scanRes.progress.operatorStats.failCount : 0
         }
-      };
-    });
-
-    await fetchPackingProgress();
+      });
+    } else {
+      await fetchPackingProgress();
+    }
 
     return {
       status:  'accepted' as const,

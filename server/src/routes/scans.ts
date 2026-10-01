@@ -320,85 +320,108 @@ router.get('/qc/progress/:poId', authenticateToken, async (req: AuthRequest, res
   }
 });
 
+export async function calculatePackingProgress(poParam: string, reqUser: any) {
+  const po = await resolvePO(poParam);
+  if (!po) return null;
+
+  const operatorId = reqUser.id;
+  const operatorUsername = reqUser.username;
+  const operatorFullName = (reqUser as any).full_name || (reqUser as any).fullName || reqUser.username;
+
+  const configTotal = await db.prepare(`SELECT SUM(quantity) as sumQty FROM production_order_configs WHERE production_order_id = ?`).get(po.id) as any;
+  let targetQuantity = configTotal?.sumQty ? Number(configTotal.sumQty) : 0;
+  if (!targetQuantity) {
+    const soTotal = await db.prepare(`SELECT SUM(order_quantity) as sumQty FROM sales_orders WHERE production_order_id = ?`).get(po.id) as any;
+    targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 500;
+  }
+
+  const poKeys = [po.id, po.po_number, po.map_po].filter(Boolean);
+  const placeholders = poKeys.map(() => '?').join(',');
+
+  // Overall Packed Count for this PO (all active box_items for this PO)
+  const packedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT bi.id) as cnt 
+    FROM box_items bi
+    JOIN boxes b ON b.id = bi.box_id
+    LEFT JOIN item_units iu ON iu.id = bi.item_id
+    WHERE (
+      b.production_order_id IN (${placeholders}) 
+      OR iu.production_order_id IN (${placeholders}) 
+      OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+      OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+    ) AND bi.active = 1
+  `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
+  const packedCount = packedRow?.cnt || 0;
+
+  // Overall Fail Count for this PO
+  const failRow = await db.prepare(`
+    SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
+    JOIN item_units iu ON iu.id = qf.item_id
+    WHERE (
+      iu.production_order_id IN (${placeholders}) 
+      OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+    )
+  `).get(...poKeys, ...poKeys) as any;
+  const totalFailCount = failRow?.cnt || 0;
+
+  // Logged-in Operator's Packed Count for this PO
+  // Calculates active box_items records where packed_by matches the logged-in operator
+  const opPackedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT bi.id) as cnt 
+    FROM box_items bi
+    JOIN boxes b ON b.id = bi.box_id
+    LEFT JOIN item_units iu ON iu.id = bi.item_id
+    WHERE (
+      b.production_order_id IN (${placeholders}) 
+      OR iu.production_order_id IN (${placeholders}) 
+      OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+      OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+    ) AND bi.active = 1 AND (
+      bi.packed_by = ? OR bi.packed_by = ? OR bi.packed_by = ?
+    )
+  `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys, operatorId, operatorUsername, operatorFullName) as any;
+  const operatorPackedCount = opPackedRow?.cnt || 0;
+
+  // Logged-in Operator's Fail Count for this PO
+  const opFailRow = await db.prepare(`
+    SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
+    JOIN item_units iu ON iu.id = qf.item_id
+    WHERE (
+      iu.production_order_id IN (${placeholders}) 
+      OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+    ) AND (
+      qf.operator_id = ? OR qf.operator_id = ? OR qf.operator_id = ?
+    )
+  `).get(...poKeys, ...poKeys, operatorId, operatorUsername, operatorFullName) as any;
+  const operatorFailCount = opFailRow?.cnt || 0;
+
+  const remainingToPack = Math.max(0, targetQuantity - packedCount);
+
+  return {
+    poId: po.id,
+    poNumber: po.po_number,
+    targetQuantity,
+    packedCount,
+    remainingToPack,
+    totalFailCount,
+    operatorStats: {
+      operatorId,
+      operatorName: operatorFullName,
+      packedCount: operatorPackedCount,
+      failCount: operatorFailCount
+    }
+  };
+}
+
 // GET /api/packing/progress/:poId
 router.get('/packing/progress/:poId', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const poParam = req.params.poId;
-    const operatorId = req.user!.id;
-
-    const po = await resolvePO(poParam);
-    if (!po) {
+    const progress = await calculatePackingProgress(poParam, req.user);
+    if (!progress) {
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
-
-    const configTotal = await db.prepare(`SELECT SUM(quantity) as sumQty FROM production_order_configs WHERE production_order_id = ?`).get(po.id) as any;
-    let targetQuantity = configTotal?.sumQty ? Number(configTotal.sumQty) : 0;
-    if (!targetQuantity) {
-      const soTotal = await db.prepare(`SELECT SUM(order_quantity) as sumQty FROM sales_orders WHERE production_order_id = ?`).get(po.id) as any;
-      targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 500;
-    }
-
-    // Overall Packed Count for this PO
-    const packedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
-      JOIN boxes b ON b.id = bi.box_id
-      LEFT JOIN item_units iu ON iu.id = bi.item_id
-      WHERE (
-        b.production_order_id = ? 
-        OR iu.production_order_id = ? 
-        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-        OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-      ) AND bi.active = 1
-    `).get(po.id, po.id, po.id, po.id) as any;
-    const packedCount = packedRow?.cnt || 0;
-
-    // Overall Fail Count for this PO
-    const failRow = await db.prepare(`
-      SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
-      JOIN item_units iu ON iu.id = qf.item_id
-      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-    `).get(po.id, po.id) as any;
-    const totalFailCount = failRow?.cnt || 0;
-
-    // Logged-in Operator's Packed Count for this PO
-    const opPackedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
-      JOIN boxes b ON b.id = bi.box_id
-      LEFT JOIN item_units iu ON iu.id = bi.item_id
-      WHERE (
-        b.production_order_id = ? 
-        OR iu.production_order_id = ? 
-        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-        OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-      ) AND bi.active = 1 AND (bi.packed_by = ? OR bi.packed_by = ?)
-    `).get(po.id, po.id, po.id, po.id, operatorId, req.user!.username) as any;
-    const operatorPackedCount = opPackedRow?.cnt || 0;
-
-    // Logged-in Operator's Fail Count for this PO
-    const opFailRow = await db.prepare(`
-      SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
-      JOIN item_units iu ON iu.id = qf.item_id
-      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND (qf.operator_id = ? OR qf.operator_id = ?)
-    `).get(po.id, po.id, operatorId, req.user!.username) as any;
-    const operatorFailCount = opFailRow?.cnt || 0;
-
-    const remainingToPack = Math.max(0, targetQuantity - packedCount);
-
-    return res.json({
-      poId: po.id,
-      poNumber: po.po_number,
-      targetQuantity,
-      packedCount,
-      remainingToPack,
-      totalFailCount,
-      operatorStats: {
-        operatorId,
-        operatorName: (req.user as any).full_name || req.user!.username || 'Operator',
-        packedCount: operatorPackedCount,
-        failCount: operatorFailCount
-      }
-    });
+    return res.json(progress);
   } catch (err) {
     next(err);
   }
@@ -1055,12 +1078,15 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'ACCEPTED');
     await auditLog(operatorId, 'PACK_ITEM', 'boxes', box.id, { itemQr, count: currentItemsCount + 1 });
 
+    const progress = await calculatePackingProgress(po.id, req.user);
+
     return res.status(201).json({
       message: `Item ${itemQr} packed into box ${boxNumber}`,
       boxNumber,
       itemCount: currentItemsCount + 1,
       capacity: box.capacity,
-      isFull: currentItemsCount + 1 >= box.capacity
+      isFull: currentItemsCount + 1 >= box.capacity,
+      progress
     });
   } catch (err) {
     next(err);
