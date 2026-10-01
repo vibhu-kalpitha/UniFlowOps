@@ -366,50 +366,45 @@ export const QCTestPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Scanner & Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* PO Progress Card */}
+          {/* PO Progress Card - Operator Work Primary */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
-                PRODUCTION ORDER QC PROGRESS
-              </span>
-              <StatusPill label={`Remaining: ${remainingQcQty}`} variant={remainingQcQty === 0 ? 'green' : 'teal'} />
+            {/* PRIMARY / LARGE: Operator Work */}
+            <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                  MY PROGRESS — {poProgress.operatorStats.operatorName}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
+                  {Math.round((poProgress.operatorStats.passedCount / (targetPoQty || 1)) * 100)}%
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{poProgress.operatorStats.passedCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{poProgress.operatorStats.failedCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                    {poProgress.operatorStats.passedCount + poProgress.operatorStats.failedCount}
+                  </span>
+                </div>
+              </div>
+              <ProgressBar current={poProgress.operatorStats.passedCount} total={targetPoQty} height={8} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetPoQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#10B981', display: 'block' }}>Passed</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{qcPassedQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(34, 211, 197, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>{remainingQcQty}</span>
-              </div>
-            </div>
-
-            <ProgressBar current={qcPassedQty} total={targetPoQty} height={8} />
-
-            {/* Operator Personal Stats Banner */}
-            <div style={{
-              marginTop: '10px',
-              padding: '8px 12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '8px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: '12px'
-            }}>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Operator: <strong style={{ color: '#f8fafc' }}>{poProgress.operatorStats.operatorName}</strong>
-              </span>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <span style={{ color: '#10b981', fontWeight: 700 }}>Your Passed: {poProgress.operatorStats.passedCount}</span>
-                <span style={{ color: '#ef4444', fontWeight: 700 }}>Your Failed: {poProgress.operatorStats.failedCount}</span>
+            {/* SECONDARY / SMALL: PO Total Summary */}
+            <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
+              <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
+                <span>Target: <strong>{targetPoQty}</strong></span>
+                <span>Passed: <strong style={{ color: '#10B981' }}>{qcPassedQty}</strong></span>
+                <span>Remaining: <strong style={{ color: 'var(--primary-teal)' }}>{remainingQcQty}</strong></span>
+                <span>Overall: <strong>{Math.round((qcPassedQty / (targetPoQty || 1)) * 100)}%</strong></span>
               </div>
             </div>
 

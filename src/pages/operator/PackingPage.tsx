@@ -348,54 +348,45 @@ export const PackingPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Active Scanning & Action */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* PO Packing Progress & Operator Metrics */}
+          {/* PO Packing Progress & Operator Metrics - Operator Primary */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-blue)', letterSpacing: '0.05em' }}>
-                PRODUCTION ORDER PACKING PROGRESS
-              </span>
-              <StatusPill label={`Remaining: ${remainingPackQty}`} variant={remainingPackQty === 0 ? 'green' : 'blue'} />
+            {/* PRIMARY / LARGE: Operator Work */}
+            <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#3B82F6' }}>
+                  MY PACKING PROGRESS — {packProgress.operatorStats.operatorName}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#3B82F6' }}>
+                  {Math.round((packProgress.operatorStats.packedCount / (targetSoQty || 1)) * 100)}%
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Packed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#3B82F6' }}>{packProgress.operatorStats.packedCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{packProgress.operatorStats.failCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-blue)' }}>
+                    {packProgress.operatorStats.packedCount + packProgress.operatorStats.failCount}
+                  </span>
+                </div>
+              </div>
+              <ProgressBar current={packProgress.operatorStats.packedCount} total={targetSoQty} height={8} color="var(--color-blue)" />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '10px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 6px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
-                <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '8px 6px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#3B82F6', display: 'block' }}>Packed</span>
-                <span style={{ fontSize: '15px', fontWeight: 800, color: '#3B82F6' }}>{packedQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(34, 211, 197, 0.1)', padding: '8px 6px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining</span>
-                <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary-teal)' }}>{remainingPackQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '8px 6px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#ef4444', display: 'block' }}>Total Failed</span>
-                <span style={{ fontSize: '15px', fontWeight: 800, color: '#ef4444' }}>{packProgress.totalFailCount}</span>
-              </div>
-            </div>
-
-            <ProgressBar current={packedQty} total={targetSoQty} height={8} color="var(--color-blue)" />
-
-            {/* Operator Personal Stats Banner */}
-            <div style={{
-              marginTop: '10px',
-              padding: '8px 12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '8px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: '12px'
-            }}>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Operator: <strong style={{ color: '#f8fafc' }}>{packProgress.operatorStats.operatorName}</strong>
-              </span>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <span style={{ color: '#3B82F6', fontWeight: 700 }}>Your Packed: {packProgress.operatorStats.packedCount}</span>
-                <span style={{ color: '#ef4444', fontWeight: 700 }}>Your Failed: {packProgress.operatorStats.failCount}</span>
+            {/* SECONDARY / SMALL: PO Total Summary */}
+            <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
+              <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
+                <span>Target: <strong>{targetSoQty}</strong></span>
+                <span>Packed: <strong style={{ color: '#3B82F6' }}>{packedQty}</strong></span>
+                <span>Remaining: <strong style={{ color: 'var(--primary-teal)' }}>{remainingPackQty}</strong></span>
+                <span>Overall: <strong>{Math.round((packedQty / (targetSoQty || 1)) * 100)}%</strong></span>
               </div>
             </div>
           </div>

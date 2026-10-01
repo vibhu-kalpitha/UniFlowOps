@@ -83,103 +83,82 @@ export async function checkOperationEnabledForPO(poId: string, opName: string): 
   return !!(row && row.cnt > 0);
 }
 
-// Product QR Range Validation Helper for PO
-export async function validateProductQrRangeForPO(po: any, rawCode: string): Promise<{ valid: boolean; config?: any; error?: string; message?: string; expectedRange?: string }> {
+// Shared Backend Product Validation Engine
+export async function validateProductForProductionOrder(poOrPoId: any, rawCode: string): Promise<{ valid: boolean; config?: any; error?: string; message?: string; expectedRange?: string }> {
+  if (!poOrPoId) {
+    return { valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' };
+  }
+  const po = typeof poOrPoId === 'string' ? await resolvePO(poOrPoId) : poOrPoId;
   if (!po) {
     return { valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' };
   }
   const code = rawCode.trim().toUpperCase();
 
-  // 1. Check production_order_configs
   const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
 
   for (const cfg of configs) {
-    const prefix = cfg.product_qr_prefix.trim().toUpperCase();
-    const start = Number(cfg.product_serial_start);
-    const end = Number(cfg.product_serial_end);
+    const configCode = (cfg.config_code || '').trim().toUpperCase();
+    const prefix = (cfg.product_qr_prefix || '').trim().toUpperCase();
+    const productType = (cfg.product_type || '').trim().toUpperCase();
 
-    if (code.startsWith(prefix)) {
-      const serialStr = code.slice(prefix.length);
-      if (serialStr && /^\d+$/.test(serialStr)) {
-        const serialNum = parseInt(serialStr, 10);
-        if (serialNum >= start && serialNum <= end) {
-          return { valid: true, config: cfg, expectedRange: `${prefix}${start} to ${prefix}${end}` };
-        }
-      }
+    // 1. Config code prefix match (e.g. PNFLSS09260001 starts with PNFLSS)
+    if (configCode && code.startsWith(configCode)) {
+      return { valid: true, config: cfg };
+    }
+
+    // 2. Product QR prefix match
+    if (prefix && code.startsWith(prefix)) {
+      return { valid: true, config: cfg };
+    }
+
+    // 3. NO_SIZE / LETTERS config match
+    if (productType === 'NO_SIZE' || configCode === 'NO_SIZE') {
+      return { valid: true, config: cfg };
     }
   }
 
-  // 2. Check legacy sales_orders
-  const soRows = await db.prepare(`
-    SELECT * FROM sales_orders WHERE production_order_id = ? AND product_qr_prefix IS NOT NULL
-  `).all(po.id) as any[];
-
+  // Legacy fallback check for historical records
+  const soRows = await db.prepare(`SELECT * FROM sales_orders WHERE production_order_id = ? AND product_qr_prefix IS NOT NULL`).all(po.id) as any[];
   for (const so of soRows) {
     const prefix = (so.product_qr_prefix || '').trim().toUpperCase();
-    const start = Number(so.product_serial_start);
-    const end = Number(so.product_serial_end);
-
-    if (prefix && !isNaN(start) && !isNaN(end) && code.startsWith(prefix)) {
-      const serialStr = code.slice(prefix.length);
-      if (serialStr && /^\d+$/.test(serialStr)) {
-        const serialNum = parseInt(serialStr, 10);
-        if (serialNum >= start && serialNum <= end) {
-          return { valid: true, config: { id: null, config_code: so.so_number, product_qr_prefix: prefix, product_serial_start: start, product_serial_end: end }, expectedRange: `${prefix}${start} to ${prefix}${end}` };
-        }
-      }
+    if (prefix && code.startsWith(prefix)) {
+      return { valid: true, config: { id: null, config_code: so.so_number, product_qr_prefix: prefix } };
     }
   }
 
   if (configs.length === 0 && soRows.length === 0) {
     return {
       valid: false,
-      error: 'QR_RANGE_NOT_CONFIGURED',
-      message: `Product QR range not configured for Production Order ${po.po_number || po.id}. Please edit PO to configure QR range.`
+      error: 'CONFIG_NOT_FOUND',
+      message: `No product configurations found for Production Order ${po.po_number || po.id}. Please configure product settings.`
     };
   }
 
-  const firstConfig = configs[0] || soRows[0];
-  const prefixStr = firstConfig ? (firstConfig.product_qr_prefix || firstConfig.productQrPrefix) : '';
-  const expectedRange = firstConfig ? `${prefixStr}${firstConfig.product_serial_start} to ${prefixStr}${firstConfig.product_serial_end}` : undefined;
-
   return {
     valid: false,
-    error: 'QR_OUT_OF_RANGE',
-    message: `This product QR does not belong to Production Order ${po.po_number || po.id}.`,
-    expectedRange
+    error: 'CONFIG_NOT_SELECTED',
+    message: `Product configuration for '${code}' is not selected for Production Order ${po.po_number || po.id}.`
   };
 }
 
-export function validateProductQrRange(targetObj: any, rawCode: string): { valid: boolean; config?: any; error?: string; message?: string; expectedRange?: string } {
-  if (!targetObj) {
-    return { valid: false, error: 'PO_NOT_FOUND', message: 'Target not found' };
-  }
-  const prefix = (targetObj.product_qr_prefix || targetObj.productQrPrefix || '').trim().toUpperCase();
-  const start = Number(targetObj.product_serial_start ?? targetObj.productSerialStart);
-  const end = Number(targetObj.product_serial_end ?? targetObj.productSerialEnd);
+export async function validateProductQrRangeForPO(po: any, rawCode: string) {
+  return validateProductForProductionOrder(po, rawCode);
+}
 
+export function validateProductQrRange(targetObj: any, rawCode: string) {
+  if (!targetObj) return { valid: false, error: 'PO_NOT_FOUND', message: 'Target not found' };
+  const prefix = (targetObj?.product_qr_prefix || targetObj?.productQrPrefix || '').trim().toUpperCase();
+  const start = Number(targetObj?.product_serial_start ?? targetObj?.productSerialStart);
+  const end = Number(targetObj?.product_serial_end ?? targetObj?.productSerialEnd);
   if (!prefix || isNaN(start) || isNaN(end)) {
     return { valid: false, error: 'QR_RANGE_NOT_CONFIGURED', message: 'Product QR range not configured' };
   }
-
   const code = rawCode.trim().toUpperCase();
   const expectedRange = `${prefix}${start} to ${prefix}${end}`;
-
   if (!code.startsWith(prefix)) {
     return { valid: false, error: 'QR_OUT_OF_RANGE', message: 'QR prefix mismatch', expectedRange };
   }
-
-  const serialStr = code.slice(prefix.length);
-  if (!serialStr || !/^\d+$/.test(serialStr)) {
-    return { valid: false, error: 'QR_OUT_OF_RANGE', message: 'Invalid serial format', expectedRange };
-  }
-
-  const serialNum = parseInt(serialStr, 10);
-  if (serialNum >= start && serialNum <= end) {
-    return { valid: true, expectedRange };
-  }
-
-  return { valid: false, error: 'QR_OUT_OF_RANGE', message: 'Serial number out of range', expectedRange };
+  return { valid: true, expectedRange };
 }
 
 export async function calculatePOProgress(poId: string) {
@@ -711,6 +690,15 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     const isPass = qcResult === 'PASS' && testResult === 'PASS';
     const existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
 
+    const currentProgress = await calculatePOProgress(po.id);
+    if (!existingQc && isPass && currentProgress.targetQuantity > 0 && currentProgress.passedUnique >= currentProgress.targetQuantity) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'REJECTED', 'TARGET_QUANTITY_REACHED', 'Target quantity reached');
+      return res.status(400).json({
+        error: 'TARGET_QUANTITY_REACHED',
+        message: `Target quantity (${currentProgress.targetQuantity} Pcs) for Production Order ${po.po_number || po.id} has already been reached.`
+      });
+    }
+
     const isAlreadyPassed = item.status === 'QC_PASSED' || item.status === 'PACKED' || (existingQc && existingQc.qc_result === 'PASS' && existingQc.test_result === 'PASS');
 
     if (isAlreadyPassed && isPass) {
@@ -990,6 +978,15 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     const isOpEnabledPack = await checkOperationEnabledForPO(po.id, 'Packing');
     if (!isOpEnabledPack) {
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Packing operation is not enabled for Production Order ${po.po_number || po.id}.` });
+    }
+
+    const configCheck = await validateProductForProductionOrder(po, itemQr);
+    if (!configCheck.valid) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', configCheck.error, configCheck.message);
+      return res.status(400).json({
+        error: configCheck.error,
+        message: configCheck.message
+      });
     }
 
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
@@ -1320,15 +1317,25 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     // Filter items to strictly exclude permanently removed QRs
     const activeItems = items.filter(i => !permanentlyRemovedQrs.includes(i.qr_code.trim().toUpperCase()));
     const totalItems = activeItems.length;
-    const inspectionId = `aql-${Date.now()}`;
 
-    // Load previous sample records for items in this box that PASSED
+    // Check for an existing completed AQL inspection on this box
+    const existingCompletedInspection = await db.prepare(`
+      SELECT ai.*, u.full_name as inspector_name, u.username as inspector_username
+      FROM aql_inspections ai
+      LEFT JOIN users u ON u.id = ai.inspector_id
+      WHERE ai.box_id = ? AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED', 'FAIL', 'FAILED')
+      ORDER BY ai.completed_at DESC LIMIT 1
+    `).get(box.id) as any;
+
+    const inspectionId = existingCompletedInspection ? existingCompletedInspection.id : `aql-${Date.now()}`;
+
+    // Load previous sample records for items in this box
     const previousPassedSamples = await db.prepare(`
       SELECT DISTINCT u.qr_code as itemQr, asamp.result, asamp.action_type as actionType
       FROM aql_samples asamp
       JOIN aql_inspections ai ON ai.id = asamp.inspection_id
       JOIN item_units u ON u.id = asamp.item_id
-      WHERE ai.box_id = ? AND asamp.result = 'PASS'
+      WHERE ai.box_id = ? AND UPPER(TRIM(asamp.result)) = 'PASS'
     `).all(box.id) as any[];
 
     // Load item-wise AQL inspection history
@@ -1341,10 +1348,12 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
       ORDER BY asamp.scanned_at DESC
     `).all(box.id) as any[];
 
-    await db.prepare(`
-      INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, started_at)
-      VALUES (?, ?, ?, ?, ?, 'PENDING', NOW(3))
-    `).run(inspectionId, box.id, box.production_order_id, operatorId, totalItems > 0 ? totalItems : 3);
+    if (!existingCompletedInspection) {
+      await db.prepare(`
+        INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, started_at)
+        VALUES (?, ?, ?, ?, ?, 'PENDING', NOW(3))
+      `).run(inspectionId, box.id, box.production_order_id, operatorId, totalItems > 0 ? totalItems : 3);
+    }
 
     return res.json({
       box: {
@@ -1354,6 +1363,7 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
         items: activeItems
       },
       inspectionId,
+      existingCompletedInspection: existingCompletedInspection || null,
       requiredSamples: totalItems > 0 ? totalItems : 3,
       previousPassedSamples: previousPassedSamples || [],
       permanentlyRemovedQrs,
@@ -1373,6 +1383,13 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
     const insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
     if (!insp) {
       return res.status(404).json({ error: 'INSPECTION_NOT_FOUND', message: 'AQL inspection record not found' });
+    }
+
+    if (insp.production_order_id) {
+      const configCheck = await validateProductForProductionOrder(insp.production_order_id, itemQr);
+      if (!configCheck.valid) {
+        return res.status(400).json({ error: configCheck.error, message: configCheck.message });
+      }
     }
 
     let item = await db.prepare(`SELECT * FROM item_units WHERE qr_code = ?`).get(itemQr) as any;

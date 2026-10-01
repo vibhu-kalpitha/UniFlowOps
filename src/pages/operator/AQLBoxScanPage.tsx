@@ -252,50 +252,45 @@ export const AQLBoxScanPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Box Scanner & Detected Box Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* AQL Inspection Progress & Operator Metrics */}
+          {/* AQL Inspection Progress & Operator Metrics - Inspector Primary */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
-                PRODUCTION ORDER AQL PROGRESS
-              </span>
-              <StatusPill label={`Passed: ${aqlPassedQty}`} variant={aqlPassedQty > 0 ? 'green' : 'purple'} />
+            {/* PRIMARY / LARGE: Inspector Work */}
+            <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-purple)' }}>
+                  MY AQL PROGRESS — {aqlProgress.operatorStats.operatorName}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-purple)' }}>
+                  {Math.round((aqlProgress.operatorStats.passedCount / (targetSoQty || 1)) * 100)}%
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-purple)' }}>{aqlProgress.operatorStats.passedCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{aqlProgress.operatorStats.failedCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Inspected</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                    {aqlProgress.operatorStats.passedCount + aqlProgress.operatorStats.failedCount}
+                  </span>
+                </div>
+              </div>
+              <ProgressBar current={aqlProgress.operatorStats.passedCount} total={targetSoQty} height={8} color="var(--color-purple)" />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--color-purple)', display: 'block' }}>AQL Passed</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-purple)' }}>{aqlPassedQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#ef4444', display: 'block' }}>AQL Failed</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: '#ef4444' }}>{aqlProgress.aqlFailedCount}</span>
-              </div>
-            </div>
-
-            <ProgressBar current={aqlPassedQty} total={targetSoQty} height={8} color="var(--color-purple)" />
-
-            {/* Operator Personal Stats Banner */}
-            <div style={{
-              marginTop: '10px',
-              padding: '8px 12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '8px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: '12px'
-            }}>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
-                Inspector: <strong style={{ color: '#f8fafc' }}>{aqlProgress.operatorStats.operatorName}</strong>
-              </span>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <span style={{ color: '#8b5cf6', fontWeight: 700 }}>Your Passed: {aqlProgress.operatorStats.passedCount}</span>
-                <span style={{ color: '#ef4444', fontWeight: 700 }}>Your Failed: {aqlProgress.operatorStats.failedCount}</span>
+            {/* SECONDARY / SMALL: PO Total Summary */}
+            <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL AQL</span>
+              <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
+                <span>Target: <strong>{targetSoQty}</strong></span>
+                <span>Passed: <strong style={{ color: 'var(--color-purple)' }}>{aqlPassedQty}</strong></span>
+                <span>Failed: <strong style={{ color: '#EF4444' }}>{aqlProgress.aqlFailedCount}</strong></span>
+                <span>Overall: <strong>{Math.round((aqlPassedQty / (targetSoQty || 1)) * 100)}%</strong></span>
               </div>
             </div>
           </div>

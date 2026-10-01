@@ -401,17 +401,14 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     const validQrEnd = validateProductQrRange(testSo, 'PNFLS0926321869');
     expect(validQrEnd.valid).toBe(true);
 
-    // 4. QR below range -> QR_OUT_OF_RANGE
+    // 4. Serial number outside old range is still valid if configuration prefix matches
     const belowQr = validateProductQrRange(testSo, 'PNFLS092632669');
-    expect(belowQr.valid).toBe(false);
-    expect(belowQr.error).toBe('QR_OUT_OF_RANGE');
+    expect(belowQr.valid).toBe(true);
 
-    // 5. QR above range -> QR_OUT_OF_RANGE
     const aboveQr = validateProductQrRange(testSo, 'PNFLS0926321870');
-    expect(aboveQr.valid).toBe(false);
-    expect(aboveQr.error).toBe('QR_OUT_OF_RANGE');
+    expect(aboveQr.valid).toBe(true);
 
-    // 6. QR with wrong prefix -> QR_OUT_OF_RANGE
+    // 5. QR with wrong prefix -> QR_OUT_OF_RANGE
     const wrongPrefixQr = validateProductQrRange(testSo, 'WRONGPREFIX670');
     expect(wrongPrefixQr.valid).toBe(false);
     expect(wrongPrefixQr.error).toBe('QR_OUT_OF_RANGE');
@@ -675,6 +672,152 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM sales_orders WHERE id = ?`, [soId]);
       await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
       await db.execute(`DELETE FROM users WHERE id IN (?, ?)`, [opId, unallocatedOpId]);
+    }
+  });
+
+  it('10. Product Configuration & Shared Validation Engine Unit Tests (34 Rule Suite)', async () => {
+    const { validateProductForProductionOrder } = await import('../server/src/routes/scans');
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+
+    const timestamp = Date.now();
+    const poId = `po-cfg-test-${timestamp}`;
+
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      // 1. Setup Test PO
+      await db.execute(
+        `INSERT INTO production_orders (id, po_number, style_id, total_pcs, status, created_at, updated_at)
+         VALUES (?, ?, 'style-001', 500, 'CURRENT', NOW(3), NOW(3))`,
+        [poId, `PO-CFG-${timestamp}`]
+      );
+
+      // 2. Setup Product Configurations: LEG (SS, SM) and CORE (TS, TL)
+      const configs = [
+        { id: `poc-1-${timestamp}`, poId, code: 'PNFLSS', type: 'LEG', size: 'SS', qty: 100 },
+        { id: `poc-2-${timestamp}`, poId, code: 'PNFLSM', type: 'LEG', size: 'SM', qty: 100 },
+        { id: `poc-3-${timestamp}`, poId, code: 'PNCRTS', type: 'CORE', size: 'TS', qty: 50 },
+        { id: `poc-4-${timestamp}`, poId, code: 'PNCRTL', type: 'CORE', size: 'TL', qty: 50 }
+      ];
+
+      for (const cfg of configs) {
+        await db.execute(
+          `INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, quantity, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))`,
+          [cfg.id, cfg.poId, cfg.code, cfg.type, cfg.size, cfg.qty]
+        );
+      }
+
+      // Test Case 1: LEG SS selected -> PNFLSS accepted
+      const check1 = await validateProductForProductionOrder(poId, 'PNFLSS09260001');
+      expect(check1.valid).toBe(true);
+
+      // Test Case 2: LEG SM selected -> PNFLSM accepted
+      const check2 = await validateProductForProductionOrder(poId, 'PNFLSM09260055');
+      expect(check2.valid).toBe(true);
+
+      // Test Case 3: LEG SS+SM -> both accepted
+      const check3a = await validateProductForProductionOrder(poId, 'PNFLSS09260099');
+      const check3b = await validateProductForProductionOrder(poId, 'PNFLSM09260012');
+      expect(check3a.valid).toBe(true);
+      expect(check3b.valid).toBe(true);
+
+      // Test Case 4: CORE TS+TL -> PNCRTS and PNCRTL accepted
+      const check4a = await validateProductForProductionOrder(poId, 'PNCRTS09260001');
+      const check4b = await validateProductForProductionOrder(poId, 'PNCRTL09260002');
+      expect(check4a.valid).toBe(true);
+      expect(check4b.valid).toBe(true);
+
+      // Test Case 5: LEG + CORE -> all selected configurations accepted
+      const check5 = await validateProductForProductionOrder(poId, 'PNCRTS9999');
+      expect(check5.valid).toBe(true);
+
+      // Test Case 6: Unselected configuration rejected (e.g. PNFLSL or PNCRSS)
+      const check6a = await validateProductForProductionOrder(poId, 'PNFLSL09260001');
+      const check6b = await validateProductForProductionOrder(poId, 'PNCRSS09260001');
+      expect(check6a.valid).toBe(false);
+      expect(check6b.valid).toBe(false);
+      expect(check6a.error).toBe('CONFIG_NOT_SELECTED');
+
+      // Test Case 7: Serial number outside old range (e.g. 999999) does NOT cause rejection when configuration is valid
+      const check7 = await validateProductForProductionOrder(poId, 'PNFLSS9999999');
+      expect(check7.valid).toBe(true);
+
+      // Clean up test configs & PO
+      await db.execute(`DELETE FROM production_order_configs WHERE production_order_id = ?`, [poId]);
+      await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+    }
+  });
+
+  it('11. AQL Box Active Contents & Permanent Removal Traceability Unit Tests', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const timestamp = Date.now();
+    const poId = `po-aql-test-${timestamp}`;
+    const boxId = `bx-aql-test-${timestamp}`;
+    const item1Id = `itm-aql-1-${timestamp}`;
+    const item2Id = `itm-aql-2-${timestamp}`;
+    const boxItemId1 = `bi-aql-1-${timestamp}`;
+    const boxItemId2 = `bi-aql-2-${timestamp}`;
+
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      // 1. Insert PO & Box
+      await db.execute(
+        `INSERT INTO production_orders (id, po_number, status, created_at, updated_at) VALUES (?, ?, 'CURRENT', NOW(3), NOW(3))`,
+        [poId, `PO-AQL-${timestamp}`]
+      );
+      await db.execute(
+        `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BX-AQL-01', 'BX-AQL-01', ?, 12, 'OPEN', NOW(3))`,
+        [boxId, poId]
+      );
+
+      // 2. Insert 2 item units
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'PNFLSS01', ?, 'PACKED', NOW(3), NOW(3))`,
+        [item1Id, poId]
+      );
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'PNFLSS02', ?, 'PACKED', NOW(3), NOW(3))`,
+        [item2Id, poId]
+      );
+
+      // 3. Pack 2 items into box
+      await db.execute(
+        `INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-op', NOW(3), 1)`,
+        [boxItemId1, boxId, item1Id]
+      );
+      await db.execute(
+        `INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-op', NOW(3), 1)`,
+        [boxItemId2, boxId, item2Id]
+      );
+
+      // 4. Verify box active item count = 2
+      const activeCountBefore = await db.queryOne<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND active = 1`, [boxId]);
+      expect(Number(activeCountBefore?.cnt)).toBe(2);
+
+      // 5. Simulate Permanent Removal of item 1
+      const removeAuditId = `prm-test-${timestamp}`;
+      await db.execute(
+        `INSERT INTO permanently_removed_items (id, item_id, item_qr, box_id, production_order_id, removed_by, action_type, reason, removed_at)
+         VALUES (?, ?, 'PNFLSS01', ?, ?, 'usr-inspector', 'PERMANENTLY_REMOVE', 'Irreparable Damage', NOW(3))`,
+        [removeAuditId, item1Id, boxId, poId]
+      );
+      await db.execute(`UPDATE box_items SET active = 0 WHERE id = ?`, [boxItemId1]);
+
+      // 6. Verify box active item count drops to 1
+      const activeCountAfter = await db.queryOne<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND active = 1`, [boxId]);
+      expect(Number(activeCountAfter?.cnt)).toBe(1);
+
+      // 7. Verify audit record exists in permanently_removed_items
+      const auditRec = await db.queryOne<{ item_qr: string; action_type: string }>(`SELECT item_qr, action_type FROM permanently_removed_items WHERE id = ?`, [removeAuditId]);
+      expect(auditRec?.item_qr).toBe('PNFLSS01');
+      expect(auditRec?.action_type).toBe('PERMANENTLY_REMOVE');
+
+      // Cleanup
+      await db.execute(`DELETE FROM permanently_removed_items WHERE id = ?`, [removeAuditId]);
+      await db.execute(`DELETE FROM box_items WHERE id IN (?, ?)`, [boxItemId1, boxItemId2]);
+      await db.execute(`DELETE FROM item_units WHERE id IN (?, ?)`, [item1Id, item2Id]);
+      await db.execute(`DELETE FROM boxes WHERE id = ?`, [boxId]);
+      await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
     }
   });
 });
