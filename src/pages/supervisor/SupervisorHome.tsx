@@ -11,11 +11,21 @@ export const SupervisorHome: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, productionOrders, refreshProductionOrders } = useApp();
   const [processedToday, setProcessedToday] = useState<number>(0);
+  const [totalStylesCount, setTotalStylesCount] = useState<number>(0);
 
   useEffect(() => {
     refreshProductionOrders();
+
+    apiFetch('/api/styles')
+      .then((styles: any) => {
+        if (Array.isArray(styles)) {
+          setTotalStylesCount(styles.length);
+        }
+      })
+      .catch(() => {});
+
     apiFetch('/dashboard/supervisor')
-      .then(data => {
+      .then((data: any) => {
         if (data && typeof data.processedToday === 'number') {
           setProcessedToday(data.processedToday);
         }
@@ -26,7 +36,6 @@ export const SupervisorHome: React.FC = () => {
   }, []);
 
   const currentPos = productionOrders.filter(p => p.status === 'Current' || p.status === 'Draft');
-  const totalSos = currentPos.reduce((sum, p) => sum + (p.salesOrders ? p.salesOrders.length : 0), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -38,7 +47,7 @@ export const SupervisorHome: React.FC = () => {
             {currentUser?.name || 'Supervisor'} 👨‍💼
           </h2>
           <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-            Assigned: Line 04 & Line 02
+            Active Factory Lines & Production Control
           </span>
         </div>
       </div>
@@ -50,8 +59,8 @@ export const SupervisorHome: React.FC = () => {
           <span style={styles.statLabel}>Active POs</span>
         </div>
         <div style={styles.statCard}>
-          <span style={{ ...styles.statNum, color: 'var(--color-blue)' }}>{totalSos}</span>
-          <span style={styles.statLabel}>Sales Orders</span>
+          <span style={{ ...styles.statNum, color: 'var(--color-blue)' }}>{totalStylesCount || 1}</span>
+          <span style={styles.statLabel}>Total Styles</span>
         </div>
         <div style={styles.statCard}>
           <span style={{ ...styles.statNum, color: 'var(--color-green)' }}>{processedToday}</span>
@@ -68,7 +77,7 @@ export const SupervisorHome: React.FC = () => {
             onClick={() => navigate('/supervisor/production-orders/new/style')}
           >
             <PlusCircle size={22} color="#041820" />
-            <span>Create Style</span>
+            <span>Create Style / PO</span>
           </button>
 
           <button
@@ -88,8 +97,8 @@ export const SupervisorHome: React.FC = () => {
           <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-amber)' }}>Needs Attention</h4>
         </div>
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <p>• Line 04 Shift Handover due at 18:00 (Chamika Silva → Kavindu Perera)</p>
-          <p>• SO-77201 Box BX-000218 requires final AQL review</p>
+          <p>• Shift Handover monitor active for assigned operators.</p>
+          <p>• Verify box AQL inspection results before final warehouse transfer.</p>
         </div>
       </div>
 
@@ -98,7 +107,7 @@ export const SupervisorHome: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
           <h4 style={styles.sectionTitle}>Current Production Orders</h4>
           <button
-            style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 700 }}
+            style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
             onClick={() => navigate('/supervisor/orders')}
           >
             View All
@@ -112,9 +121,9 @@ export const SupervisorHome: React.FC = () => {
             </p>
           ) : (
             currentPos.map(po => {
-              const sos = po.salesOrders || [];
-              const totalQty = sos.reduce((sum, s) => sum + (s.quantity || 0), 0);
-              const packedQty = sos.reduce((sum, s) => sum + (s.progress?.packed || 0), 0);
+              const totalQty = po.totalQuantity || po.productConfigurations?.reduce((sum, c) => sum + (c.quantity || 0), 0) || 0;
+              const packedQty = po.progress?.packed || 0;
+              const configsCount = po.productConfigurations?.length || 0;
 
               return (
                 <div
@@ -134,19 +143,14 @@ export const SupervisorHome: React.FC = () => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                     <span>Map PO: {po.mapPo}</span>
-                    <span>{sos.length} Sales Orders</span>
+                    <span>{configsCount} Product Configs</span>
                   </div>
                   <div style={{ marginTop: '10px' }}>
-                    {sos.length > 0 ? (
-                      <ProgressBar current={packedQty} total={totalQty} height={6} />
-                    ) : (
-                      <div style={{ padding: '6px 10px', backgroundColor: 'rgba(243, 168, 51, 0.12)', border: '1px solid rgba(243, 168, 51, 0.3)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-amber)', fontWeight: 700 }}>
-                          Awaiting operator allocation / sales orders
-                        </span>
-                        <StatusPill label="Unassigned" variant="amber" />
-                      </div>
-                    )}
+                    <ProgressBar current={packedQty} total={totalQty || 1} height={6} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      <span>Packed: {packedQty}</span>
+                      <span>Target: {totalQty}</span>
+                    </div>
                   </div>
                 </div>
               );
@@ -201,7 +205,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#041820',
     fontWeight: 800,
     fontSize: '15px',
-    gap: '8px'
+    gap: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: 'none',
+    cursor: 'pointer'
   },
   actionBtnSecondary: {
     height: '52px',
@@ -211,6 +220,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-primary)',
     fontWeight: 700,
     fontSize: '15px',
-    gap: '8px'
+    gap: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer'
   }
 };
+

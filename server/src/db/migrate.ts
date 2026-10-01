@@ -179,9 +179,9 @@ async function runSchemaAlignment005(): Promise<void> {
         config_code VARCHAR(191) NOT NULL,
         product_type VARCHAR(50) NULL,
         size VARCHAR(50) NULL,
-        product_qr_prefix VARCHAR(191) NOT NULL,
-        product_serial_start BIGINT NOT NULL,
-        product_serial_end BIGINT NOT NULL,
+        product_qr_prefix VARCHAR(191) NULL,
+        product_serial_start BIGINT NULL,
+        product_serial_end BIGINT NULL,
         quantity INT NOT NULL,
         created_at DATETIME(3) NOT NULL,
         updated_at DATETIME(3) NOT NULL,
@@ -353,9 +353,9 @@ async function runStartupColumnChecks(): Promise<void> {
             config_code VARCHAR(191) NOT NULL,
             product_type VARCHAR(50) NULL,
             size VARCHAR(50) NULL,
-            product_qr_prefix VARCHAR(191) NOT NULL,
-            product_serial_start BIGINT NOT NULL,
-            product_serial_end BIGINT NOT NULL,
+            product_qr_prefix VARCHAR(191) NULL,
+            product_serial_start BIGINT NULL,
+            product_serial_end BIGINT NULL,
             quantity INT NOT NULL,
             created_at DATETIME(3) NOT NULL,
             updated_at DATETIME(3) NOT NULL,
@@ -365,6 +365,10 @@ async function runStartupColumnChecks(): Promise<void> {
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('  ✅ Created production_order_configs table');
+      } else {
+        await db.exec(`ALTER TABLE production_order_configs MODIFY COLUMN product_serial_start BIGINT NULL;`).catch(() => {});
+        await db.exec(`ALTER TABLE production_order_configs MODIFY COLUMN product_serial_end BIGINT NULL;`).catch(() => {});
+        await db.exec(`ALTER TABLE production_order_configs MODIFY COLUMN product_qr_prefix VARCHAR(191) NULL;`).catch(() => {});
       }
     } catch (e: any) { console.warn('  ⚠️ production_order_configs:', e.message); }
 

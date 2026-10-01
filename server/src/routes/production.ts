@@ -575,15 +575,18 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       if (body.productConfigurations && body.productConfigurations.length > 0) {
         for (const config of body.productConfigurations) {
           const pocId = `poc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-          const prefix = config.productQrPrefix.trim().toUpperCase();
-          const start = Number(config.productSerialStart);
-          const end = Number(config.productSerialEnd);
-          const qty = config.quantity || (end - start + 1);
+          const code = (config.configCode || config.config_code || 'CONFIG-1').trim().toUpperCase();
+          const pType = config.productType || config.product_type || null;
+          const sz = config.size || null;
+          const prefix = config.productQrPrefix ? config.productQrPrefix.trim().toUpperCase() : code;
+          const start = config.productSerialStart != null && !isNaN(Number(config.productSerialStart)) ? Number(config.productSerialStart) : null;
+          const end = config.productSerialEnd != null && !isNaN(Number(config.productSerialEnd)) ? Number(config.productSerialEnd) : null;
+          const qty = Number(config.quantity) || (start != null && end != null ? Math.max(1, end - start + 1) : 100);
 
           await tx.prepare(`
             INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, product_qr_prefix, product_serial_start, product_serial_end, quantity, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-          `).run(pocId, poDbId, config.configCode, config.productType || null, config.size || null, prefix, start, end, qty);
+          `).run(pocId, poDbId, code, pType, sz, prefix, start, end, qty);
         }
       }
 
