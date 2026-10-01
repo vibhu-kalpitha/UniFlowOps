@@ -465,45 +465,82 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 500;
     }
 
-    // Overall AQL Passed Item Count for this PO (sum items in passed boxes)
+    const poKeys = [po.id, po.po_number, po.map_po].filter(Boolean);
+    const placeholders = poKeys.map(() => '?').join(',');
+
+    // 1. Count items passed via aql_inspections (box-wise sum or required_samples)
     const aqlPassRow = await db.prepare(`
       SELECT COALESCE(SUM(
         CASE 
           WHEN (SELECT COUNT(*) FROM box_items bi WHERE (bi.box_id = b.id OR UPPER(TRIM(bi.box_id)) = UPPER(TRIM(ai.box_id))) AND bi.active = 1) > 0 
           THEN (SELECT COUNT(*) FROM box_items bi WHERE (bi.box_id = b.id OR UPPER(TRIM(bi.box_id)) = UPPER(TRIM(ai.box_id))) AND bi.active = 1)
+          WHEN (SELECT COUNT(*) FROM aql_samples asamp WHERE asamp.inspection_id = ai.id AND UPPER(TRIM(asamp.result)) = 'PASS') > 0
+          THEN (SELECT COUNT(*) FROM aql_samples asamp WHERE asamp.inspection_id = ai.id AND UPPER(TRIM(asamp.result)) = 'PASS')
           ELSE COALESCE(ai.required_samples, 1)
         END
       ), 0) as cnt
       FROM aql_inspections ai
       LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
       WHERE (
-        ai.production_order_id = ? 
-        OR b.production_order_id = ? 
-        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        ai.production_order_id IN (${placeholders}) 
+        OR b.production_order_id IN (${placeholders}) 
+        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
       ) AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
-    `).get(po.id, po.id, po.id, po.id) as any;
-    const aqlPassedCount = Number(aqlPassRow?.cnt || 0);
+    `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
 
-    // Overall AQL Failed Item Count for this PO (sum items in failed boxes)
+    // 2. Count distinct items passed via aql_samples table
+    const samplePassRow = await db.prepare(`
+      SELECT COUNT(DISTINCT asamp.item_id) as cnt
+      FROM aql_samples asamp
+      JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+      LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
+      WHERE (
+        ai.production_order_id IN (${placeholders}) 
+        OR b.production_order_id IN (${placeholders}) 
+        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+      ) AND UPPER(TRIM(asamp.result)) = 'PASS'
+    `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
+
+    const aqlPassedCount = Math.max(Number(aqlPassRow?.cnt || 0), Number(samplePassRow?.cnt || 0));
+
+    // 1. Count items failed via aql_inspections
     const aqlFailRow = await db.prepare(`
       SELECT COALESCE(SUM(
         CASE 
           WHEN (SELECT COUNT(*) FROM box_items bi WHERE (bi.box_id = b.id OR UPPER(TRIM(bi.box_id)) = UPPER(TRIM(ai.box_id))) AND bi.active = 1) > 0 
           THEN (SELECT COUNT(*) FROM box_items bi WHERE (bi.box_id = b.id OR UPPER(TRIM(bi.box_id)) = UPPER(TRIM(ai.box_id))) AND bi.active = 1)
+          WHEN (SELECT COUNT(*) FROM aql_samples asamp WHERE asamp.inspection_id = ai.id AND UPPER(TRIM(asamp.result)) = 'FAIL') > 0
+          THEN (SELECT COUNT(*) FROM aql_samples asamp WHERE asamp.inspection_id = ai.id AND UPPER(TRIM(asamp.result)) = 'FAIL')
           ELSE COALESCE(ai.required_samples, 1)
         END
       ), 0) as cnt
       FROM aql_inspections ai
       LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
       WHERE (
-        ai.production_order_id = ? 
-        OR b.production_order_id = ? 
-        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        ai.production_order_id IN (${placeholders}) 
+        OR b.production_order_id IN (${placeholders}) 
+        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
       ) AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
-    `).get(po.id, po.id, po.id, po.id) as any;
-    const aqlFailedCount = Number(aqlFailRow?.cnt || 0);
+    `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
+
+    // 2. Count distinct items failed via aql_samples table
+    const sampleFailRow = await db.prepare(`
+      SELECT COUNT(DISTINCT asamp.item_id) as cnt
+      FROM aql_samples asamp
+      JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+      LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
+      WHERE (
+        ai.production_order_id IN (${placeholders}) 
+        OR b.production_order_id IN (${placeholders}) 
+        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+      ) AND UPPER(TRIM(asamp.result)) = 'FAIL'
+    `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
+
+    const aqlFailedCount = Math.max(Number(aqlFailRow?.cnt || 0), Number(sampleFailRow?.cnt || 0));
 
     // Operator specific AQL Passed Item Count
     const opAqlPassRow = await db.prepare(`
@@ -517,15 +554,15 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       FROM aql_inspections ai
       LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
       WHERE (
-        ai.production_order_id = ? 
-        OR b.production_order_id = ? 
-        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        ai.production_order_id IN (${placeholders}) 
+        OR b.production_order_id IN (${placeholders}) 
+        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
       )
       AND (ai.inspector_id = ? OR ai.inspector_id = ?)
       AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
-    `).get(po.id, po.id, po.id, po.id, operatorId, operatorUsername) as any;
-    const operatorPassedCount = Number(opAqlPassRow?.cnt || 0);
+    `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys, operatorId, operatorUsername) as any;
+    const operatorPassedCount = Math.max(Number(opAqlPassRow?.cnt || 0), aqlPassedCount);
 
     // Operator specific AQL Failed Item Count
     const opAqlFailRow = await db.prepare(`
@@ -539,15 +576,15 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       FROM aql_inspections ai
       LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
       WHERE (
-        ai.production_order_id = ? 
-        OR b.production_order_id = ? 
-        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        ai.production_order_id IN (${placeholders}) 
+        OR b.production_order_id IN (${placeholders}) 
+        OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
       )
       AND (ai.inspector_id = ? OR ai.inspector_id = ?)
       AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
-    `).get(po.id, po.id, po.id, po.id, operatorId, operatorUsername) as any;
-    const operatorFailedCount = Number(opAqlFailRow?.cnt || 0);
+    `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys, operatorId, operatorUsername) as any;
+    const operatorFailedCount = Math.max(Number(opAqlFailRow?.cnt || 0), aqlFailedCount);
 
     return res.json({
       poId: po.id,
