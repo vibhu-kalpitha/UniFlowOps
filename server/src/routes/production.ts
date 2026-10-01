@@ -571,12 +571,12 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
         await tx.prepare(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, ?)`).run(poDbId, code);
       }
 
-      // Insert product configurations
       if (body.productConfigurations && body.productConfigurations.length > 0) {
         for (const config of body.productConfigurations) {
+          const cfgAny = config as any;
           const pocId = `poc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-          const code = (config.configCode || config.config_code || 'CONFIG-1').trim().toUpperCase();
-          const pType = config.productType || config.product_type || null;
+          const code = (config.configCode || cfgAny.config_code || 'CONFIG-1').trim().toUpperCase();
+          const pType = config.productType || cfgAny.product_type || null;
           const sz = config.size || null;
           const prefix = config.productQrPrefix ? config.productQrPrefix.trim().toUpperCase() : code;
           const start = config.productSerialStart != null && !isNaN(Number(config.productSerialStart)) ? Number(config.productSerialStart) : null;
