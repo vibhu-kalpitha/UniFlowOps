@@ -33,6 +33,9 @@ export const PackingPage: React.FC = () => {
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
 
+  const initialTarget = po?.totalQuantity || 500;
+  const initialPacked = po?.progress?.packed || 0;
+
   const [packProgress, setPackProgress] = useState<{
     loading: boolean;
     targetQuantity: number;
@@ -46,13 +49,13 @@ export const PackingPage: React.FC = () => {
     };
   }>({
     loading: true,
-    targetQuantity: po?.totalQuantity || 500,
-    packedCount: 0,
-    remainingToPack: po?.totalQuantity || 500,
-    totalFailCount: 0,
+    targetQuantity: initialTarget,
+    packedCount: initialPacked,
+    remainingToPack: Math.max(0, initialTarget - initialPacked),
+    totalFailCount: po?.progress?.qcFailed || 0,
     operatorStats: {
       operatorName: 'Operator',
-      packedCount: 0,
+      packedCount: initialPacked,
       failCount: 0
     }
   });
@@ -65,13 +68,13 @@ export const PackingPage: React.FC = () => {
       if (res && typeof res.packedCount === 'number') {
         setPackProgress({
           loading: false,
-          targetQuantity: res.targetQuantity,
+          targetQuantity: res.targetQuantity || po.totalQuantity || 500,
           packedCount: res.packedCount,
           remainingToPack: res.remainingToPack,
-          totalFailCount: res.totalFailCount,
+          totalFailCount: res.totalFailCount || 0,
           operatorStats: res.operatorStats || {
             operatorName: 'Operator',
-            packedCount: 0,
+            packedCount: res.packedCount,
             failCount: 0
           }
         });
@@ -82,7 +85,17 @@ export const PackingPage: React.FC = () => {
   };
 
   React.useEffect(() => {
-    fetchPackingProgress();
+    if (po) {
+      const target = po.totalQuantity || 500;
+      const packed = po.progress?.packed || 0;
+      setPackProgress(prev => ({
+        ...prev,
+        targetQuantity: target,
+        packedCount: packed,
+        remainingToPack: Math.max(0, target - packed)
+      }));
+      fetchPackingProgress();
+    }
   }, [po?.dbId, po?.id]);
 
   const targetSoQty = packProgress.targetQuantity || po?.totalQuantity || 500;
@@ -223,6 +236,22 @@ export const PackingPage: React.FC = () => {
     setBox(updatedBox);
     savePackingBox(updatedBox);
     incrementPacked();
+
+    // Optimistically update packing progress box
+    setPackProgress(prev => {
+      const newPacked = prev.packedCount + 1;
+      const newRemaining = Math.max(0, prev.targetQuantity - newPacked);
+      return {
+        ...prev,
+        packedCount: newPacked,
+        remainingToPack: newRemaining,
+        operatorStats: {
+          ...prev.operatorStats,
+          packedCount: prev.operatorStats.packedCount + 1
+        }
+      };
+    });
+
     await fetchPackingProgress();
 
     return {

@@ -250,58 +250,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const incrementQCPassed = () => {
     setQcPassedCountToday(prev => prev + 1);
-    if (activeJob && activeJob.salesOrder) {
+    if (activeJob?.productionOrder) {
       const orders = repository.getProductionOrders();
-      const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po && po.salesOrders) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
-        if (so) {
-          so.progress.qcPassed += 1;
-          saveProductionOrder(po);
+      const targetId = activeJob.productionOrder.id || activeJob.productionOrder.dbId;
+      const po = orders.find(p => p.id === targetId || p.dbId === targetId);
+      if (po) {
+        if (!po.progress) {
+          po.progress = { qcPassed: 0, qcFailed: 0, testPassed: 0, testFailed: 0, packed: 0, aqlPassed: 0, aqlFailed: 0, issuesCount: 0, status: 'In Progress' };
         }
+        po.progress.qcPassed += 1;
+        if (activeJob.salesOrder && po.salesOrders) {
+          const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
+          if (so && so.progress) so.progress.qcPassed += 1;
+        }
+        saveProductionOrder(po);
       }
     }
   };
 
   const incrementPacked = () => {
     setPackedCountToday(prev => prev + 1);
-    if (activeJob && activeJob.salesOrder) {
+    if (activeJob?.productionOrder) {
       const orders = repository.getProductionOrders();
-      const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po && po.salesOrders) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
-        if (so) {
-          so.progress.packed += 1;
-          saveProductionOrder(po);
+      const targetId = activeJob.productionOrder.id || activeJob.productionOrder.dbId;
+      const po = orders.find(p => p.id === targetId || p.dbId === targetId);
+      if (po) {
+        if (!po.progress) {
+          po.progress = { qcPassed: 0, qcFailed: 0, testPassed: 0, testFailed: 0, packed: 0, aqlPassed: 0, aqlFailed: 0, issuesCount: 0, status: 'In Progress' };
         }
+        po.progress.packed += 1;
+        if (activeJob.salesOrder && po.salesOrders) {
+          const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
+          if (so && so.progress) so.progress.packed += 1;
+        }
+        saveProductionOrder(po);
       }
     }
   };
 
   const incrementAQLPassed = () => {
-    if (activeJob && activeJob.salesOrder) {
+    if (activeJob?.productionOrder) {
       const orders = repository.getProductionOrders();
-      const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po && po.salesOrders) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
-        if (so) {
-          so.progress.aqlPassed = (so.progress.aqlPassed || 0) + 1;
-          saveProductionOrder(po);
+      const targetId = activeJob.productionOrder.id || activeJob.productionOrder.dbId;
+      const po = orders.find(p => p.id === targetId || p.dbId === targetId);
+      if (po) {
+        if (!po.progress) {
+          po.progress = { qcPassed: 0, qcFailed: 0, testPassed: 0, testFailed: 0, packed: 0, aqlPassed: 0, aqlFailed: 0, issuesCount: 0, status: 'In Progress' };
         }
+        po.progress.aqlPassed = (po.progress.aqlPassed || 0) + 1;
+        if (activeJob.salesOrder && po.salesOrders) {
+          const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
+          if (so && so.progress) so.progress.aqlPassed = (so.progress.aqlPassed || 0) + 1;
+        }
+        saveProductionOrder(po);
       }
     }
   };
 
   const incrementAQLFailed = () => {
-    if (activeJob && activeJob.salesOrder) {
+    if (activeJob?.productionOrder) {
       const orders = repository.getProductionOrders();
-      const po = orders.find(p => p.id === activeJob.productionOrder.id);
-      if (po && po.salesOrders) {
-        const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
-        if (so) {
-          so.progress.aqlFailed = (so.progress.aqlFailed || 0) + 1;
-          saveProductionOrder(po);
+      const targetId = activeJob.productionOrder.id || activeJob.productionOrder.dbId;
+      const po = orders.find(p => p.id === targetId || p.dbId === targetId);
+      if (po) {
+        if (!po.progress) {
+          po.progress = { qcPassed: 0, qcFailed: 0, testPassed: 0, testFailed: 0, packed: 0, aqlPassed: 0, aqlFailed: 0, issuesCount: 0, status: 'In Progress' };
         }
+        po.progress.aqlFailed = (po.progress.aqlFailed || 0) + 1;
+        if (activeJob.salesOrder && po.salesOrders) {
+          const so = po.salesOrders.find(s => s.id === activeJob.salesOrder?.id);
+          if (so && so.progress) so.progress.aqlFailed = (so.progress.aqlFailed || 0) + 1;
+        }
+        saveProductionOrder(po);
       }
     }
   };

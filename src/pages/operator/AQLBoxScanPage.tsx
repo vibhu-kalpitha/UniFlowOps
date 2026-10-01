@@ -28,6 +28,10 @@ export const AQLBoxScanPage: React.FC = () => {
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
 
+  const initialTarget = po?.totalQuantity || 500;
+  const initialAqlPassed = po?.progress?.aqlPassed || 0;
+  const initialAqlFailed = po?.progress?.aqlFailed || 0;
+
   const [aqlProgress, setAqlProgress] = useState<{
     loading: boolean;
     targetQuantity: number;
@@ -40,13 +44,13 @@ export const AQLBoxScanPage: React.FC = () => {
     };
   }>({
     loading: true,
-    targetQuantity: po?.totalQuantity || 500,
-    aqlPassedCount: 0,
-    aqlFailedCount: 0,
+    targetQuantity: initialTarget,
+    aqlPassedCount: initialAqlPassed,
+    aqlFailedCount: initialAqlFailed,
     operatorStats: {
       operatorName: 'Operator',
-      passedCount: 0,
-      failedCount: 0
+      passedCount: initialAqlPassed,
+      failedCount: initialAqlFailed
     }
   });
 
@@ -58,13 +62,13 @@ export const AQLBoxScanPage: React.FC = () => {
       if (res && typeof res.aqlPassedCount === 'number') {
         setAqlProgress({
           loading: false,
-          targetQuantity: res.targetQuantity,
+          targetQuantity: res.targetQuantity || po.totalQuantity || 500,
           aqlPassedCount: res.aqlPassedCount,
           aqlFailedCount: res.aqlFailedCount,
           operatorStats: res.operatorStats || {
             operatorName: 'Operator',
-            passedCount: 0,
-            failedCount: 0
+            passedCount: res.aqlPassedCount,
+            failedCount: res.aqlFailedCount
           }
         });
       }
@@ -74,7 +78,23 @@ export const AQLBoxScanPage: React.FC = () => {
   };
 
   React.useEffect(() => {
-    fetchAqlProgress();
+    if (po) {
+      const target = po.totalQuantity || 500;
+      const passed = po.progress?.aqlPassed || 0;
+      const failed = po.progress?.aqlFailed || 0;
+      setAqlProgress(prev => ({
+        ...prev,
+        targetQuantity: target,
+        aqlPassedCount: passed,
+        aqlFailedCount: failed,
+        operatorStats: {
+          ...prev.operatorStats,
+          passedCount: passed,
+          failedCount: failed
+        }
+      }));
+      fetchAqlProgress();
+    }
   }, [po?.dbId, po?.id]);
 
   const targetSoQty = aqlProgress.targetQuantity || po?.totalQuantity || 500;

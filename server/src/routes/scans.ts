@@ -384,9 +384,14 @@ router.get('/packing/progress/:poId', authenticateToken, async (req: AuthRequest
     const packedRow = await db.prepare(`
       SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
       JOIN boxes b ON b.id = bi.box_id
-      WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND bi.active = 1
-    `).get(po.id, po.id) as any;
+      LEFT JOIN item_units iu ON iu.id = bi.item_id
+      WHERE (
+        b.production_order_id = ? 
+        OR iu.production_order_id = ? 
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      ) AND bi.active = 1
+    `).get(po.id, po.id, po.id, po.id) as any;
     const packedCount = packedRow?.cnt || 0;
 
     // Overall Fail Count for this PO
@@ -401,9 +406,14 @@ router.get('/packing/progress/:poId', authenticateToken, async (req: AuthRequest
     const opPackedRow = await db.prepare(`
       SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
       JOIN boxes b ON b.id = bi.box_id
-      WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND bi.active = 1 AND (bi.packed_by = ? OR bi.packed_by = ?)
-    `).get(po.id, po.id, operatorId, req.user!.username) as any;
+      LEFT JOIN item_units iu ON iu.id = bi.item_id
+      WHERE (
+        b.production_order_id = ? 
+        OR iu.production_order_id = ? 
+        OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      ) AND bi.active = 1 AND (bi.packed_by = ? OR bi.packed_by = ?)
+    `).get(po.id, po.id, po.id, po.id, operatorId, req.user!.username) as any;
     const operatorPackedCount = opPackedRow?.cnt || 0;
 
     // Logged-in Operator's Fail Count for this PO
@@ -466,9 +476,9 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       ), 0) as cnt
       FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
-      WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      WHERE (b.production_order_id = ? OR ai.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND UPPER(ai.result) IN ('PASS', 'PASSED')
-    `).get(po.id, po.id) as any;
+    `).get(po.id, po.id, po.id) as any;
     const aqlPassedCount = Number(aqlPassRow?.cnt || 0);
 
     // Overall AQL Failed Item Count for this PO (sum items in failed boxes)
@@ -482,9 +492,9 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       ), 0) as cnt
       FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
-      WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      WHERE (b.production_order_id = ? OR ai.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND UPPER(ai.result) IN ('FAIL', 'FAILED')
-    `).get(po.id, po.id) as any;
+    `).get(po.id, po.id, po.id) as any;
     const aqlFailedCount = Number(aqlFailRow?.cnt || 0);
 
     // Operator specific AQL Passed Item Count
@@ -498,10 +508,10 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       ), 0) as cnt
       FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
-      WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      WHERE (b.production_order_id = ? OR ai.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND (ai.inspector_id = ? OR ai.inspector_id = ?)
         AND UPPER(ai.result) IN ('PASS', 'PASSED')
-    `).get(po.id, po.id, operatorId, operatorUsername) as any;
+    `).get(po.id, po.id, po.id, operatorId, operatorUsername) as any;
     const operatorPassedCount = Number(opAqlPassRow?.cnt || 0);
 
     // Operator specific AQL Failed Item Count
@@ -515,10 +525,10 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
       ), 0) as cnt
       FROM aql_inspections ai
       JOIN boxes b ON b.id = ai.box_id
-      WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      WHERE (b.production_order_id = ? OR ai.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND (ai.inspector_id = ? OR ai.inspector_id = ?)
         AND UPPER(ai.result) IN ('FAIL', 'FAILED')
-    `).get(po.id, po.id, operatorId, operatorUsername) as any;
+    `).get(po.id, po.id, po.id, operatorId, operatorUsername) as any;
     const operatorFailedCount = Number(opAqlFailRow?.cnt || 0);
 
     return res.json({
@@ -936,6 +946,11 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
         VALUES (?, ?, ?, ?, 12, 'OPEN', NOW(3))
       `).run(boxId, code, code, po.id);
       box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: 12, status: 'OPEN' };
+    } else {
+      if (!box.production_order_id || box.production_order_id !== po.id) {
+        await db.prepare(`UPDATE boxes SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, box.id);
+        box.production_order_id = po.id;
+      }
     }
 
     const currentItemsCountRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND active = 1`).get(box.id) as any;
@@ -959,6 +974,11 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
         INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, created_at)
         VALUES (?, ?, ?, 'PASS', 'PASS', NOW(3))
       `).run(qcResultId, itemId, operatorId);
+    } else {
+      if (!item.production_order_id || item.production_order_id !== po.id) {
+        await db.prepare(`UPDATE item_units SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, item.id);
+        item.production_order_id = po.id;
+      }
     }
 
     const existingActivePack = await db.prepare(`
@@ -1432,9 +1452,10 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
     const { result, failureReason, boxNumber, samples } = req.body;
     const operatorId = req.user!.id;
 
+    let box = boxNumber ? await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any : null;
     let insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
+
     if (!insp) {
-      let box = boxNumber ? await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any : null;
       if (!box) {
         return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found' });
       }
@@ -1443,13 +1464,17 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
         INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, failure_reason, started_at, completed_at)
         VALUES (?, ?, ?, ?, 12, ?, ?, NOW(3), NOW(3))
       `).run(inspectionId, box.id, box.production_order_id, operatorId, result, failureReason || null);
-      insp = { id: inspectionId, box_id: box.id };
+      insp = { id: inspectionId, box_id: box.id, production_order_id: box.production_order_id };
     } else {
+      let poId = insp.production_order_id;
+      if (!poId && box?.production_order_id) {
+        poId = box.production_order_id;
+      }
       await db.prepare(`
         UPDATE aql_inspections 
-        SET result = ?, failure_reason = ?, completed_at = NOW(3) 
+        SET result = ?, failure_reason = ?, production_order_id = COALESCE(production_order_id, ?), completed_at = NOW(3) 
         WHERE id = ?
-      `).run(result, failureReason || null, inspectionId);
+      `).run(result, failureReason || null, poId || null, inspectionId);
     }
 
     // Upsert all completed samples into aql_samples to guarantee complete item-wise database storage

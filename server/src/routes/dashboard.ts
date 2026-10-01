@@ -267,7 +267,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
     const activeProductionOrders = await db.prepare(`
       SELECT 
         po.id, po.po_number, po.style_name, po.total_quantity, po.status, po.created_at,
-        (SELECT COUNT(bi.id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id WHERE (b.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count,
+        (SELECT COUNT(DISTINCT bi.item_id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id LEFT JOIN item_units iu ON iu.id = bi.item_id WHERE (b.production_order_id = po.id OR iu.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count,
         (SELECT COUNT(id) FROM aql_inspections WHERE production_order_id = po.id AND result = 'PASSED') as aql_passed_boxes,
         (SELECT COUNT(id) FROM permanently_removed_items WHERE production_order_id = po.id) as scrapped_count
       FROM production_orders po

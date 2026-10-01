@@ -196,8 +196,14 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   const packedRow = await db.prepare(`
     SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
     JOIN boxes b ON b.id = bi.box_id
-    WHERE (b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND bi.active = 1
-  `).get(po.id, po.id) as any;
+    LEFT JOIN item_units iu ON iu.id = bi.item_id
+    WHERE (
+      b.production_order_id = ? 
+      OR iu.production_order_id = ?
+      OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+    ) AND bi.active = 1
+  `).get(po.id, po.id, po.id, po.id) as any;
   const packed = packedRow?.cnt || 0;
 
   const aqlPassedRow = await db.prepare(`
