@@ -179,9 +179,8 @@ export const QCTestPage: React.FC = () => {
       };
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
-        const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
-        const redMsg = `Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`;
+      if (err?.error === 'CONFIG_NOT_SELECTED' || err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('not selected') || errMsg.includes('does not belong')) {
+        const redMsg = `Unselected Configuration — '${code}' does not belong to Production Order ${po?.id || ''}.`;
         showToast(redMsg, 'error');
         setScannedItem({ qr: code, product: po?.styleName || 'Garment', size: '—', status: 'INVALID' });
         return {
@@ -191,8 +190,8 @@ export const QCTestPage: React.FC = () => {
         };
       }
 
-      if (err?.error === 'QR_RANGE_NOT_CONFIGURED' || errMsg.includes('not configured')) {
-        const notConfigMsg = `Product QR range not configured for Production Order ${po?.id || ''}. Please contact supervisor.`;
+      if (err?.error === 'CONFIG_NOT_FOUND' || err?.error === 'QR_RANGE_NOT_CONFIGURED' || errMsg.includes('not configured')) {
+        const notConfigMsg = `No product configurations found for Production Order ${po?.id || ''}. Please contact supervisor.`;
         showToast(notConfigMsg, 'error');
         setScannedItem({ qr: code, product: po?.styleName || 'Garment', size: '—', status: 'INVALID' });
         return {

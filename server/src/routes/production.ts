@@ -301,55 +301,12 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
 }
 
 export async function checkQrRangeOverlap(
-  prefix: string,
-  start: number,
-  end: number,
-  excludePoId?: string
+  _prefix: string,
+  _start: number,
+  _end: number,
+  _excludePoId?: string
 ): Promise<{ overlap: boolean; overlappingPoNumber?: string }> {
-  if (!prefix || start == null || end == null) return { overlap: false };
-  const normPrefix = prefix.trim().toUpperCase();
-
-  // 1. Check production_order_configs
-  let pocQuery = `
-    SELECT poc.id, po.po_number, poc.product_qr_prefix, poc.product_serial_start, poc.product_serial_end
-    FROM production_order_configs poc
-    JOIN production_orders po ON po.id = poc.production_order_id
-    WHERE UPPER(TRIM(poc.product_qr_prefix)) = ?
-  `;
-  const pocParams: any[] = [normPrefix];
-  if (excludePoId) {
-    pocQuery += ` AND po.id != ? AND po.po_number != ?`;
-    pocParams.push(excludePoId, excludePoId);
-  }
-  const pocRows = await db.prepare(pocQuery).all(...pocParams) as any[];
-  for (const r of pocRows) {
-    const existStart = Number(r.product_serial_start);
-    const existEnd = Number(r.product_serial_end);
-    if (Math.max(start, existStart) <= Math.min(end, existEnd)) {
-      return { overlap: true, overlappingPoNumber: r.po_number || r.id };
-    }
-  }
-
-  // 2. Check sales_orders (for historical compatibility)
-  let soQuery = `
-    SELECT id, so_number, product_qr_prefix, product_serial_start, product_serial_end 
-    FROM sales_orders 
-    WHERE UPPER(TRIM(product_qr_prefix)) = ? AND product_serial_start IS NOT NULL AND product_serial_end IS NOT NULL
-  `;
-  const soParams: any[] = [normPrefix];
-  if (excludePoId) {
-    soQuery += ` AND production_order_id != ? AND id != ? AND so_number != ?`;
-    soParams.push(excludePoId, excludePoId, excludePoId);
-  }
-  const soRows = await db.prepare(soQuery).all(...soParams) as any[];
-  for (const r of soRows) {
-    const existStart = Number(r.product_serial_start);
-    const existEnd = Number(r.product_serial_end);
-    if (Math.max(start, existStart) <= Math.min(end, existEnd)) {
-      return { overlap: true, overlappingPoNumber: r.so_number || r.id };
-    }
-  }
-
+  // Range overlap checking has been completely removed per business requirements.
   return { overlap: false };
 }
 
@@ -393,9 +350,9 @@ const createPoProductConfigSchema = z.object({
   configCode: z.string().min(1),
   productType: z.string().optional(),
   size: z.string().optional(),
-  productQrPrefix: z.string().min(1),
-  productSerialStart: z.number(),
-  productSerialEnd: z.number(),
+  productQrPrefix: z.string().optional(),
+  productSerialStart: z.number().optional(),
+  productSerialEnd: z.number().optional(),
   quantity: z.number().optional()
 });
 
@@ -526,30 +483,6 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
     else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
-    // Validate product configurations
-    if (body.productConfigurations && body.productConfigurations.length > 0) {
-      for (const config of body.productConfigurations) {
-        const prefix = config.productQrPrefix;
-        const start = Number(config.productSerialStart);
-        const end = Number(config.productSerialEnd);
-
-        if (start > end) {
-          return res.status(400).json({
-            error: 'INVALID_QR_RANGE',
-            message: `Serial Start (${start}) cannot be greater than Serial End (${end}) for product config ${config.configCode}.`
-          });
-        }
-
-        const overlapRes = await checkQrRangeOverlap(prefix, start, end, body.id);
-        if (overlapRes.overlap) {
-          return res.status(409).json({
-            error: 'QR_RANGE_OVERLAP',
-            message: `Product QR range (${prefix}) overlaps with existing Production Order ${overlapRes.overlappingPoNumber}.`
-          });
-        }
-      }
-    }
-
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;
     if (rawShiftId) {
@@ -578,10 +511,10 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
           const code = (config.configCode || cfgAny.config_code || 'CONFIG-1').trim().toUpperCase();
           const pType = config.productType || cfgAny.product_type || null;
           const sz = config.size || null;
+          const qty = Number(config.quantity) || 100;
           const prefix = config.productQrPrefix ? config.productQrPrefix.trim().toUpperCase() : code;
-          const start = config.productSerialStart != null && !isNaN(Number(config.productSerialStart)) ? Number(config.productSerialStart) : null;
-          const end = config.productSerialEnd != null && !isNaN(Number(config.productSerialEnd)) ? Number(config.productSerialEnd) : null;
-          const qty = Number(config.quantity) || (start != null && end != null ? Math.max(1, end - start + 1) : 100);
+          const start = config.productSerialStart != null && !isNaN(Number(config.productSerialStart)) ? Number(config.productSerialStart) : 1;
+          const end = config.productSerialEnd != null && !isNaN(Number(config.productSerialEnd)) ? Number(config.productSerialEnd) : qty;
 
           await tx.prepare(`
             INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, product_qr_prefix, product_serial_start, product_serial_end, quantity, created_at, updated_at)

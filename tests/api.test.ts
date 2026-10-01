@@ -380,86 +380,28 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(poPayload.boxRangeStart).toBeUndefined();
     expect(poPayload.boxRangeEnd).toBeUndefined();
 
-    // 2. Mock SO with Product QR Range: Prefix = PNFLS092632, Start = 670, End = 1869
-    const testSo = {
-      id: 'SO-RANGE-001',
-      so_number: 'SO-RANGE-001',
-      order_quantity: 1000,
-      product_qr_prefix: 'PNFLS092632',
-      product_serial_start: 670,
-      product_serial_end: 1869
+    // 2. Mock Production Order Config: config_code = PNFLSS
+    const testConfig = {
+      id: 'POC-CONFIG-001',
+      config_code: 'PNFLSS',
+      product_type: 'LEG',
+      size: 'SS'
     };
 
-    // 3. QR inside SO range -> valid
-    const validQr = validateProductQrRange(testSo, 'PNFLS092632670');
+    // 3. QR starting with PNFLSS -> valid
+    const validQr = validateProductQrRange(testConfig, 'PNFLSS092632670');
     expect(validQr.valid).toBe(true);
-    expect(validQr.expectedRange).toBe('PNFLS092632670 to PNFLS0926321869');
 
-    const validQrMid = validateProductQrRange(testSo, 'PNFLS0926321200');
+    const validQrMid = validateProductQrRange(testConfig, 'PNFLSS0926321200');
     expect(validQrMid.valid).toBe(true);
 
-    const validQrEnd = validateProductQrRange(testSo, 'PNFLS0926321869');
-    expect(validQrEnd.valid).toBe(true);
-
-    // 4. Serial number outside old range is still valid if configuration prefix matches
-    const belowQr = validateProductQrRange(testSo, 'PNFLS092632669');
-    expect(belowQr.valid).toBe(true);
-
-    const aboveQr = validateProductQrRange(testSo, 'PNFLS0926321870');
-    expect(aboveQr.valid).toBe(true);
-
-    // 5. QR with wrong prefix -> QR_OUT_OF_RANGE
-    const wrongPrefixQr = validateProductQrRange(testSo, 'WRONGPREFIX670');
+    // 4. QR starting with different prefix -> INVALID (CONFIG_NOT_SELECTED)
+    const wrongPrefixQr = validateProductQrRange(testConfig, 'PNFLSM092632670');
     expect(wrongPrefixQr.valid).toBe(false);
-    expect(wrongPrefixQr.error).toBe('QR_OUT_OF_RANGE');
 
-    // 7. Unconfigured SO -> QR_RANGE_NOT_CONFIGURED
-    const unconfiguredSo = { id: 'SO-UNCONFIGURED', order_quantity: 500 };
-    const unconfigRes = validateProductQrRange(unconfiguredSo, 'PNFLS092632670');
-    expect(unconfigRes.valid).toBe(false);
-    expect(unconfigRes.error).toBe('QR_RANGE_NOT_CONFIGURED');
-
-    // 8. DB tests if MySQL is running
-    const { db, ensureDbConnected } = await import('../server/src/db/connection');
-    const isConnected = await ensureDbConnected();
-
-    if (isConnected) {
-      const poId = `po-qr-reg-${Date.now()}`;
-      const soId = `so-qr-reg-${Date.now()}`;
-
-      await db.execute(
-        `INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
-         VALUES (?, ?, 'MAP-QR-REG', 'Nike', 'style-001', '2026-09-15', '2026-10-10', 'usr-sup-001', 'Test', 'CURRENT', NOW(3), NOW(3))`,
-        [poId, `PO-QR-${Date.now()}`]
-      );
-
-      await db.execute(
-        `INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
-         VALUES (?, ?, 'SO-QR-REG-01', 'MAP-SO-QR', 'Tee', 'ST-01', 'Black', 'S-XL', 500, 'line-01', 'shift-a', 12, 'PNFLS092632', 670, 1869, 'In Progress', NOW(3), NOW(3))`,
-        [soId, poId]
-      );
-
-      // Verify SO saves product_qr_prefix, product_serial_start, product_serial_end
-      const savedSo = await db.queryOne<{ product_qr_prefix: string; product_serial_start: number; product_serial_end: number }>(
-        `SELECT product_qr_prefix, product_serial_start, product_serial_end FROM sales_orders WHERE id = ?`,
-        [soId]
-      );
-      expect(savedSo?.product_qr_prefix).toBe('PNFLS092632');
-      expect(Number(savedSo?.product_serial_start)).toBe(670);
-      expect(Number(savedSo?.product_serial_end)).toBe(1869);
-
-      // Overlapping range test (PNFLS092632 with 1000..2000 overlaps 670..1869)
-      const overlapRes = await checkQrRangeOverlap('PNFLS092632', 1000, 2000);
-      expect(overlapRes.overlap).toBe(true);
-
-      // Non-overlapping range test (PNFLS092632 with 2000..3000 does NOT overlap 670..1869)
-      const nonOverlapRes = await checkQrRangeOverlap('PNFLS092632', 2000, 3000);
-      expect(nonOverlapRes.overlap).toBe(false);
-
-      // Clean up
-      await db.execute(`DELETE FROM sales_orders WHERE id = ?`, [soId]);
-      await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
-    }
+    // 5. checkQrRangeOverlap returns false for all configuration codes (duplicate configs across POs allowed)
+    const overlapRes = await checkQrRangeOverlap('PNFLSS', 1000, 2000);
+    expect(overlapRes.overlap).toBe(false);
   });
 
   it('13. Production Fixes Regression Tests (Issues 1-5)', async () => {

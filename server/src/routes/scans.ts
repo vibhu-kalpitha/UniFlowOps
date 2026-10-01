@@ -84,7 +84,7 @@ export async function checkOperationEnabledForPO(poId: string, opName: string): 
 }
 
 // Shared Backend Product Validation Engine
-export async function validateProductForProductionOrder(poOrPoId: any, rawCode: string): Promise<{ valid: boolean; config?: any; error?: string; message?: string; expectedRange?: string }> {
+export async function validateProductForProductionOrder(poOrPoId: any, rawCode: string): Promise<{ valid: boolean; config?: any; error?: string; message?: string }> {
   if (!poOrPoId) {
     return { valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' };
   }
@@ -96,42 +96,27 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
 
   const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
 
-  for (const cfg of configs) {
-    const configCode = (cfg.config_code || '').trim().toUpperCase();
-    const prefix = (cfg.product_qr_prefix || '').trim().toUpperCase();
-    const productType = (cfg.product_type || '').trim().toUpperCase();
-
-    // 1. Config code prefix match (e.g. PNFLSS09260001 starts with PNFLSS)
-    if (configCode && code.startsWith(configCode)) {
-      return { valid: true, config: cfg };
-    }
-
-    // 2. Product QR prefix match
-    if (prefix && code.startsWith(prefix)) {
-      return { valid: true, config: cfg };
-    }
-
-    // 3. NO_SIZE / LETTERS config match
-    if (productType === 'NO_SIZE' || configCode === 'NO_SIZE') {
-      return { valid: true, config: cfg };
-    }
-  }
-
-  // Legacy fallback check for historical records
-  const soRows = await db.prepare(`SELECT * FROM sales_orders WHERE production_order_id = ? AND product_qr_prefix IS NOT NULL`).all(po.id) as any[];
-  for (const so of soRows) {
-    const prefix = (so.product_qr_prefix || '').trim().toUpperCase();
-    if (prefix && code.startsWith(prefix)) {
-      return { valid: true, config: { id: null, config_code: so.so_number, product_qr_prefix: prefix } };
-    }
-  }
-
-  if (configs.length === 0 && soRows.length === 0) {
+  if (configs.length === 0) {
     return {
       valid: false,
       error: 'CONFIG_NOT_FOUND',
       message: `No product configurations found for Production Order ${po.po_number || po.id}. Please configure product settings.`
     };
+  }
+
+  for (const cfg of configs) {
+    const configCode = (cfg.config_code || '').trim().toUpperCase();
+    const productType = (cfg.product_type || '').trim().toUpperCase();
+
+    // 1. Config code prefix match (e.g. PNFLSS09260001 matches PNFLSS)
+    if (configCode && code.startsWith(configCode)) {
+      return { valid: true, config: cfg };
+    }
+
+    // 2. NO_SIZE / LETTERS config match
+    if (productType === 'NO_SIZE' || configCode === 'NO_SIZE') {
+      return { valid: true, config: cfg };
+    }
   }
 
   return {
@@ -147,18 +132,12 @@ export async function validateProductQrRangeForPO(po: any, rawCode: string) {
 
 export function validateProductQrRange(targetObj: any, rawCode: string) {
   if (!targetObj) return { valid: false, error: 'PO_NOT_FOUND', message: 'Target not found' };
-  const prefix = (targetObj?.product_qr_prefix || targetObj?.productQrPrefix || '').trim().toUpperCase();
-  const start = Number(targetObj?.product_serial_start ?? targetObj?.productSerialStart);
-  const end = Number(targetObj?.product_serial_end ?? targetObj?.productSerialEnd);
-  if (!prefix || isNaN(start) || isNaN(end)) {
-    return { valid: false, error: 'QR_RANGE_NOT_CONFIGURED', message: 'Product QR range not configured' };
-  }
+  const configCode = (targetObj?.config_code || targetObj?.configCode || '').trim().toUpperCase();
   const code = rawCode.trim().toUpperCase();
-  const expectedRange = `${prefix}${start} to ${prefix}${end}`;
-  if (!code.startsWith(prefix)) {
-    return { valid: false, error: 'QR_OUT_OF_RANGE', message: 'QR prefix mismatch', expectedRange };
+  if (configCode && code.startsWith(configCode)) {
+    return { valid: true };
   }
-  return { valid: true, expectedRange };
+  return { valid: false, error: 'CONFIG_NOT_SELECTED', message: `Product configuration mismatch for '${code}'.` };
 }
 
 export async function calculatePOProgress(poId: string) {
@@ -265,7 +244,7 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
       return res.status(400).json({
         error: rangeCheck.error,
         message: rangeCheck.message,
-        expectedRange: rangeCheck.expectedRange
+        expectedRange: (rangeCheck as any).expectedRange
       });
     }
 
@@ -654,7 +633,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       return res.status(400).json({
         error: rangeCheck.error,
         message: rangeCheck.message,
-        expectedRange: rangeCheck.expectedRange
+        expectedRange: (rangeCheck as any).expectedRange
       });
     }
 

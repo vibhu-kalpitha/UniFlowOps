@@ -123,7 +123,7 @@ export const SupervisorOrders: React.FC = () => {
                     <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>{cfg.quantity} pcs</span>
                   </div>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                    Prefix: {cfg.productQrPrefix} (Serial Range: {cfg.productSerialStart} → {cfg.productSerialEnd})
+                    {cfg.productType ? `Type: ${cfg.productType} ` : ''}{cfg.size ? `• Size: ${cfg.size}` : ''}
                   </span>
                 </div>
               ))}

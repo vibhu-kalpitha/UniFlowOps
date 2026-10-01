@@ -214,10 +214,6 @@ export const CreatePOSalesOrders: React.FC = () => {
         showToast('Configuration code cannot be empty.', 'warning');
         return;
       }
-      if (!cfg.productQrPrefix.trim()) {
-        showToast(`QR Prefix required for config ${cfg.configCode}`, 'warning');
-        return;
-      }
       if (!cfg.quantity || cfg.quantity <= 0) {
         showToast(`Valid quantity required for ${cfg.configCode}`, 'error');
         return;
@@ -457,24 +453,14 @@ export const CreatePOSalesOrders: React.FC = () => {
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
-                <label style={styles.label}>Config Code</label>
+                <label style={styles.label}>Configuration Code</label>
                 <input
                   type="text"
                   className="input-field"
                   value={cfg.configCode}
                   onChange={e => updateConfig(idx, 'configCode', e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label style={styles.label}>Product QR Prefix</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  value={cfg.productQrPrefix}
-                  onChange={e => updateConfig(idx, 'productQrPrefix', e.target.value)}
                 />
               </div>
 

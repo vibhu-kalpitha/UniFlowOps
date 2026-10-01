@@ -293,11 +293,11 @@ export const CreatePOReview: React.FC = () => {
               <div>
                 <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)' }}>{cfg.configCode}</span>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                  Prefix: {cfg.productQrPrefix} {cfg.size ? `• Size: ${cfg.size}` : ''}
+                  {cfg.productType ? `Type: ${cfg.productType} ` : ''}{cfg.size ? `• Size: ${cfg.size}` : ''}
                 </span>
               </div>
               <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                Qty: {cfg.quantity} Pcs
+                {cfg.quantity} Pcs
               </span>
             </div>
           ))}
