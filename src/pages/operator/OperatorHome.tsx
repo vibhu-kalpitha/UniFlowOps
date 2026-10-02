@@ -286,7 +286,7 @@ export const OperatorHome: React.FC = () => {
                     CURRENT PRODUCTION ORDER
                   </span>
                   <button
-                    onClick={() => setPendingOperation({ name: 'Select PO', route: '#' })}
+                    onClick={() => setPendingOperation({ name: 'Production Order', route: '#' })}
                     style={{
                       background: 'none',
                       border: 'none',

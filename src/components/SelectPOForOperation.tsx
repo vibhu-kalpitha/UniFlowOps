@@ -24,11 +24,13 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const isGenericPoSelect = !operationName || ['ALL', 'Select PO', 'Change PO', 'Production Order'].includes(operationName as string);
+
   const fetchAssignedPOs = async () => {
     setLoading(true);
     setError(null);
     try {
-      const queryParam = operationName ? `?operation=${encodeURIComponent(operationName)}` : '';
+      const queryParam = isGenericPoSelect ? '' : `?operation=${encodeURIComponent(operationName)}`;
       const data = await apiFetch<ProductionOrder[]>(`/api/operators/me/assignments${queryParam}`);
       if (Array.isArray(data)) {
         setPos(data);
@@ -52,14 +54,18 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
       {/* Header */}
       <div style={{ marginBottom: '20px', paddingRight: isModal ? '36px' : '0' }}>
         <h2 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc' }}>
-          Select Production Order for {operationName}
+          {isGenericPoSelect ? 'Select Production Order' : `Select Production Order for ${operationName}`}
         </h2>
         <p style={{ margin: 0, fontSize: '0.88rem', color: '#94a3b8' }}>
           {loading
             ? 'Loading your authorized Production Orders...'
             : pos.length > 0
-            ? `Select an assigned Production Order to proceed with ${operationName}.`
-            : 'No active Production Orders found for this operation.'}
+            ? isGenericPoSelect
+              ? 'Select an assigned Production Order to set as your active job.'
+              : `Select an assigned Production Order to proceed with ${operationName}.`
+            : isGenericPoSelect
+              ? 'No active Production Orders currently allocated to you.'
+              : `No active Production Orders found for ${operationName}.`}
         </p>
       </div>
 

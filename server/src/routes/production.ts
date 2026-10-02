@@ -857,8 +857,9 @@ router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
       params.push(poId, poId);
     }
     if (styleName) {
-      whereClauses.push(`(UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(po.style_name)) = ?)`);
-      params.push(styleName.trim().toUpperCase(), styleName.trim().toUpperCase());
+      whereClauses.push(`(UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(s.code)) = ?)`);
+      const sUpper = styleName.trim().toUpperCase();
+      params.push(sUpper, sUpper);
     }
     if (search) {
       const q = `%${search.trim().toUpperCase()}%`;

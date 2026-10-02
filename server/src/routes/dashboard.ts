@@ -377,14 +377,11 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
   try {
     const { poId, styleName, year, fromDate, toDate } = req.query as { poId?: string; styleName?: string; year?: string; fromDate?: string; toDate?: string };
 
-    // Styles list for filter dropdown from styles table & production_orders
+    // Styles list for filter dropdown from styles table
     const stylesList = await db.prepare(`
       SELECT DISTINCT s.name as style_name
       FROM styles s
-      UNION
-      SELECT DISTINCT po.style_name
-      FROM production_orders po
-      WHERE po.style_name IS NOT NULL AND TRIM(po.style_name) != ''
+      WHERE s.name IS NOT NULL AND TRIM(s.name) != ''
       ORDER BY style_name ASC
     `).all() as any[];
     const availableStyles = stylesList.map(s => s.style_name).filter(Boolean);
@@ -420,9 +417,9 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
     }
     if (styleName && styleName.trim()) {
       isFilterApplied = true;
-      poQuery += ` AND (UPPER(TRIM(po.style_name)) = ? OR UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(s.code)) = ?)`;
+      poQuery += ` AND (UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(s.code)) = ?)`;
       const sUpper = styleName.trim().toUpperCase();
-      poParams.push(sUpper, sUpper, sUpper);
+      poParams.push(sUpper, sUpper);
     }
     if (fromDate && toDate) {
       isFilterApplied = true;
@@ -556,7 +553,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
 
     const activeProductionOrders = await db.prepare(`
       SELECT 
-        po.id, po.po_number, po.po_name, po.style_name, po.customer, po.total_quantity, po.status, po.created_at,
+        po.id, po.po_number, po.po_name, po.customer, po.total_quantity, po.status, po.created_at,
         s.name as style_ref_name, u.full_name as supervisor_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
         (SELECT COUNT(DISTINCT bi.item_id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id LEFT JOIN item_units iu ON iu.id = bi.item_id WHERE (b.production_order_id = po.id OR iu.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count,

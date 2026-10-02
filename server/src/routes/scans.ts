@@ -1569,9 +1569,9 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
       if (itemId) {
         const failId = `qcf-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
-          INSERT INTO qc_fail_log (id, item_id, operator_id, failure_reason, created_at)
-          VALUES (?, ?, ?, ?, NOW(3))
-        `).run(failId, itemId, operatorId, `PERMANENTLY_REMOVED: ${reason || 'Damaged Garment Scrapped'}`);
+          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, po_id, failure_type)
+          VALUES (?, ?, ?, 'FAIL', 'FAIL', ?, 1, NOW(3), ?, 'PERMANENTLY_REMOVED')
+        `).run(failId, itemId, operatorId, `PERMANENTLY_REMOVED: ${reason || 'Damaged Garment Scrapped'}`, poId);
       }
 
       // 4. Record sample in aql_samples if inspectionId provided
