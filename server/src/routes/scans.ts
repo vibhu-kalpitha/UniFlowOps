@@ -1594,6 +1594,37 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
     let box = boxNumber ? await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any : null;
     let insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
 
+    const targetBoxId = insp?.box_id || box?.id;
+    if (targetBoxId) {
+      const activeBoxItems = await db.prepare(`
+        SELECT u.id, u.qr_code
+        FROM box_items bi
+        JOIN item_units u ON u.id = bi.item_id
+        WHERE bi.box_id = ? AND bi.active = 1
+      `).all(targetBoxId) as any[];
+
+      const permRemovedRows = await db.prepare(`
+        SELECT item_qr FROM permanently_removed_items WHERE box_id = ? OR production_order_id = ?
+      `).all(targetBoxId, insp?.production_order_id || box?.production_order_id) as any[];
+      const permRemovedSet = new Set(permRemovedRows.map(r => r.item_qr ? r.item_qr.trim().toUpperCase() : ''));
+
+      const activeToVerify = activeBoxItems.filter(i => !permRemovedSet.has(i.qr_code.trim().toUpperCase()));
+      const requiredCount = activeToVerify.length;
+
+      const sampleCountRow = await db.prepare(`SELECT COUNT(DISTINCT item_id) as cnt FROM aql_samples WHERE inspection_id = ?`).get(inspectionId) as any;
+      const verifiedCount = Number(sampleCountRow?.cnt || 0);
+      const providedSamplesCount = Array.isArray(samples) ? samples.length : 0;
+
+      const totalVerified = Math.max(verifiedCount, providedSamplesCount);
+
+      if (requiredCount > 0 && totalVerified < requiredCount) {
+        return res.status(400).json({
+          error: 'INCOMPLETE_AQL_INSPECTION',
+          message: `Cannot complete inspection: Only ${totalVerified}/${requiredCount} box items have been verified. All ${requiredCount} active box items must be individually scanned.`
+        });
+      }
+    }
+
     if (!insp) {
       if (!box) {
         return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found' });

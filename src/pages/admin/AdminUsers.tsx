@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
-import { Plus, User, Shield, X } from 'lucide-react';
+import { Plus, User, Shield, X, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 interface UserRecord {
@@ -16,14 +17,8 @@ interface UserRecord {
 export const AdminUsers: React.FC = () => {
   const { showToast } = useApp();
 
-  const [users, setUsers] = useState<UserRecord[]>([
-    { id: 'usr-001', name: 'Chamika Silva', username: 'chamika', role: 'Operator', lineId: 'Line 04', status: 'Active' },
-    { id: 'usr-002', name: 'Nimal Perera', username: 'nimal', role: 'Supervisor', lineId: 'Line 04 & 02', status: 'Active' },
-    { id: 'usr-003', name: 'Factory Admin', username: 'admin', role: 'Admin', lineId: 'All Lines', status: 'Active' },
-    { id: 'usr-004', name: 'Kavindu Perera', username: 'kavindu', role: 'Operator', lineId: 'Line 04', status: 'Active' },
-    { id: 'usr-005', name: 'Sunil Bandara', username: 'sunil', role: 'Supervisor', lineId: 'Line 03', status: 'Inactive' }
-  ]);
-
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [roleFilter, setRoleFilter] = useState<'All' | 'Operator' | 'Supervisor' | 'Admin'>('All');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -33,35 +28,68 @@ export const AdminUsers: React.FC = () => {
   // Form State
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState<'Operator' | 'Supervisor' | 'Admin'>('Operator');
   const [lineId, setLineId] = useState('Line 04');
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch('/api/admin/users');
+      if (Array.isArray(data)) {
+        const formatted: UserRecord[] = data.map((u: any) => ({
+          id: u.id,
+          name: u.full_name || u.name || u.username,
+          username: u.username,
+          role: (u.role === 'ADMIN' ? 'Admin' : u.role === 'SUPERVISOR' ? 'Supervisor' : 'Operator') as 'Operator' | 'Supervisor' | 'Admin',
+          lineId: u.shift_name ? `Shift: ${u.shift_name}` : 'Line 04',
+          status: (u.is_active === 0 ? 'Inactive' : 'Active') as 'Active' | 'Inactive'
+        }));
+        setUsers(formatted);
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to fetch users', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   const filteredUsers = users.filter(u => {
     if (roleFilter === 'All') return true;
     return u.role === roleFilter;
   });
 
-  const handleAddUser = (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !username.trim()) {
-      showToast('Please enter name and username', 'warning');
+    if (!name.trim() || !username.trim() || !password.trim()) {
+      showToast('Please enter name, username and password', 'warning');
       return;
     }
 
-    const newUser: UserRecord = {
-      id: `usr-00${users.length + 1}`,
-      name,
-      username,
-      role,
-      lineId,
-      status: 'Active'
-    };
+    try {
+      await apiFetch('/api/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          full_name: name,
+          username,
+          password,
+          role: role.toUpperCase()
+        })
+      });
 
-    setUsers([...users, newUser]);
-    setShowAddModal(false);
-    showToast(`Added new user ${name} (${role})`, 'success');
-    setName('');
-    setUsername('');
+      showToast(`Added new user ${name} (${role})`, 'success');
+      setShowAddModal(false);
+      setName('');
+      setUsername('');
+      setPassword('');
+      fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to add user', 'error');
+    }
   };
 
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
@@ -76,16 +104,10 @@ export const AdminUsers: React.FC = () => {
     }
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      await apiFetch('/api/auth/reset-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: selectedResetUser.id, newPassword })
       });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.message || 'Password reset failed', 'error');
-        return;
-      }
       showToast(`Password reset successfully for @${selectedResetUser.username}`, 'success');
       setShowResetModal(false);
       setSelectedResetUser(null);
@@ -173,6 +195,10 @@ export const AdminUsers: React.FC = () => {
               <div>
                 <label style={styles.label}>Username</label>
                 <input type="text" className="input-field" value={username} onChange={e => setUsername(e.target.value)} required />
+              </div>
+              <div>
+                <label style={styles.label}>Password</label>
+                <input type="password" className="input-field" placeholder="Initial password" value={password} onChange={e => setPassword(e.target.value)} required />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>

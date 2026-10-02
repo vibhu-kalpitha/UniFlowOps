@@ -36,19 +36,26 @@ export const AdminDashboard: React.FC = () => {
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'orders' | 'quality' | 'scrapped' | 'audit'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'boxes' | 'quality' | 'scrapped' | 'audit'>('orders');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // Dropdown filter states
+  // Dropdown & Date filter states
   const [selectedStyle, setSelectedStyle] = useState<string>('');
   const [selectedPoId, setSelectedPoId] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [selectedBoxModal, setSelectedBoxModal] = useState<any>(null);
 
-  const fetchDashboardData = async (styleFilter = selectedStyle, poFilter = selectedPoId) => {
+  const fetchDashboardData = async (styleFilter = selectedStyle, poFilter = selectedPoId, yrFilter = selectedYear, fromD = fromDate, toD = toDate) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (styleFilter) params.set('styleName', styleFilter);
       if (poFilter) params.set('poId', poFilter);
+      if (yrFilter) params.set('year', yrFilter);
+      if (fromD) params.set('fromDate', fromD);
+      if (toD) params.set('toDate', toD);
 
       const queryString = params.toString() ? `?${params.toString()}` : '';
       const res = await apiFetch(`/api/dashboard/admin${queryString}`);
@@ -61,70 +68,82 @@ export const AdminDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchDashboardData(selectedStyle, selectedPoId);
-  }, [selectedStyle, selectedPoId]);
+    fetchDashboardData(selectedStyle, selectedPoId, selectedYear, fromDate, toDate);
+  }, [selectedStyle, selectedPoId, selectedYear, fromDate, toDate]);
 
   const filterOptions = data?.filter || { availableStyles: [], availablePos: [] };
 
   const handleStyleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const styleVal = e.target.value;
-    setSelectedStyle(styleVal);
-    // Reset PO selection if changing style
+    setSelectedStyle(e.target.value);
     setSelectedPoId('');
-  };
-
-  const handlePoChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const poVal = e.target.value;
-    setSelectedPoId(poVal);
   };
 
   const handleClearFilters = () => {
     setSelectedStyle('');
     setSelectedPoId('');
+    setSelectedYear('');
+    setFromDate('');
+    setToDate('');
     setSearchTerm('');
   };
 
   const kpis = data?.kpis || {
-    currentPos: 0,
-    totalPos: 0,
-    salesOrders: 0,
-    itemsProcessed: 0,
-    packedUnits: 0,
-    totalBoxes: 0,
-    boxTransfers: 0,
-    scrappedUnits: 0,
-    activeOperators: 0,
-    overallQualityIndex: 100
-  };
-
-  const qualityRates = data?.qualityRates || {
-    qcPassRate: 100,
-    testPassRate: 100,
-    aqlPassRate: 100,
-    totalQc: 0,
-    totalAql: 0,
-    passQc: 0,
-    passAql: 0
-  };
-
-  const exceptions = data?.exceptions || {
+    totalStyles: 0,
+    activePos: 0,
+    runningPos: 0,
+    plannedQuantity: 0,
+    qcPassed: 0,
     qcFailed: 0,
-    testFailed: 0,
+    packedQuantity: 0,
+    aqlPassed: 0,
     aqlFailed: 0,
-    pendingPack: 0,
-    scrappedCount: 0
+    totalBoxes: 0,
+    openBoxes: 0,
+    fullBoxes: 0,
+    overallPoCompletion: 0
   };
 
   const activeOrders: any[] = data?.activeProductionOrders || [];
-  const recentScrapped: any[] = data?.recentScrapped || [];
+  const adminBoxes: any[] = data?.adminBoxes || [];
   const recentAuditLogs: any[] = data?.recentAuditLogs || [];
+  const recentScrapped: any[] = data?.recentScrapped || [];
+
+  const totalQc = kpis.qcPassed + kpis.qcFailed;
+  const qcPassRate = totalQc > 0 ? Math.round((kpis.qcPassed / totalQc) * 100) : 100;
+  const totalAql = kpis.aqlPassed + kpis.aqlFailed;
+  const aqlPassRate = totalAql > 0 ? Math.round((kpis.aqlPassed / totalAql) * 100) : 100;
+  const testPassRate = 100;
+
+  const qualityRates = {
+    qcPassRate,
+    testPassRate,
+    aqlPassRate,
+    totalQc,
+    passQc: kpis.qcPassed,
+    totalAql,
+    passAql: kpis.aqlPassed
+  };
+
+  const exceptions = {
+    qcFailed: kpis.qcFailed,
+    testFailed: 0,
+    aqlFailed: kpis.aqlFailed,
+    pendingPack: Math.max(0, kpis.qcPassed - kpis.packedQuantity)
+  };
 
   const filteredOrders = activeOrders.filter(po => 
     (po.po_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (po.style_name || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (po.style_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (po.po_name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const isFiltered = Boolean(selectedStyle || selectedPoId);
+  const filteredBoxes = adminBoxes.filter(bx =>
+    (bx.boxCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (bx.poNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (bx.styleName || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const isFiltered = Boolean(selectedStyle || selectedPoId || selectedYear || fromDate || toDate);
 
   return (
     <div className="desktop-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -159,13 +178,13 @@ export const AdminDashboard: React.FC = () => {
             Executive Operations Command 🏢
           </h1>
           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Welcome back, <strong>{currentUser?.name || currentUser?.username || 'Admin'}</strong> • Live MySQL Factory Data Stream
+            Welcome back, <strong>{currentUser?.name || currentUser?.username || 'Admin'}</strong> • Live Database Stream
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
-            onClick={() => fetchDashboardData(selectedStyle, selectedPoId)}
+            onClick={() => fetchDashboardData(selectedStyle, selectedPoId, selectedYear, fromDate, toDate)}
             className="btn btn-secondary"
             style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
             disabled={loading}
@@ -174,7 +193,7 @@ export const AdminDashboard: React.FC = () => {
             {loading ? 'Refreshing...' : 'Refresh Live'}
           </button>
           <button
-            onClick={() => navigate('/supervisor/create-po')}
+            onClick={() => navigate('/supervisor/production-orders/new/style')}
             className="btn btn-primary"
             style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
           >
@@ -183,236 +202,188 @@ export const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── STYLE & PO FILTER BAR ─────────────────────────────── */}
-      <div style={{
-        backgroundColor: 'var(--bg-surface-1)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '14px',
-        padding: '14px 18px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '14px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <Filter size={16} color="var(--color-teal)" />
-          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-            Data Filters:
-          </span>
+      {/* ── RIGHT-SIDE FILTER PANEL & KPI SUMMARY ───────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '16px' }}>
+        {/* Left Side: 13 Executive KPI Cards Grid */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: '10px'
+          }}>
+            {/* KPI 1: Total Styles */}
+            <div style={styles.kpiCardGradient('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#3B82F6', textTransform: 'uppercase' }}>TOTAL STYLES</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.totalStyles}</div>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Registered Styles</span>
+            </div>
+
+            {/* KPI 2: Active POs */}
+            <div style={styles.kpiCardGradient('rgba(20, 184, 166, 0.12)', 'var(--color-teal)')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--color-teal)', textTransform: 'uppercase' }}>ACTIVE POs</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.activePos}</div>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Current / Draft</span>
+            </div>
+
+            {/* KPI 3: Running POs */}
+            <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>RUNNING POs</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.runningPos}</div>
+              <span style={{ fontSize: '10px', color: '#10B981', fontWeight: 600 }}>● In Progress</span>
+            </div>
+
+            {/* KPI 4: Planned Quantity */}
+            <div style={styles.kpiCardGradient('rgba(139, 92, 246, 0.12)', 'var(--color-purple)')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--color-purple)', textTransform: 'uppercase' }}>PLANNED QTY</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.plannedQuantity}</div>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Configured units</span>
+            </div>
+
+            {/* KPI 5: QC Pass */}
+            <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>QC PASS</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: '#10B981', marginTop: '4px' }}>{kpis.qcPassed}</div>
+              <span style={{ fontSize: '10px', color: '#10B981' }}>✓ Quality Passed</span>
+            </div>
+
+            {/* KPI 6: QC Fail */}
+            <div style={styles.kpiCardGradient('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#F59E0B', textTransform: 'uppercase' }}>QC FAIL</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: '#F59E0B', marginTop: '4px' }}>{kpis.qcFailed}</div>
+              <span style={{ fontSize: '10px', color: '#F59E0B' }}>⚠️ QC Rejections</span>
+            </div>
+
+            {/* KPI 7: Packed Quantity */}
+            <div style={styles.kpiCardGradient('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#3B82F6', textTransform: 'uppercase' }}>PACKED QTY</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.packedQuantity}</div>
+              <span style={{ fontSize: '10px', color: '#3B82F6' }}>📦 Active In Boxes</span>
+            </div>
+
+            {/* KPI 8: AQL Pass */}
+            <div style={styles.kpiCardGradient('rgba(5, 150, 105, 0.12)', '#059669')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>AQL PASS</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: '#059669', marginTop: '4px' }}>{kpis.aqlPassed}</div>
+              <span style={{ fontSize: '10px', color: '#059669' }}>Audited Boxes</span>
+            </div>
+
+            {/* KPI 9: AQL Fail */}
+            <div style={styles.kpiCardGradient('rgba(239, 68, 68, 0.12)', '#EF4444')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#EF4444', textTransform: 'uppercase' }}>AQL FAIL</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: '#EF4444', marginTop: '4px' }}>{kpis.aqlFailed}</div>
+              <span style={{ fontSize: '10px', color: '#EF4444' }}>Box Audit Rejections</span>
+            </div>
+
+            {/* KPI 10: Total Boxes */}
+            <div style={styles.kpiCardGradient('rgba(139, 92, 246, 0.12)', '#8B5CF6')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#8B5CF6', textTransform: 'uppercase' }}>TOTAL BOXES</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.totalBoxes}</div>
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Created Cartons</span>
+            </div>
+
+            {/* KPI 11: Open Boxes */}
+            <div style={styles.kpiCardGradient('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#F59E0B', textTransform: 'uppercase' }}>OPEN BOXES</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: '#F59E0B', marginTop: '4px' }}>{kpis.openBoxes}</div>
+              <span style={{ fontSize: '10px', color: '#F59E0B' }}>Packing In Progress</span>
+            </div>
+
+            {/* KPI 12: Full Boxes */}
+            <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>FULL BOXES</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: '#10B981', marginTop: '4px' }}>{kpis.fullBoxes}</div>
+              <span style={{ fontSize: '10px', color: '#10B981' }}>Sealed Cartons</span>
+            </div>
+
+            {/* KPI 13: Overall PO Completion % */}
+            <div style={styles.kpiCardGradient('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>PO COMPLETION %</span>
+              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '4px' }}>{kpis.overallPoCompletion}%</div>
+              <span style={{ fontSize: '10px', color: 'var(--primary-teal)' }}>Planned vs Packed</span>
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-start' }}>
-          {/* Style Filter Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Tag size={14} color="var(--text-muted)" />
+        {/* Right Side Filter Panel */}
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Filter size={16} color="var(--primary-teal)" />
+              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>Dashboard Filters</span>
+            </div>
+            {isFiltered && (
+              <button
+                onClick={handleClearFilters}
+                style={{ fontSize: '11px', color: '#EF4444', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+
+          {/* Year Filter */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Year</label>
+            <select
+              value={selectedYear}
+              onChange={e => setSelectedYear(e.target.value)}
+              style={styles.filterInput}
+            >
+              <option value="">All Years</option>
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+            </select>
+          </div>
+
+          {/* Style Filter */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Garment Style</label>
             <select
               value={selectedStyle}
               onChange={handleStyleChange}
-              style={{
-                backgroundColor: 'var(--bg-surface-2)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                outline: 'none',
-                minWidth: '160px'
-              }}
+              style={styles.filterInput}
             >
-              <option value="">All Garment Styles</option>
-              {filterOptions.availableStyles?.map((style: string) => (
-                <option key={style} value={style}>
-                  {style}
-                </option>
+              <option value="">All Styles</option>
+              {filterOptions.availableStyles?.map((st: string) => (
+                <option key={st} value={st}>{st}</option>
               ))}
             </select>
           </div>
 
-          {/* Production Order Filter Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Box size={14} color="var(--text-muted)" />
+          {/* PO Filter */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Production Order</label>
             <select
               value={selectedPoId}
-              onChange={handlePoChange}
-              style={{
-                backgroundColor: 'var(--bg-surface-2)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                outline: 'none',
-                minWidth: '200px'
-              }}
+              onChange={e => setSelectedPoId(e.target.value)}
+              style={styles.filterInput}
             >
-              <option value="">All Production Orders (POs)</option>
-              {filterOptions.availablePos?.map((po: any) => (
-                <option key={po.id} value={po.id}>
-                  {po.po_number} ({po.style_name || 'Style'})
-                </option>
+              <option value="">All Production Orders</option>
+              {filterOptions.availablePos?.map((p: any) => (
+                <option key={p.id} value={p.id}>{p.displayName}</option>
               ))}
             </select>
           </div>
 
-          {isFiltered && (
-            <button
-              onClick={handleClearFilters}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '5px 10px',
-                borderRadius: '6px',
-                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                color: '#EF4444',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              <X size={12} /> Clear Filter
-            </button>
-          )}
-        </div>
+          {/* Date Range */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>From Date</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              style={styles.filterInput}
+            />
+          </div>
 
-        {isFiltered && (
-          <StatusPill
-            label={`Filtered: ${selectedStyle ? `Style "${selectedStyle}"` : ''} ${selectedPoId ? `PO ID "${selectedPoId}"` : ''}`}
-            variant="teal"
-          />
-        )}
-      </div>
-
-      {/* ── 6 Primary Executive KPI Cards ─────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '14px'
-      }}>
-        {/* Card 1: Active POs */}
-        <div style={styles.kpiCardGradient('rgba(20, 184, 166, 0.12)', 'var(--color-teal)')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-teal)', letterSpacing: '0.05em' }}>
-              ACTIVE POs
-            </span>
-            <Layers size={18} color="var(--color-teal)" />
-          </div>
-          <div style={{ marginTop: '10px' }}>
-            <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {kpis.currentPos}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-              / {kpis.totalPos} total
-            </span>
-          </div>
-          <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--color-teal)', fontWeight: 600 }}>
-            ● {kpis.salesOrders} Sales Orders
-          </div>
-        </div>
-
-        {/* Card 2: Items Processed */}
-        <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981', letterSpacing: '0.05em' }}>
-              ITEMS PROCESSED
-            </span>
-            <CheckCircle2 size={18} color="#10B981" />
-          </div>
-          <div style={{ marginTop: '10px' }}>
-            <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {kpis.itemsProcessed}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-              units
-            </span>
-          </div>
-          <div style={{ marginTop: '6px', fontSize: '11px', color: '#10B981', fontWeight: 600 }}>
-            ✓ Passed Quality Stage
-          </div>
-        </div>
-
-        {/* Card 3: Packed Units & Boxes */}
-        <div style={styles.kpiCardGradient('rgba(139, 92, 246, 0.12)', 'var(--color-purple)')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
-              PACKED BOXES
-            </span>
-            <Package size={18} color="var(--color-purple)" />
-          </div>
-          <div style={{ marginTop: '10px' }}>
-            <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {kpis.totalBoxes}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-              ({kpis.packedUnits} pcs)
-            </span>
-          </div>
-          <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--color-purple)', fontWeight: 600 }}>
-            📦 {kpis.boxTransfers} Box Transfers
-          </div>
-        </div>
-
-        {/* Card 4: Scrapped / Removed Items */}
-        <div style={styles.kpiCardGradient('rgba(239, 68, 68, 0.12)', '#EF4444')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#EF4444', letterSpacing: '0.05em' }}>
-              PERMANENTLY SCRAPPED
-            </span>
-            <Trash2 size={18} color="#EF4444" />
-          </div>
-          <div style={{ marginTop: '10px' }}>
-            <span style={{ fontSize: '26px', fontWeight: 800, color: '#EF4444' }}>
-              {kpis.scrappedUnits}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-              garments
-            </span>
-          </div>
-          <div style={{ marginTop: '6px', fontSize: '11px', color: '#EF4444', fontWeight: 600 }}>
-            ⚠️ Archived in database
-          </div>
-        </div>
-
-        {/* Card 5: Quality Index */}
-        <div style={styles.kpiCardGradient('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#3B82F6', letterSpacing: '0.05em' }}>
-              FACTORY QUALITY INDEX
-            </span>
-            <ShieldCheck size={18} color="#3B82F6" />
-          </div>
-          <div style={{ marginTop: '10px' }}>
-            <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {kpis.overallQualityIndex}%
-            </span>
-          </div>
-          <div style={{ marginTop: '6px', fontSize: '11px', color: '#3B82F6', fontWeight: 600 }}>
-            ★ Combined QC/AQL Index
-          </div>
-        </div>
-
-        {/* Card 6: Active Operators */}
-        <div style={styles.kpiCardGradient('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#F59E0B', letterSpacing: '0.05em' }}>
-              ACTIVE OPERATORS
-            </span>
-            <Users size={18} color="#F59E0B" />
-          </div>
-          <div style={{ marginTop: '10px' }}>
-            <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {kpis.activeOperators}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-              assigned
-            </span>
-          </div>
-          <div style={{ marginTop: '6px', fontSize: '11px', color: '#F59E0B', fontWeight: 600 }}>
-            ⚡ Live Shift Assignments
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>To Date</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={e => setToDate(e.target.value)}
+              style={styles.filterInput}
+            />
           </div>
         </div>
       </div>
@@ -433,6 +404,12 @@ export const AdminDashboard: React.FC = () => {
               style={styles.tabBtn(activeTab === 'orders')}
             >
               <Box size={15} /> Production Orders ({activeOrders.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('boxes')}
+              style={styles.tabBtn(activeTab === 'boxes')}
+            >
+              <Package size={15} /> Box Overview ({adminBoxes.length})
             </button>
             <button
               onClick={() => setActiveTab('quality')}
@@ -572,6 +549,87 @@ export const AdminDashboard: React.FC = () => {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: BOX OVERVIEW */}
+        {activeTab === 'boxes' && (
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Factory Box Overview & Item Tracking</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Monitor capacity (X/Y), filled/remaining space, AQL audit status, and item QR contents.
+                </p>
+              </div>
+              <StatusPill label={`${filteredBoxes.length} Boxes Total`} variant="teal" />
+            </div>
+
+            {filteredBoxes.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No boxes registered for the selected filter.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>BOX NUMBER</th>
+                      <th style={styles.th}>PO NUMBER</th>
+                      <th style={styles.th}>STYLE NAME</th>
+                      <th style={styles.th}>CAPACITY (X/Y)</th>
+                      <th style={styles.th}>STATUS</th>
+                      <th style={styles.th}>AQL AUDIT</th>
+                      <th style={styles.th}>TRANSFER STATUS</th>
+                      <th style={styles.th}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBoxes.map((bx: any) => (
+                      <tr key={bx.id} style={styles.tr}>
+                        <td style={styles.td}>
+                          <strong style={{ color: 'var(--color-purple)' }}>{bx.boxCode || bx.boxNumber}</strong>
+                        </td>
+                        <td style={styles.td}>{bx.poNumber}</td>
+                        <td style={styles.td}>{bx.styleName}</td>
+                        <td style={styles.td}>
+                          <strong style={{ color: 'var(--color-teal)' }}>{bx.activeFilledCount}</strong> / {bx.capacity} pcs
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>
+                            ({bx.remainingCapacity} space left)
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          <StatusPill label={bx.status} variant={bx.status === 'COMPLETED' ? 'green' : 'amber'} />
+                        </td>
+                        <td style={styles.td}>
+                          <StatusPill label={bx.aqlStatus} variant={bx.aqlStatus === 'PASS' ? 'green' : bx.aqlStatus === 'FAIL' ? 'red' : 'muted'} />
+                        </td>
+                        <td style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{bx.transferStatus || 'NONE'}</span>
+                        </td>
+                        <td style={styles.td}>
+                          <button
+                            onClick={() => setSelectedBoxModal(bx)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(139, 92, 246, 0.15)',
+                              border: '1px solid var(--color-purple)',
+                              color: 'var(--color-purple)',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            View Active QRs ({bx.productQrs?.length || 0})
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -832,6 +890,116 @@ export const AdminDashboard: React.FC = () => {
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Configure PO QR ranges</span>
         </button>
       </div>
+
+      {/* ── Box Detail Modal ───────────────────────────── */}
+      {selectedBoxModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '20px',
+            width: '94%',
+            maxWidth: '560px',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-teal)', letterSpacing: '0.08em' }}>BOX CONTENT DETAIL</span>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Box {selectedBoxModal.boxCode || selectedBoxModal.boxNumber}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedBoxModal(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>PO Number:</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, display: 'block', color: 'var(--text-primary)' }}>{selectedBoxModal.poNumber}</span>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Garment Style:</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, display: 'block', color: 'var(--text-primary)' }}>{selectedBoxModal.styleName}</span>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Capacity:</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, display: 'block', color: 'var(--color-purple)' }}>
+                  {selectedBoxModal.activeFilledCount} / {selectedBoxModal.capacity} pcs
+                </span>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>AQL Inspection:</span>
+                <StatusPill label={selectedBoxModal.aqlStatus} variant={selectedBoxModal.aqlStatus === 'PASS' ? 'green' : selectedBoxModal.aqlStatus === 'FAIL' ? 'red' : 'muted'} />
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>
+                Active Scanned Garment QRs ({selectedBoxModal.productQrs?.length || 0}):
+              </h4>
+              <div style={{
+                maxHeight: '180px',
+                overflowY: 'auto',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                backgroundColor: 'var(--bg-surface-2)',
+                padding: '10px',
+                borderRadius: '10px'
+              }}>
+                {selectedBoxModal.productQrs && selectedBoxModal.productQrs.length > 0 ? (
+                  selectedBoxModal.productQrs.map((qr: string, idx: number) => (
+                    <span
+                      key={idx}
+                      style={{
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                        color: 'var(--color-teal)',
+                        border: '1px solid rgba(20, 184, 166, 0.3)',
+                        padding: '4px 8px',
+                        borderRadius: '6px'
+                      }}
+                    >
+                      {qr}
+                    </span>
+                  ))
+                ) : (
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No items packed in this box yet.</span>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSelectedBoxModal(null)}
+              className="btn btn-secondary"
+              style={{ marginTop: '8px' }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

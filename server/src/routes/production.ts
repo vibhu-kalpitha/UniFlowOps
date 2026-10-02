@@ -633,4 +633,295 @@ router.delete('/production-orders/:id/allocations/:allocId', authenticateToken, 
   }
 });
 
+// ── ADMIN USER MANAGEMENT ENDPOINTS ──────────────────────────────
+// GET /api/admin/users
+router.get('/admin/users', authenticateToken, requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const users = await db.query(`
+      SELECT id, employee_no, username, full_name, role, active, created_at, updated_at
+      FROM users
+      ORDER BY created_at DESC
+    `);
+    const formatted = users.map((u: any) => ({
+      id: u.id,
+      employeeNo: u.employee_no || u.id,
+      username: u.username,
+      name: u.full_name,
+      role: u.role.charAt(0).toUpperCase() + u.role.slice(1).toLowerCase(),
+      lineId: u.role === 'OPERATOR' ? 'Line 04' : u.role === 'SUPERVISOR' ? 'Line 04 & 02' : 'All Lines',
+      status: u.active ? 'Active' : 'Inactive',
+      createdAt: u.created_at
+    }));
+    return res.json(formatted);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/users
+router.post('/admin/users', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const bcrypt = (await import('bcryptjs')).default;
+    const { username, password, fullName, role, employeeNo } = req.body;
+    if (!username || !password || !fullName || !role) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Username, password, name, and role are required' });
+    }
+    const cleanUser = username.trim().toLowerCase();
+    const existing = await db.prepare(`SELECT id FROM users WHERE LOWER(username) = ?`).get(cleanUser);
+    if (existing) {
+      return res.status(409).json({ error: 'USER_EXISTS', message: `User @${cleanUser} already exists` });
+    }
+    const userId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const passwordHash = bcrypt.hashSync(password, 10);
+    const empNo = employeeNo || `EMP-${Date.now().toString().slice(-4)}`;
+    await db.prepare(`
+      INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3))
+    `).run(userId, empNo, cleanUser, passwordHash, fullName, role.toUpperCase());
+    await auditLog(req.user!.id, 'CREATE_USER', 'users', userId, { username: cleanUser, role });
+    return res.status(201).json({ message: 'User created successfully', userId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/admin/users/:id
+router.patch('/admin/users/:id', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const { fullName, role, active } = req.body;
+    const userId = req.params.id;
+    const user = await db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as any;
+    if (!user) {
+      return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+    if (fullName) await db.prepare(`UPDATE users SET full_name = ?, updated_at = NOW(3) WHERE id = ?`).run(fullName, userId);
+    if (role) await db.prepare(`UPDATE users SET role = ?, updated_at = NOW(3) WHERE id = ?`).run(role.toUpperCase(), userId);
+    if (active !== undefined) await db.prepare(`UPDATE users SET active = ?, updated_at = NOW(3) WHERE id = ?`).run(active ? 1 : 0, userId);
+    await auditLog(req.user!.id, 'UPDATE_USER', 'users', userId, { fullName, role, active });
+    return res.json({ message: 'User updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── ADMIN STYLE MANAGEMENT ENDPOINTS ──────────────────────────────
+// GET /api/admin/styles
+router.get('/admin/styles', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const styles = await db.query(`
+      SELECT s.*,
+        (SELECT COUNT(id) FROM production_orders WHERE style_id = s.id) as po_count
+      FROM styles s
+      ORDER BY s.created_at DESC
+    `);
+    return res.json(styles);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── ADMIN PRODUCTION ORDERS & QUANTITY EDITING ────────────────────
+// GET /api/admin/orders
+router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const orders = await db.query(`
+      SELECT 
+        po.id, po.po_number, po.po_name, po.customer, po.start_date, po.due_date, po.status, po.created_at,
+        s.name as style_name, s.code as style_code, u.full_name as supervisor_name,
+        (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
+        (SELECT COUNT(DISTINCT item_id) FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE (iu.production_order_id = po.id OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS') as qc_passed_count,
+        (SELECT COUNT(DISTINCT bi.item_id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id LEFT JOIN item_units iu ON iu.id = bi.item_id WHERE (b.production_order_id = po.id OR iu.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count
+      FROM production_orders po
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = po.supervisor_id
+      ORDER BY po.created_at DESC
+    `);
+
+    const formatted = orders.map((p: any) => {
+      const targetQty = Number(p.cfg_qty || p.total_quantity || 500);
+      const packed = Number(p.packed_count || 0);
+      const qcPassed = Number(p.qc_passed_count || 0);
+      const completionPct = targetQty > 0 ? Math.min(100, Math.round((packed / targetQty) * 100)) : 0;
+
+      return {
+        id: p.id,
+        poNumber: p.po_number,
+        poName: p.po_name || null,
+        styleName: p.style_name || p.style_code || 'Standard Style',
+        customer: p.customer || 'Standard',
+        supervisorName: p.supervisor_name || 'Supervisor',
+        startDate: p.start_date,
+        dueDate: p.due_date,
+        status: p.status,
+        configuredQuantity: targetQty,
+        qcPassedCount: qcPassed,
+        packedCount: packed,
+        completionPct,
+        displayName: p.style_name 
+          ? (p.po_name ? `${p.style_name} - ${p.po_name} - ${p.po_number}` : `${p.style_name} - ${p.po_number}`)
+          : (p.po_name ? `${p.po_name} - ${p.po_number}` : p.po_number)
+      };
+    });
+
+    return res.json(formatted);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/admin/orders/:id/quantity - Edit Configured Quantity with Safety Validation
+router.patch('/admin/orders/:id/quantity', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const poParam = req.params.id;
+    const { newQuantity } = req.body;
+    const qty = Number(newQuantity);
+
+    if (!qty || isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'INVALID_QUANTITY', message: 'Configured quantity must be a positive number' });
+    }
+
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    // Safety check: Verify new quantity >= already processed / packed count
+    const packedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+      JOIN boxes b ON b.id = bi.box_id
+      LEFT JOIN item_units iu ON iu.id = bi.item_id
+      WHERE (b.production_order_id = ? OR iu.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND bi.active = 1
+    `).get(po.id, po.id, po.id) as any;
+    const packedCount = Number(packedRow?.cnt || 0);
+
+    const qcRow = await db.prepare(`
+      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+      JOIN item_units iu ON iu.id = qr.item_id
+      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+    `).get(po.id, po.id) as any;
+    const qcPassedCount = Number(qcRow?.cnt || 0);
+
+    const maxProcessed = Math.max(packedCount, qcPassedCount);
+
+    if (qty < maxProcessed) {
+      return res.status(400).json({
+        error: 'QUANTITY_SAFETY_VIOLATION',
+        message: `Cannot reduce quantity to ${qty}. ${maxProcessed} items have already been processed/packed for this Production Order.`
+      });
+    }
+
+    // Fetch existing configs
+    const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
+
+    if (configs.length > 0) {
+      const oldTotal = configs.reduce((sum: number, c: any) => sum + Number(c.quantity || 0), 0);
+      const ratio = oldTotal > 0 ? qty / oldTotal : 1;
+
+      for (const cfg of configs) {
+        const updatedCfgQty = Math.max(1, Math.round(cfg.quantity * ratio));
+        await db.prepare(`UPDATE production_order_configs SET quantity = ?, updated_at = NOW(3) WHERE id = ?`).run(updatedCfgQty, cfg.id);
+      }
+    }
+
+    await db.prepare(`UPDATE production_orders SET updated_at = NOW(3) WHERE id = ?`).run(po.id);
+
+    await auditLog(req.user!.id, 'UPDATE_PO_QUANTITY', 'production_orders', po.id, {
+      poNumber: po.po_number,
+      oldQuantity: po.total_quantity || maxProcessed,
+      newQuantity: qty
+    });
+
+    return res.json({
+      message: `Updated configured quantity to ${qty} for PO ${po.po_number}`,
+      poId: po.id,
+      newQuantity: qty
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── BOX OVERVIEW ENDPOINT ──────────────────────────────────────────
+// GET /api/boxes - Query system boxes with capacity, fill count, active product QRs
+router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const { poId, styleName, search, status } = req.query as { poId?: string; styleName?: string; search?: string; status?: string };
+
+    let whereClauses: string[] = ['1=1'];
+    let params: any[] = [];
+
+    if (poId) {
+      whereClauses.push(`(b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))`);
+      params.push(poId, poId);
+    }
+    if (styleName) {
+      whereClauses.push(`(UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(po.style_name)) = ?)`);
+      params.push(styleName.trim().toUpperCase(), styleName.trim().toUpperCase());
+    }
+    if (search) {
+      const q = `%${search.trim().toUpperCase()}%`;
+      whereClauses.push(`(UPPER(b.box_code) LIKE ? OR UPPER(b.box_number) LIKE ? OR UPPER(po.po_number) LIKE ?)`);
+      params.push(q, q, q);
+    }
+    if (status) {
+      whereClauses.push(`UPPER(TRIM(b.status)) = ?`);
+      params.push(status.trim().toUpperCase());
+    }
+
+    const boxes = await db.query(`
+      SELECT 
+        b.id, b.box_code, b.box_number, b.capacity, b.status, b.created_at, b.production_order_id,
+        po.po_number, po.po_name, s.name as style_name,
+        (SELECT COUNT(bi.id) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) as active_count
+      FROM boxes b
+      LEFT JOIN production_orders po ON po.id = b.production_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY b.created_at DESC
+      LIMIT 100
+    `, params);
+
+    const formattedBoxes = await Promise.all(boxes.map(async (b: any) => {
+      const activeItems = await db.prepare(`
+        SELECT u.id, u.qr_code, u.size, bi.packed_at, usr.full_name as packed_by_name
+        FROM box_items bi
+        JOIN item_units u ON u.id = bi.item_id
+        LEFT JOIN users usr ON usr.id = bi.packed_by
+        WHERE bi.box_id = ? AND bi.active = 1
+        ORDER BY bi.packed_at ASC
+      `).all(b.id) as any[];
+
+      const activeCount = Number(b.active_count || activeItems.length || 0);
+      const capacity = Number(b.capacity || 12);
+      const remainingCapacity = Math.max(0, capacity - activeCount);
+
+      const aqlRow = await db.prepare(`SELECT result FROM aql_inspections WHERE box_id = ? ORDER BY completed_at DESC LIMIT 1`).get(b.id) as any;
+      const transferRow = await db.prepare(`SELECT * FROM box_transfers WHERE source_box_id = ? OR destination_box_id = ? ORDER BY transferred_at DESC LIMIT 1`).get(b.id, b.id) as any;
+
+      return {
+        id: b.id,
+        boxCode: b.box_code || b.box_number,
+        boxNumber: b.box_number || b.box_code,
+        poId: b.production_order_id,
+        poNumber: b.po_number || b.production_order_id,
+        poName: b.po_name || null,
+        styleName: b.style_name || 'Standard Style',
+        capacity,
+        activeFilledCount: activeCount,
+        remainingCapacity,
+        status: b.status || (activeCount >= capacity ? 'COMPLETED' : 'OPEN'),
+        aqlStatus: aqlRow?.result || 'PENDING',
+        transferStatus: transferRow ? `Transferred (${transferRow.item_count} items)` : 'NONE',
+        items: activeItems
+      };
+    }));
+
+    return res.json(formattedBoxes);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
