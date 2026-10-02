@@ -740,6 +740,97 @@ router.get('/reports/production', authenticateToken, async (req, res, next) => {
   try {
     const range = req.query.range || 'today';
 
+    const pos = await db.prepare(`
+      SELECT 
+        po.id, po.po_number, po.po_name, po.customer, po.status, po.created_at,
+        s.name as style_name,
+        (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
+        (SELECT SUM(order_quantity) FROM sales_orders WHERE production_order_id = po.id) as so_qty
+      FROM production_orders po
+      LEFT JOIN styles s ON s.id = po.style_id
+      ORDER BY po.created_at DESC
+    `).all() as any[];
+
+    const poBreakdown = await Promise.all(pos.map(async p => {
+      const targetQty = Number(p.cfg_qty || p.so_qty || 500);
+
+      const qcPassRow = await db.prepare(`
+        SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+        JOIN item_units iu ON iu.id = qr.item_id
+        WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+          AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+      `).get(p.id, p.id) as any;
+      const qcPassed = Number(qcPassRow?.cnt || 0);
+
+      const qcFailRow = await db.prepare(`
+        SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
+        LEFT JOIN item_units iu ON iu.id = qf.item_id
+        WHERE iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      `).get(p.id, p.id, p.id) as any;
+      const qcFailed = Number(qcFailRow?.cnt || 0);
+
+      const packedRow = await db.prepare(`
+        SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+        JOIN boxes b ON b.id = bi.box_id
+        LEFT JOIN item_units iu ON iu.id = bi.item_id
+        WHERE (b.production_order_id = ? OR iu.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+          AND bi.active = 1
+      `).get(p.id, p.id, p.id) as any;
+      const packedCount = Number(packedRow?.cnt || 0);
+
+      const aqlPassRow = await db.prepare(`
+        SELECT COUNT(*) as cnt FROM aql_inspections ai
+        LEFT JOIN boxes b ON b.id = ai.box_id
+        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+          AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+      `).get(p.id, p.id) as any;
+      const aqlPassed = Number(aqlPassRow?.cnt || 0);
+
+      const aqlFailRow = await db.prepare(`
+        SELECT COUNT(*) as cnt FROM aql_inspections ai
+        LEFT JOIN boxes b ON b.id = ai.box_id
+        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+          AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
+      `).get(p.id, p.id) as any;
+      const aqlFailed = Number(aqlFailRow?.cnt || 0);
+
+      const boxTransferRow = await db.prepare(`
+        SELECT COUNT(*) as cnt FROM box_transfers bt
+        JOIN boxes b ON b.id = bt.source_box_id
+        WHERE b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      `).get(p.id, p.id) as any;
+      const boxTransfers = Number(boxTransferRow?.cnt || 0);
+
+      const scrappedRow = await db.prepare(`
+        SELECT COUNT(*) as cnt FROM permanently_removed_items
+        WHERE production_order_id = ?
+      `).get(p.id) as any;
+      const scrappedCount = Number(scrappedRow?.cnt || 0);
+
+      const completionPct = targetQty > 0 ? Math.min(100, Math.round((packedCount / targetQty) * 100)) : 0;
+      const totalQc = qcPassed + qcFailed;
+      const qcPassRate = totalQc > 0 ? Math.round((qcPassed / totalQc) * 100) : 100;
+
+      return {
+        poId: p.id,
+        poNumber: p.po_number || p.id,
+        poName: p.po_name || 'N/A',
+        styleName: p.style_name || 'Standard Style',
+        customer: p.customer || 'Standard',
+        targetQuantity: targetQty,
+        qcPassed,
+        qcFailed,
+        qcPassRate: `${qcPassRate}%`,
+        packedCount,
+        aqlPassed,
+        aqlFailed,
+        boxTransfers,
+        scrappedCount,
+        completionPct: `${completionPct}%`,
+        status: p.status || 'CURRENT'
+      };
+    }));
+
     const lines = await db.prepare(`SELECT * FROM production_lines`).all() as any[];
     const lineBreakdown = await Promise.all(lines.map(async line => {
       const packedRow = await db.prepare(`
@@ -779,6 +870,7 @@ router.get('/reports/production', authenticateToken, async (req, res, next) => {
     return res.json({
       range,
       velocityVariance: '+0% vs Target',
+      poBreakdown,
       lineBreakdown
     });
   } catch (err) {

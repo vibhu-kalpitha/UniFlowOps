@@ -320,8 +320,82 @@ export const AdminDashboard: React.FC = () => {
             {/* KPI 13: Overall PO Completion % */}
             <div style={styles.kpiCardGradient('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
               <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>PO COMPLETION %</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '4px' }}>{kpis.overallPoCompletion}%</div>
+              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px' }}>{kpis.overallPoCompletion}%</div>
               <span style={{ fontSize: '10px', color: 'var(--primary-teal)' }}>Planned vs Packed</span>
+            </div>
+          </div>
+
+          {/* ── LIVE BOX DATA & QUALITY DISTRIBUTION CHARTS ── */}
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <BarChart3 size={18} color="var(--primary-teal)" />
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Carton & Box Operational Analytics Stream 📦
+                </h3>
+              </div>
+              <StatusPill label={`${kpis.totalBoxes} Cartons Live`} variant="teal" />
+            </div>
+
+            {/* Visual Box Distribution Bar Chart */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              {/* Box Status Breakdown */}
+              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+                  Box Status Distribution ({kpis.totalBoxes} Total)
+                </span>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+                      <span style={{ fontWeight: 700, color: '#10B981' }}>Full / Sealed Cartons</span>
+                      <span style={{ fontWeight: 800, color: '#10B981' }}>
+                        {kpis.fullBoxes} ({kpis.totalBoxes > 0 ? Math.round((kpis.fullBoxes / kpis.totalBoxes) * 100) : 0}%)
+                      </span>
+                    </div>
+                    <ProgressBar current={kpis.fullBoxes} total={Math.max(1, kpis.totalBoxes)} height={8} color="#10B981" />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+                      <span style={{ fontWeight: 700, color: '#F59E0B' }}>Open / In-Progress Boxes</span>
+                      <span style={{ fontWeight: 800, color: '#F59E0B' }}>
+                        {kpis.openBoxes} ({kpis.totalBoxes > 0 ? Math.round((kpis.openBoxes / kpis.totalBoxes) * 100) : 0}%)
+                      </span>
+                    </div>
+                    <ProgressBar current={kpis.openBoxes} total={Math.max(1, kpis.totalBoxes)} height={8} color="#F59E0B" />
+                  </div>
+                </div>
+              </div>
+
+              {/* AQL Audit Result Distribution */}
+              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+                  AQL Box Audit Approvals vs Rejections
+                </span>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+                      <span style={{ fontWeight: 700, color: '#059669' }}>AQL Passed Boxes</span>
+                      <span style={{ fontWeight: 800, color: '#059669' }}>
+                        {kpis.aqlPassed} ({totalAql > 0 ? Math.round((kpis.aqlPassed / totalAql) * 100) : 100}%)
+                      </span>
+                    </div>
+                    <ProgressBar current={kpis.aqlPassed} total={Math.max(1, totalAql)} height={8} color="#059669" />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+                      <span style={{ fontWeight: 700, color: '#EF4444' }}>AQL Failed Boxes</span>
+                      <span style={{ fontWeight: 800, color: '#EF4444' }}>
+                        {kpis.aqlFailed} ({totalAql > 0 ? Math.round((kpis.aqlFailed / totalAql) * 100) : 0}%)
+                      </span>
+                    </div>
+                    <ProgressBar current={kpis.aqlFailed} total={Math.max(1, totalAql)} height={8} color="#EF4444" />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1031,9 +1105,9 @@ const styles: Record<string, any> = {
     backgroundColor: 'var(--bg-surface-1)',
     background: `linear-gradient(135deg, var(--bg-surface-1) 0%, ${bg} 100%)`,
     border: `1px solid ${border}`,
-    borderRadius: '16px',
-    padding: '16px',
-    boxShadow: '0 4px 15px rgba(0, 0, 0, 0.15)',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.15)',
     transition: 'all 0.2s ease-in-out'
   }),
   tabBtn: (active: boolean) => ({
