@@ -57,6 +57,7 @@ export const AQLSamplesPage: React.FC = () => {
   // State Machine for current item: 'WAITING' -> 'SCANNED_RESULT_REQUIRED' -> 'PASS_FAIL_RECORDED'
   const [itemState, setItemState] = useState<'WAITING' | 'SCANNED_RESULT_REQUIRED'>('WAITING');
   const [scannedQr, setScannedQr] = useState<string>('');
+  const [deleteSuccessBanner, setDeleteSuccessBanner] = useState<{ qr: string; boxNumber: string } | null>(null);
 
   // Defect Modal State
   const [showFailModal, setShowFailModal] = useState(false);
@@ -167,21 +168,49 @@ export const AQLSamplesPage: React.FC = () => {
 
     try {
       if (failAction === 'PERMANENTLY_REMOVE') {
-        // PERMANENT DELETE: Remove from active box_items and store archive history
-        await apiFetch('/api/aql/items/permanently-remove', {
-          method: 'POST',
-          body: JSON.stringify({
-            itemQr: activeQr,
-            boxNumber: session.boxNumber,
-            inspectionId: session.inspectionId,
-            reason: removeReason || 'Damaged Garment Permanently Scrapped'
-          })
-        });
+        let res: any = null;
+        try {
+          res = await apiFetch('/api/aql/items/permanently-remove', {
+            method: 'POST',
+            body: JSON.stringify({
+              itemQr: activeQr,
+              boxNumber: session.boxNumber,
+              inspectionId: session.inspectionId,
+              reason: removeReason || 'Damaged Garment Permanently Scrapped'
+            })
+          });
+        } catch (err: any) {
+          const errMsg = err?.message || 'Permanent deletion failed. The product was not removed from the active box. Please try again.';
+          showToast(errMsg, 'error');
+          setIsProcessingAction(false);
+          return;
+        }
 
-        // Update active boxItemsList in session so capacity X/Y decreases
-        const updatedBoxItems = (session.boxItems || []).filter(
-          (qr: string) => qr.trim().toUpperCase() !== activeQr.toUpperCase()
-        );
+        if (res && res.success === false) {
+          if (res.error === 'ALREADY_REMOVED') {
+            showToast(`Product '${activeQr}' has already been permanently removed.`, 'warning');
+          } else {
+            showToast(res.message || 'Permanent deletion failed.', 'error');
+          }
+          setIsProcessingAction(false);
+          return;
+        }
+
+        // Re-fetch current box data from backend to ensure active item list is accurate from DB
+        let freshActiveQrs: string[] = [];
+        try {
+          const refreshedBoxRes = await apiFetch('/api/aql/boxes/scan', {
+            method: 'POST',
+            body: JSON.stringify({ boxNumber: session.boxNumber })
+          });
+          if (refreshedBoxRes?.box?.items) {
+            freshActiveQrs = refreshedBoxRes.box.items.map((i: any) => i.qr_code);
+          }
+        } catch {
+          freshActiveQrs = (session.boxItems || []).filter(
+            (qr: string) => qr.trim().toUpperCase() !== activeQr.toUpperCase()
+          );
+        }
 
         const newSample = {
           sampleIndex: currentIdx,
@@ -197,16 +226,23 @@ export const AQLSamplesPage: React.FC = () => {
 
         saveAQLSession({
           ...session,
-          boxItems: updatedBoxItems,
-          sampleRequired: updatedBoxItems.length,
+          boxItems: freshActiveQrs,
+          sampleRequired: freshActiveQrs.length,
           samples: updatedSamples
         });
 
-        showToast(`Item ${activeQr} permanently removed from box & database.`, 'warning');
+        // Set visible success banner on page
+        const targetBoxNum = res?.boxNumber || session.boxNumber || 'box';
+        setDeleteSuccessBanner({
+          qr: activeQr,
+          boxNumber: targetBoxNum
+        });
+
+        showToast(`✓ PERMANENTLY DELETED: ${activeQr} was removed from ${targetBoxNum}.`, 'success');
         setShowFailModal(false);
         setIsProcessingAction(false);
 
-        if (currentIdx <= updatedBoxItems.length) {
+        if (currentIdx <= freshActiveQrs.length) {
           setItemState('WAITING');
           setScannedQr('');
         } else {
@@ -327,6 +363,44 @@ export const AQLSamplesPage: React.FC = () => {
           <span>Result</span>
         </div>
       </div>
+
+      {/* Permanent Delete Success Notification Banner */}
+      {deleteSuccessBanner && (
+        <div style={{
+          backgroundColor: 'rgba(16, 185, 129, 0.15)',
+          border: '1.5px solid #10B981',
+          borderRadius: '16px',
+          padding: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          boxShadow: '0 4px 15px rgba(16, 185, 129, 0.2)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ padding: '8px', borderRadius: '50%', backgroundColor: '#10B981', color: '#041820' }}>
+              <CheckCircle2 size={24} />
+            </div>
+            <div>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', letterSpacing: '0.08em' }}>
+                ✓ PERMANENTLY DELETED
+              </span>
+              <h4 style={{ margin: '2px 0 0 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                {deleteSuccessBanner.qr} has been permanently removed from {deleteSuccessBanner.boxNumber}.
+              </h4>
+              <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                The product has been removed from the active box contents and recorded in the permanent removal history.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setDeleteSuccessBanner(null)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px', fontWeight: 800 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Box Header Banner */}
       <div style={styles.banner}>

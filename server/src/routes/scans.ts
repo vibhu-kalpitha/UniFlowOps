@@ -1529,6 +1529,22 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
         AND UPPER(TRIM(qr_code)) = ?
     `).get(targetPoId, qr) as any : await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qr) as any;
 
+    // Check if product was already permanently removed
+    const alreadyRemoved = await db.prepare(`
+      SELECT * FROM permanently_removed_items 
+      WHERE UPPER(TRIM(item_qr)) = ? OR (item_id IS NOT NULL AND item_id = ?)
+    `).get(qr, item?.id || null) as any;
+
+    if (alreadyRemoved || item?.status === 'PERMANENTLY_REMOVED') {
+      return res.status(400).json({
+        success: false,
+        error: 'ALREADY_REMOVED',
+        message: `Product '${qr}' has already been permanently removed.`,
+        itemQr: qr,
+        boxNumber: box?.box_code || box?.box_number || boxNumber || null
+      });
+    }
+
     const removeId = `prm-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     const poId = item?.production_order_id || box?.production_order_id || null;
     const boxId = box?.id || null;
@@ -1572,10 +1588,15 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
     await recordScanEvent('', operatorId, 'AQL', qr, 'REJECTED', 'PERMANENTLY_REMOVED', reason || 'Item permanently removed');
     await auditLog(operatorId, 'PERMANENTLY_REMOVE_ITEM', 'permanently_removed_items', removeId, { itemQr: qr, reason });
 
-    return res.status(201).json({
-      message: `Item ${qr} has been permanently removed from database and archived`,
+    const boxCodeStr = box?.box_code || box?.box_number || boxNumber || 'box';
+
+    return res.status(200).json({
+      success: true,
+      removed: true,
       removeId,
-      itemQr: qr
+      itemQr: qr,
+      boxNumber: boxCodeStr,
+      message: `${qr} was permanently removed from ${boxCodeStr}.`
     });
   } catch (err) {
     next(err);
