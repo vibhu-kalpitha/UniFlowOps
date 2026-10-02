@@ -553,9 +553,10 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
 
     const activeProductionOrders = await db.prepare(`
       SELECT 
-        po.id, po.po_number, po.po_name, po.customer, po.total_quantity, po.status, po.created_at,
+        po.id, po.po_number, po.po_name, po.customer, po.status, po.created_at,
         s.name as style_ref_name, u.full_name as supervisor_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
+        (SELECT SUM(order_quantity) FROM sales_orders WHERE production_order_id = po.id) as so_qty,
         (SELECT COUNT(DISTINCT bi.item_id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id LEFT JOIN item_units iu ON iu.id = bi.item_id WHERE (b.production_order_id = po.id OR iu.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count,
         (SELECT COUNT(id) FROM aql_inspections WHERE production_order_id = po.id AND UPPER(TRIM(result)) IN ('PASS', 'PASSED')) as aql_passed_boxes,
         (SELECT COUNT(id) FROM permanently_removed_items WHERE production_order_id = po.id) as scrapped_count
@@ -568,7 +569,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
     `).all(...(filterActive ? poIdsTarget : [])) as any[];
 
     const formattedActiveOrders = activeProductionOrders.map(p => {
-      const targetQty = Number(p.cfg_qty || p.total_quantity || 500);
+      const targetQty = Number(p.cfg_qty || p.so_qty || 500);
       const packed = Number(p.packed_count || 0);
       const completionPct = targetQty > 0 ? Math.min(100, Math.round((packed / targetQty) * 100)) : 0;
 
