@@ -86,6 +86,8 @@ export interface ProductionOrderProgress {
 export interface ProductionOrder {
   id: string;                  // e.g. PO-2026-0184
   dbId?: string;
+  poNumber?: string;
+  poName?: string;
   mapPo: string;               // Free text e.g. MAP-PO-44821
   customer: string;            // e.g. Nike
   styleId?: string | null;

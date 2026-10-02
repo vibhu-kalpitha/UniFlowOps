@@ -248,7 +248,13 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
       });
     }
 
-    const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
+    const item = po ? await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, po.map_po, code) as any
+    : await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
+
     if (item) {
       const existingPass = await db.prepare(`
         SELECT * FROM qc_results WHERE item_id = ? AND qc_result = 'PASS' AND test_result = 'PASS'
@@ -676,9 +682,14 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       });
     }
 
-    let item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(itemQr) as any;
+    let item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, po.map_po, itemQr) as any;
+
     if (!item) {
-      const itemId = `itm-${itemQr}`;
+      const itemId = `itm-${po.id}-${itemQr}`;
       await db.prepare(`
         INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
@@ -1014,7 +1025,12 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       return res.status(400).json({ error: 'BOX_FULL', message: `Box ${boxNumber} is already full (${box.capacity}/${box.capacity}).` });
     }
 
-    let item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(itemQr.trim().toUpperCase()) as any;
+    let item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, po.map_po, itemQr.trim().toUpperCase()) as any;
+
     if (!item) {
       await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ITEM_NOT_FOUND', 'Product not found for Production Order');
       return res.status(400).json({ error: 'ITEM_NOT_FOUND', message: `Product not found for Production Order ${po.po_number || po.id}.` });
@@ -1399,7 +1415,11 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
       }
     }
 
-    let item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
+    let item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id IS NULL) 
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(insp.production_order_id, code) as any;
     if (!item) {
       return res.status(400).json({ error: 'ITEM_NOT_FOUND', message: `Product '${code}' not found for Production Order.` });
     }
@@ -1476,8 +1496,14 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
     const operatorId = req.user!.id;
 
     const qr = itemQr.trim().toUpperCase();
-    const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qr) as any;
     let box = boxNumber ? await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any : null;
+    const targetPoId = box?.production_order_id || null;
+
+    const item = targetPoId ? await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id IS NULL) 
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(targetPoId, qr) as any : await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qr) as any;
 
     const removeId = `prm-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     const poId = item?.production_order_id || box?.production_order_id || null;

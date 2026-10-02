@@ -9,6 +9,7 @@ import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
+import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 interface ScannedBoxInfo {
@@ -208,7 +209,7 @@ export const AQLBoxScanPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 800 }}>
-            AQL Inspection — {po?.id || (po as any)?.poNumber} ({po?.styleName || po?.styleCode || 'Style'})
+            AQL Inspection — {formatPoDisplayName(po)}
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
             Scan the packing box barcode to load its contents for inspection.

@@ -7,6 +7,7 @@ import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 interface ScannedItem {
@@ -329,7 +330,7 @@ export const QCTestPage: React.FC = () => {
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                QC Inspection • {po?.id || (po as any)?.poNumber} — {po?.styleName || po?.styleCode || 'Garment Style'}
+                QC Inspection • {formatPoDisplayName(po)}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Configured QC Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>

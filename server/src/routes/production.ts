@@ -266,6 +266,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   return {
     id: po.po_number,
     dbId: po.id,
+    poName: po.po_name || po.poName || undefined,
     mapPo: po.map_po,
     customer: po.customer || 'Factory Customer',
     styleId: style ? style.id : null,
@@ -358,6 +359,8 @@ const createPoProductConfigSchema = z.object({
 
 const createPoSchema = z.object({
   id: z.string().min(1),
+  poName: z.string().optional(),
+  po_name: z.string().optional(),
   mapPo: z.string().min(1),
   customer: z.string().optional(),
   styleId: z.string().optional(),
@@ -490,11 +493,13 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       poShiftId = shiftRow ? shiftRow.id : rawShiftId;
     }
 
+    const poNameVal = (body.poName || body.po_name || '').trim() || null;
+
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, shift_id, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, poShiftId, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, shift_id, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, poShiftId, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = 'QC_TEST';

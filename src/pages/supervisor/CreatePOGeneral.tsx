@@ -54,6 +54,7 @@ export const CreatePOGeneral: React.FC = () => {
   const [selectedStyleId, setSelectedStyleId] = useState('');
 
   const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [poName, setPoName] = useState(() => 'BioTab Morning Batch');
   const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
   const [startDate, setStartDate] = useState('2026-09-15');
   const [dueDate, setDueDate] = useState('2026-10-10');
@@ -184,6 +185,7 @@ export const CreatePOGeneral: React.FC = () => {
     // Build the draft payload — allocations carry operator+shift pairs
     const draftPo = {
       id: poId,
+      poName,
       mapPo,
       customer: selectedStyleObj?.customer || 'Factory Customer',
       styleId: selectedStyleId,
@@ -283,6 +285,18 @@ export const CreatePOGeneral: React.FC = () => {
           <div>
             <label style={styles.label}>Production Order No.</label>
             <input type="text" className="input-field" value={poId} onChange={e => setPoId(e.target.value)} required />
+          </div>
+
+          {/* PO Name */}
+          <div>
+            <label style={styles.label}>PO Name (Human-Readable Label)</label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="e.g. BioTab Morning Batch"
+              value={poName}
+              onChange={e => setPoName(e.target.value)}
+            />
           </div>
 
           {/* Map PO */}

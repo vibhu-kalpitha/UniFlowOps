@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ProductionOrder, OperationType } from '../types';
 import { apiFetch } from '../services/api';
+import { formatPoDisplayName } from '../utils/formatters';
 import { Package, Layers, CheckCircle2, ChevronRight, AlertCircle, RefreshCw, X } from 'lucide-react';
 import '../styles/tokens.css';
 
@@ -193,7 +194,7 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                       fontWeight: 800,
                       color: isSelected ? 'var(--primary-teal, #14b8a6)' : '#f8fafc'
                     }}>
-                      {po.styleName || po.styleCode || 'Style'} - {po.id}
+                      {formatPoDisplayName(po)}
                     </span>
                     {po.status && (
                       <span style={{

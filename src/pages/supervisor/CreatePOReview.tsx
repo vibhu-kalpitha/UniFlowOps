@@ -48,6 +48,7 @@ export const CreatePOReview: React.FC = () => {
 
     const finalPoPayload = {
       id: draftPoGeneral.id,
+      poName: draftPoGeneral.poName,
       mapPo: draftPoGeneral.mapPo,
       customer: draftPoGeneral.customer || 'Factory Orders',
       styleId: draftPoGeneral.styleId,
@@ -191,6 +192,12 @@ export const CreatePOReview: React.FC = () => {
         </div>
 
         <div style={styles.summaryGrid}>
+          {draftPoGeneral.poName && (
+            <div>
+              <span style={styles.sumLabel}>PO Name</span>
+              <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.poName}</span>
+            </div>
+          )}
           <div>
             <span style={styles.sumLabel}>Map PO</span>
             <span style={styles.sumVal}>{draftPoGeneral.mapPo}</span>

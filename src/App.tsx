@@ -40,23 +40,12 @@ import { AdminReports } from './pages/admin/AdminReports';
 import { AdminMore } from './pages/admin/AdminMore';
 import { AdminSessions } from './pages/admin/AdminSessions';
 
-// Role Guard Component (with auto-role adaptation for direct page testing)
+// Role Guard Component
 const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin'; children: React.ReactNode }> = ({
   allowedRole,
   children
 }) => {
-  const { isAuthenticated, currentRole, authLoading, loginUser } = useApp();
-
-  React.useEffect(() => {
-    if (!authLoading && currentRole !== allowedRole) {
-      const mockProfiles: Record<string, any> = {
-        operator: { id: 'usr-001', employeeNo: 'EMP-101', username: 'chamika', name: 'Chamika Silva', role: 'operator', avatarInitials: 'CS' },
-        supervisor: { id: 'usr-002', employeeNo: 'EMP-102', username: 'nimal', name: 'Nimal Perera', role: 'supervisor', avatarInitials: 'NP' },
-        admin: { id: 'usr-003', employeeNo: 'EMP-100', username: 'admin', name: 'System Admin', role: 'admin', avatarInitials: 'AD' }
-      };
-      loginUser('mock-jwt-token-direct-access', mockProfiles[allowedRole]);
-    }
-  }, [authLoading, currentRole, allowedRole, loginUser]);
+  const { isAuthenticated, currentRole, authLoading } = useApp();
 
   if (authLoading) {
     return (
@@ -64,6 +53,15 @@ const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin
         <div>Loading page...</div>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (currentRole !== allowedRole) {
+    const fallbackPath = currentRole === 'operator' ? '/operator/home' : currentRole === 'supervisor' ? '/supervisor/home' : '/admin/dashboard';
+    return <Navigate to={fallbackPath} replace />;
   }
 
   return <>{children}</>;

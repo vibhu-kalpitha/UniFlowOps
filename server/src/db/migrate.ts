@@ -280,6 +280,14 @@ async function runStartupColumnChecks(): Promise<void> {
 
     // ── production_orders columns ────────────────────────────────────
     if (await tableExists('production_orders')) {
+      // po_name
+      if (!(await columnExists('production_orders', 'po_name'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN po_name VARCHAR(191) NULL AFTER po_number`);
+          console.log('  ✅ Added production_orders.po_name');
+        } catch (e: any) { console.warn('  ⚠️ po_name:', e.message); }
+      }
+
       // qc_test_mode
       if (!(await columnExists('production_orders', 'qc_test_mode'))) {
         try {
@@ -386,6 +394,33 @@ async function runStartupColumnChecks(): Promise<void> {
         console.log('  ✅ Created production_order_operations table');
       }
     } catch (e: any) { console.warn('  ⚠️ production_order_operations:', e.message); }
+
+    // ── item_units table unique constraint alignment ─────────────────
+    try {
+      if (await tableExists('item_units')) {
+        // If single-column unique index 'qr_code' exists, drop it so QR can be reused across different POs
+        if (await indexExists('item_units', 'qr_code')) {
+          try {
+            await db.exec(`ALTER TABLE item_units DROP INDEX qr_code`);
+            console.log('  ✅ Removed single-column qr_code unique constraint');
+          } catch (_) {}
+        }
+        // Ensure non-unique idx_item_qr index exists for fast qr_code lookups
+        if (!(await indexExists('item_units', 'idx_item_qr'))) {
+          try {
+            await db.exec(`CREATE INDEX idx_item_qr ON item_units (qr_code)`);
+            console.log('  ✅ Created non-unique idx_item_qr index');
+          } catch (_) {}
+        }
+        // Ensure composite unique constraint uq_item_po_qr on (production_order_id, qr_code)
+        if (!(await indexExists('item_units', 'uq_item_po_qr')) && !(await constraintExists('item_units', 'uq_item_po_qr'))) {
+          try {
+            await db.exec(`ALTER TABLE item_units ADD CONSTRAINT uq_item_po_qr UNIQUE (production_order_id, qr_code)`);
+            console.log('  ✅ Added composite unique constraint uq_item_po_qr (production_order_id, qr_code)');
+          } catch (_) {}
+        }
+      }
+    } catch (e: any) { console.warn('  ⚠️ item_units index alignment:', e.message); }
 
     console.log('✅ Startup column checks complete.');
   } catch (outerErr: any) {

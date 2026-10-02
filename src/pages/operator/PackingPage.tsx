@@ -9,6 +9,7 @@ import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
+import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 interface BoxItem {
@@ -320,7 +321,7 @@ export const PackingPage: React.FC = () => {
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
-                Packing Station • {po?.id || (po as any)?.poNumber} — {po?.styleName || po?.styleCode || 'Garment Style'}
+                Packing Station • {formatPoDisplayName(po)}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}

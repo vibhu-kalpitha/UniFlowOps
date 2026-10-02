@@ -762,5 +762,57 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
     }
   });
+
+  it('12. PO-Scoped QR Uniqueness Rules Unit Tests', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const timestamp = Date.now();
+    const po1Id = `po-uniq-1-${timestamp}`;
+    const po2Id = `po-uniq-2-${timestamp}`;
+
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      await db.execute(`INSERT INTO production_orders (id, po_number, status, created_at, updated_at) VALUES (?, ?, 'CURRENT', NOW(3), NOW(3))`, [po1Id, `PO-UNIQ-1-${timestamp}`]);
+      await db.execute(`INSERT INTO production_orders (id, po_number, status, created_at, updated_at) VALUES (?, ?, 'CURRENT', NOW(3), NOW(3))`, [po2Id, `PO-UNIQ-2-${timestamp}`]);
+
+      // Test 1: PO-1 + PNFLSM1 -> first save PASS
+      const item1Id = `itm-${po1Id}-PNFLSM1`;
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, production_order_id, size, status, created_at, updated_at) VALUES (?, 'PNFLSM1', ?, 'L', 'QC_PASSED', NOW(3), NOW(3))`,
+        [item1Id, po1Id]
+      );
+      const row1 = await db.queryOne<{ id: string }>(`SELECT id FROM item_units WHERE production_order_id = ? AND qr_code = 'PNFLSM1'`, [po1Id]);
+      expect(row1?.id).toBe(item1Id);
+
+      // Test 2: PO-2 + PNFLSM1 -> save PASS (same QR code, different PO allowed)
+      const item2Id = `itm-${po2Id}-PNFLSM1`;
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, production_order_id, size, status, created_at, updated_at) VALUES (?, 'PNFLSM1', ?, 'L', 'QC_PASSED', NOW(3), NOW(3))`,
+        [item2Id, po2Id]
+      );
+      const row2 = await db.queryOne<{ id: string }>(`SELECT id FROM item_units WHERE production_order_id = ? AND qr_code = 'PNFLSM1'`, [po2Id]);
+      expect(row2?.id).toBe(item2Id);
+      expect(row2?.id).not.toBe(row1?.id);
+
+      // Test 3: PO-1 + PNFLSM2 -> save PASS (different QR code, same PO allowed)
+      const item3Id = `itm-${po1Id}-PNFLSM2`;
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, production_order_id, size, status, created_at, updated_at) VALUES (?, 'PNFLSM2', ?, 'L', 'QC_PASSED', NOW(3), NOW(3))`,
+        [item3Id, po1Id]
+      );
+      const row3 = await db.queryOne<{ id: string }>(`SELECT id FROM item_units WHERE production_order_id = ? AND qr_code = 'PNFLSM2'`, [po1Id]);
+      expect(row3?.id).toBe(item3Id);
+
+      // Test 4: PO-1 + PNFLSM1 again -> existing item lookup finds original item, preventing duplicate creation
+      const existingItem = await db.queryOne<{ id: string }>(
+        `SELECT id FROM item_units WHERE production_order_id = ? AND qr_code = 'PNFLSM1'`,
+        [po1Id]
+      );
+      expect(existingItem?.id).toBe(item1Id);
+
+      // Cleanup
+      await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?)`, [item1Id, item2Id, item3Id]);
+      await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
+    }
+  }, 20000);
 });
 

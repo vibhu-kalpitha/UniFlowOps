@@ -7,6 +7,7 @@ import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { ProductionOrder, SalesOrder } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 export const OperatorHome: React.FC = () => {
@@ -15,6 +16,8 @@ export const OperatorHome: React.FC = () => {
 
   const [pendingOperation, setPendingOperation] = useState<{ name: string; route: string } | null>(null);
   const [selectedPoForModal, setSelectedPoForModal] = useState<ProductionOrder | null>(null);
+
+  const [fetchedPoDetails, setFetchedPoDetails] = useState<any>(null);
 
   // Live stats from database
   const [opStats, setOpStats] = useState({
@@ -28,8 +31,11 @@ export const OperatorHome: React.FC = () => {
     pendingPackCount: 0
   });
 
+  const targetPoId = activeJob?.productionOrder?.id;
+
   const fetchStats = () => {
-    fetch('/api/dashboard/operator', { cache: 'no-store' })
+    const url = targetPoId ? `/api/dashboard/operator?poId=${encodeURIComponent(targetPoId)}` : '/api/dashboard/operator';
+    fetch(url, { cache: 'no-store' })
       .then(res => res.json())
       .then(res => {
         if (res) {
@@ -43,6 +49,9 @@ export const OperatorHome: React.FC = () => {
             aqlPassCount: Number(res.aqlPassCount ?? 0),
             pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0)
           });
+          if (res.poDetails) {
+            setFetchedPoDetails(res.poDetails);
+          }
         }
       })
       .catch(err => {
@@ -58,7 +67,7 @@ export const OperatorHome: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('focus', fetchStats);
     };
-  }, []);
+  }, [targetPoId]);
 
   // Search / Quick Scan state
   const [showSearch, setShowSearch]     = useState(false);
@@ -237,13 +246,59 @@ export const OperatorHome: React.FC = () => {
 
           {/* Production Overview Card */}
           <div className="card" style={styles.poCard}>
+            {/* CURRENT PRODUCTION ORDER Banner */}
+            {(po || fetchedPoDetails) && (
+              <div style={{
+                backgroundColor: 'var(--bg-surface-1)',
+                border: '1.5px solid var(--primary-teal)',
+                borderRadius: '12px',
+                padding: '12px 16px',
+                marginBottom: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
+                    CURRENT PRODUCTION ORDER
+                  </span>
+                  <button
+                    onClick={() => setPendingOperation({ name: 'Select PO', route: '#' })}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--primary-teal)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  >
+                    Change PO
+                  </button>
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {formatPoDisplayName({
+                    poNumber: po?.id || po?.poNumber || fetchedPoDetails?.poNumber,
+                    poName: po?.poName || fetchedPoDetails?.poName,
+                    styleName: po?.styleName || fetchedPoDetails?.styleName
+                  })}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
+                  <span><strong>PO Name:</strong> {po?.poName || fetchedPoDetails?.poName || 'N/A'}</span>
+                  <span><strong>Style Name:</strong> {po?.styleName || fetchedPoDetails?.styleName || 'N/A'}</span>
+                  <span><strong>PO Number:</strong> {po?.id || po?.poNumber || fetchedPoDetails?.poNumber}</span>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={styles.cardSubTitle}>PRODUCTION OVERVIEW</span>
               <StatusPill label="LIVE DB DATA" variant="teal" />
             </div>
 
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-              All Production Orders & Factory Live Metrics
+              {(po || fetchedPoDetails) ? `Live Metrics for ${(po?.id || po?.poNumber || fetchedPoDetails?.poNumber)}` : 'All Production Orders & Factory Live Metrics'}
             </h3>
 
             {/* Metrics Wrapper */}
