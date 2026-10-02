@@ -52,10 +52,11 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
   try {
     const operatorId = req.user!.id;
     const operatorUsername = req.user!.username;
+    const reqOp = (req.query.operation || '').toString().trim();
 
     // 1. Query active POs allocated to THIS operator in operator_work_assignments
     let poRows = await db.prepare(`
-      SELECT DISTINCT po.*, owa.shift_id as owa_shift_id
+      SELECT DISTINCT po.*, owa.shift_id as owa_shift_id, owa.operation as owa_operation
       FROM operator_work_assignments owa
       JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
       WHERE (owa.operator_id = ? OR owa.operator_id = ?)
@@ -63,6 +64,22 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
         AND (po.status IS NULL OR UPPER(po.status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
       ORDER BY po.created_at DESC
     `).all(operatorId, operatorUsername) as any[];
+
+    if (reqOp && poRows.length > 0) {
+      const matchOp = (assignedOp: string, targetOp: string) => {
+        if (!assignedOp || assignedOp.toUpperCase() === 'ALL') return true;
+        const a = assignedOp.toUpperCase().replace(/[^A-Z]/g, '');
+        const t = targetOp.toUpperCase().replace(/[^A-Z]/g, '');
+        if (a === t) return true;
+        if (a.includes('AQL') && t.includes('AQL')) return true;
+        if (a.includes('QC') && t.includes('QC')) return true;
+        if (a.includes('PACK') && t.includes('PACK')) return true;
+        if (a.includes('TRANSFER') && t.includes('TRANSFER')) return true;
+        return false;
+      };
+
+      poRows = poRows.filter(p => matchOp(p.owa_operation, reqOp));
+    }
 
     // 2. Fallback: If no explicit work assignments exist for this operator, return all active CURRENT POs
     if (poRows.length === 0) {
@@ -74,7 +91,25 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
     }
 
     const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
-    const assignments = formattedPos.filter(Boolean);
+    let assignments = formattedPos.filter(Boolean);
+
+    // Filter formatted POs by operation if specified
+    if (reqOp) {
+      assignments = assignments.filter((p): p is NonNullable<typeof p> => {
+        if (!p) return false;
+        if (!p.selectedOperations || p.selectedOperations.length === 0) return true;
+        const targetClean = reqOp.toUpperCase().replace(/[^A-Z]/g, '');
+        return p.selectedOperations.some((op: string) => {
+          const opClean = op.toUpperCase().replace(/[^A-Z]/g, '');
+          if (opClean === targetClean) return true;
+          if (opClean.includes('AQL') && targetClean.includes('AQL')) return true;
+          if (opClean.includes('QC') && targetClean.includes('QC')) return true;
+          if (opClean.includes('PACK') && targetClean.includes('PACK')) return true;
+          if (opClean.includes('TRANSFER') && targetClean.includes('TRANSFER')) return true;
+          return false;
+        });
+      });
+    }
 
     return res.json(assignments);
   } catch (err) {

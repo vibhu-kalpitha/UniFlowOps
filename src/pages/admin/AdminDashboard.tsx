@@ -47,8 +47,11 @@ export const AdminDashboard: React.FC = () => {
   const [toDate, setToDate] = useState<string>('');
   const [selectedBoxModal, setSelectedBoxModal] = useState<any>(null);
 
+  const [error, setError] = useState<string | null>(null);
+
   const fetchDashboardData = async (styleFilter = selectedStyle, poFilter = selectedPoId, yrFilter = selectedYear, fromD = fromDate, toD = toDate) => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (styleFilter) params.set('styleName', styleFilter);
@@ -60,8 +63,9 @@ export const AdminDashboard: React.FC = () => {
       const queryString = params.toString() ? `?${params.toString()}` : '';
       const res = await apiFetch(`/api/dashboard/admin${queryString}`);
       setData(res);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load admin dashboard data:', err);
+      setError(err?.message || 'Failed to load live admin dashboard metrics');
     } finally {
       setLoading(false);
     }
@@ -201,6 +205,24 @@ export const AdminDashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div style={{
+          padding: '14px 18px',
+          backgroundColor: 'rgba(239, 68, 68, 0.12)',
+          border: '1.5px solid rgba(239, 68, 68, 0.4)',
+          borderRadius: '14px',
+          color: '#EF4444',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <AlertTriangle size={20} />
+          <span style={{ fontWeight: 700, fontSize: '13px' }}>
+            Failed to load admin dashboard live data: {error}
+          </span>
+        </div>
+      )}
 
       {/* ── RIGHT-SIDE FILTER PANEL & KPI SUMMARY ───────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '16px' }}>

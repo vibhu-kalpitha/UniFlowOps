@@ -408,30 +408,41 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
 
     // Target PO condition for SQL queries
     let poIdsTarget: string[] = [];
+    let isFilterApplied = false;
+
+    let poQuery = `SELECT po.id FROM production_orders po LEFT JOIN styles s ON s.id = po.style_id WHERE 1=1`;
+    const poParams: any[] = [];
+
     if (poId && poId.trim()) {
-      const match = await db.prepare(`SELECT id FROM production_orders WHERE id = ? OR po_number = ?`).get(poId.trim(), poId.trim()) as any;
-      if (match) poIdsTarget = [match.id];
-    } else if (styleName && styleName.trim()) {
-      const matches = await db.prepare(`
-        SELECT po.id FROM production_orders po
-        LEFT JOIN styles s ON s.id = po.style_id
-        WHERE UPPER(TRIM(po.style_name)) = ? OR UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(s.code)) = ?
-      `).all(styleName.trim().toUpperCase(), styleName.trim().toUpperCase(), styleName.trim().toUpperCase()) as any[];
+      isFilterApplied = true;
+      poQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      poParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      isFilterApplied = true;
+      poQuery += ` AND (UPPER(TRIM(po.style_name)) = ? OR UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(s.code)) = ?)`;
+      const sUpper = styleName.trim().toUpperCase();
+      poParams.push(sUpper, sUpper, sUpper);
+    }
+    if (fromDate && toDate) {
+      isFilterApplied = true;
+      poQuery += ` AND po.created_at >= ? AND po.created_at <= ?`;
+      poParams.push(fromDate, `${toDate} 23:59:59`);
+    } else if (year && year.trim()) {
+      isFilterApplied = true;
+      poQuery += ` AND YEAR(po.created_at) = ?`;
+      poParams.push(Number(year));
+    }
+
+    if (isFilterApplied) {
+      const matches = await db.prepare(poQuery).all(...poParams) as any[];
       poIdsTarget = matches.map(m => m.id);
+      if (poIdsTarget.length === 0) {
+        poIdsTarget = ['__NO_MATCH__'];
+      }
     }
 
     const filterActive = poIdsTarget.length > 0;
-
-    // Date / Year Filter condition
-    let dateFilterClause = '';
-    const dateParams: any[] = [];
-    if (fromDate && toDate) {
-      dateFilterClause = ` AND created_at >= ? AND created_at <= ?`;
-      dateParams.push(fromDate, `${toDate} 23:59:59`);
-    } else if (year) {
-      dateFilterClause = ` AND YEAR(created_at) = ?`;
-      dateParams.push(Number(year));
-    }
 
     // 1. Total Styles
     const totalStylesRow = await db.prepare(`SELECT COUNT(*) as cnt FROM styles`).get() as any;

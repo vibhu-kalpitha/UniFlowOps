@@ -5,7 +5,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { ProductionOrder, SalesOrder } from '../../types';
-import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect } from 'lucide-react';
+import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
@@ -33,30 +33,33 @@ export const OperatorHome: React.FC = () => {
 
   const targetPoId = activeJob?.productionOrder?.id;
 
-  const fetchStats = () => {
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchStats = async () => {
+    if (!currentUser) return;
     const url = targetPoId ? `/api/dashboard/operator?poId=${encodeURIComponent(targetPoId)}` : '/api/dashboard/operator';
-    fetch(url, { cache: 'no-store' })
-      .then(res => res.json())
-      .then(res => {
-        if (res) {
-          setOpStats({
-            totalQcPassed: Number(res.totalQcPassed ?? res.qcPassedToday ?? 0),
-            packedCount: Number(res.packedCount ?? res.packedToday ?? 0),
-            aqlDoneCount: Number(res.aqlDoneCount ?? 0),
-            qcFailCount: Number(res.qcFailCount ?? 0),
-            aqlFailedCount: Number(res.aqlFailedCount ?? 0),
-            totalFailCount: Number(res.totalFailCount ?? (res.failCount ?? 0)),
-            aqlPassCount: Number(res.aqlPassCount ?? 0),
-            pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0)
-          });
-          if (res.poDetails) {
-            setFetchedPoDetails(res.poDetails);
-          }
+    try {
+      const res = await apiFetch<any>(url);
+      if (res) {
+        setFetchError(null);
+        setOpStats({
+          totalQcPassed: Number(res.totalQcPassed ?? res.qcPassedToday ?? 0),
+          packedCount: Number(res.packedCount ?? res.packedToday ?? 0),
+          aqlDoneCount: Number(res.aqlDoneCount ?? 0),
+          qcFailCount: Number(res.qcFailCount ?? 0),
+          aqlFailedCount: Number(res.aqlFailedCount ?? 0),
+          totalFailCount: Number(res.totalFailCount ?? (res.failCount ?? 0)),
+          aqlPassCount: Number(res.aqlPassCount ?? 0),
+          pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0)
+        });
+        if (res.poDetails) {
+          setFetchedPoDetails(res.poDetails);
         }
-      })
-      .catch(err => {
-        console.error('Failed to fetch operator stats:', err);
-      });
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch operator stats via apiFetch:', err);
+      setFetchError(err.message || 'Failed to load live operator metrics');
+    }
   };
 
   useEffect(() => {
@@ -67,7 +70,7 @@ export const OperatorHome: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('focus', fetchStats);
     };
-  }, [targetPoId]);
+  }, [targetPoId, currentUser?.id]);
 
   // Search / Quick Scan state
   const [showSearch, setShowSearch]     = useState(false);
@@ -245,6 +248,24 @@ export const OperatorHome: React.FC = () => {
             </span>
             <ScanLine size={16} color="var(--text-secondary)" />
           </button>
+
+          {fetchError && (
+            <div style={{
+              padding: '12px 16px',
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              border: '1.5px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '12px',
+              color: '#EF4444',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <AlertCircle size={18} />
+              <span style={{ fontWeight: 700, fontSize: '13px' }}>
+                Failed to update live metrics: {fetchError}
+              </span>
+            </div>
+          )}
 
           {/* Production Overview Card */}
           <div className="card" style={styles.poCard}>
