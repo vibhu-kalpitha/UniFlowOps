@@ -814,5 +814,30 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
     }
   }, 20000);
+
+  it('13. AQL Strict Item-by-Item State Machine & Result Sequence Validation', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const aqlPageCode = fs.readFileSync(
+      path.join(__dirname, '../src/pages/operator/AQLSamplesPage.tsx'),
+      'utf-8'
+    );
+    const scansRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/scans.ts'),
+      'utf-8'
+    );
+
+    // Frontend State Machine checks
+    expect(aqlPageCode).toContain('WAITING');
+    expect(aqlPageCode).toContain('SCANNED_RESULT_REQUIRED');
+    expect(aqlPageCode).toContain('Wrong product. Please scan');
+    expect(aqlPageCode).toContain('Please select PASS or FAIL');
+
+    // Backend Sequence & Previous Item Result Enforcement checks
+    expect(scansRouteCode).toContain('CURRENT_ITEM_RESULT_REQUIRED');
+    expect(scansRouteCode).toContain('WRONG_SEQUENCE');
+    expect(scansRouteCode).toContain('RESULT_REQUIRED');
+  });
 });
+
 

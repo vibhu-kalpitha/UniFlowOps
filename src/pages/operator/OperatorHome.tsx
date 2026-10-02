@@ -178,8 +178,10 @@ export const OperatorHome: React.FC = () => {
     sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcFailed || 0), 0), 0
   );
 
-  const displayTotalQcPassed = Math.max(opStats.totalQcPassed, poQcPassed);
-  const displayPacked = Math.max(opStats.packedCount, poPacked);
+  const isPoSelected = Boolean(targetPoId || fetchedPoDetails);
+
+  const displayTotalQcPassed = isPoSelected ? opStats.totalQcPassed : Math.max(opStats.totalQcPassed, poQcPassed);
+  const displayPacked = isPoSelected ? opStats.packedCount : Math.max(opStats.packedCount, poPacked);
   const displayQcFail = opStats.qcFailCount;
   const displayAqlDone = opStats.aqlDoneCount;
   const displayAqlPass = opStats.aqlPassCount;

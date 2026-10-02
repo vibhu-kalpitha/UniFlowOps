@@ -1455,6 +1455,23 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
 
     const activeOrderedItems = orderedBoxItems.filter(i => !permRemovedSet.has(i.qr_code.trim().toUpperCase()));
     const sNum = Number(sampleNumber) || 1;
+
+    // PART 3 Backend Rule: Enforce result on previous item before allowing next item
+    if (sNum > 1) {
+      const prevItem = activeOrderedItems[sNum - 2];
+      if (prevItem) {
+        const prevSample = await db.prepare(`
+          SELECT * FROM aql_samples WHERE inspection_id = ? AND item_id = ?
+        `).get(inspectionId, prevItem.id) as any;
+        if (!prevSample) {
+          return res.status(400).json({
+            error: 'CURRENT_ITEM_RESULT_REQUIRED',
+            message: `Please select PASS or FAIL for the current item (${prevItem.qr_code}) before scanning the next item.`
+          });
+        }
+      }
+    }
+
     const expectedItem = activeOrderedItems[sNum - 1];
 
     if (expectedItem && code !== expectedItem.qr_code.trim().toUpperCase()) {
@@ -1463,6 +1480,13 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
         message: `Wrong product. Please scan ${expectedItem.qr_code} first.`,
         expectedQr: expectedItem.qr_code,
         scannedQr: code
+      });
+    }
+
+    if (!result || (result !== 'PASS' && result !== 'FAIL')) {
+      return res.status(400).json({
+        error: 'RESULT_REQUIRED',
+        message: `Please select PASS or FAIL for item ${code}.`
       });
     }
 
