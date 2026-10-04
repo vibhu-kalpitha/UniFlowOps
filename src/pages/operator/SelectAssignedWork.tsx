@@ -60,7 +60,7 @@ export const SelectAssignedWork: React.FC = () => {
       startTime: '14:00',
       endTime: '18:00',
       date: new Date().toISOString().split('T')[0],
-      enabledOperations: selectedPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
+      enabledOperations: selectedPo.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
     };
 
     setActiveJob({

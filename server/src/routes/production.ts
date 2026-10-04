@@ -80,6 +80,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   const opsRows = await db.prepare(`SELECT operation FROM production_order_operations WHERE production_order_id = ?`).all(po.id) as any[];
   let selectedOperations = opsRows.map(r => {
     switch (r.operation) {
+      case 'PRE_QC': return 'Pre QC';
       case 'QC_TEST': return 'QC Test';
       case 'PACKING': return 'Packing';
       case 'AQL': return 'AQL Checker';
@@ -93,6 +94,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
       const parsed = typeof po.operations === 'string' ? JSON.parse(po.operations) : po.operations;
       if (Array.isArray(parsed) && parsed.length > 0) {
         selectedOperations = parsed.map((op: string) => {
+          if (op === 'PRE_QC' || op === 'PREQC') return 'Pre QC';
           if (op === 'QC_TEST' || op === 'QC') return 'QC Test';
           if (op === 'PACKING' || op === 'PACK') return 'Packing';
           if (op === 'AQL' || op === 'AQL_CHECKER') return 'AQL Checker';
@@ -104,7 +106,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   }
 
   if (selectedOperations.length === 0) {
-    selectedOperations = ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
+    selectedOperations = ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
   }
 
   const style = po.style_id ? await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(po.style_id) as any : null;
@@ -421,7 +423,8 @@ async function syncPoAllocations(
     // Map frontend operation names to DB codes
     for (const opName of rawOpsArray) {
       let opCode = opName;
-      if (opName === 'QC Test') opCode = 'QC_TEST';
+      if (opName === 'Pre QC') opCode = 'PRE_QC';
+      else if (opName === 'QC Test') opCode = 'QC_TEST';
       else if (opName === 'Packing') opCode = 'PACKING';
       else if (opName === 'AQL Checker') opCode = 'AQL';
       else if (opName === 'Box Transfer') opCode = 'BOX_TRANSFER';
@@ -502,8 +505,10 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, poShiftId, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
-        let code = 'QC_TEST';
-        if (opStr === 'Packing') code = 'PACKING';
+        let code = opStr;
+        if (opStr === 'Pre QC') code = 'PRE_QC';
+        else if (opStr === 'QC Test') code = 'QC_TEST';
+        else if (opStr === 'Packing') code = 'PACKING';
         else if (opStr === 'AQL Checker') code = 'AQL';
         else if (opStr === 'Box Transfer') code = 'BOX_TRANSFER';
         await tx.prepare(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, ?)`).run(poDbId, code);

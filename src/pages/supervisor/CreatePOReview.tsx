@@ -101,7 +101,7 @@ export const CreatePOReview: React.FC = () => {
         startTime: '14:00',
         endTime: '18:00',
         date: new Date().toISOString().split('T')[0],
-        enabledOperations: savedPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
+        enabledOperations: savedPo.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
       };
       setActiveJob({
         productionOrder: savedPo,

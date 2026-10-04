@@ -386,14 +386,40 @@ async function runStartupColumnChecks(): Promise<void> {
         await db.exec(`
           CREATE TABLE production_order_operations (
             production_order_id VARCHAR(191) NOT NULL,
-            operation ENUM('QC_TEST','PACKING','AQL','BOX_TRANSFER') NOT NULL,
+            operation VARCHAR(50) NOT NULL,
             PRIMARY KEY (production_order_id, operation),
             FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('  ✅ Created production_order_operations table');
+      } else {
+        try {
+          await db.exec(`ALTER TABLE production_order_operations MODIFY COLUMN operation VARCHAR(50) NOT NULL`);
+        } catch (_) {}
       }
     } catch (e: any) { console.warn('  ⚠️ production_order_operations:', e.message); }
+
+    // ── pre_qc_results table ─────────────────────────────────────────
+    try {
+      if (!(await tableExists('pre_qc_results'))) {
+        await db.exec(`
+          CREATE TABLE pre_qc_results (
+            id VARCHAR(191) PRIMARY KEY,
+            item_id VARCHAR(191) NOT NULL,
+            operator_id VARCHAR(191) NOT NULL,
+            production_order_id VARCHAR(191) NULL,
+            pre_qc_result VARCHAR(50) NOT NULL DEFAULT 'PASS',
+            scanned_at DATETIME(3) NOT NULL,
+            INDEX idx_pre_qc_item (item_id),
+            INDEX idx_pre_qc_po (production_order_id),
+            INDEX idx_pre_qc_op (operator_id),
+            FOREIGN KEY (item_id) REFERENCES item_units(id) ON DELETE CASCADE,
+            FOREIGN KEY (operator_id) REFERENCES users(id) ON DELETE CASCADE
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created pre_qc_results table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ pre_qc_results table:', e.message); }
 
     // ── item_units table unique constraint alignment ─────────────────
     try {

@@ -62,7 +62,7 @@ export const CreatePOGeneral: React.FC = () => {
   const [remarks, setRemarks] = useState('Export batch for Q4 delivery');
 
   const [selectedOps, setSelectedOps] = useState<OperationType[]>([
-    'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
+    'Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
   ]);
   const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
 
@@ -481,7 +481,7 @@ export const CreatePOGeneral: React.FC = () => {
         <div>
           <label style={styles.label}>Required Operations for this PO</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-            {(['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'] as OperationType[]).map(op => {
+            {(['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'] as OperationType[]).map(op => {
               const isChecked = selectedOps.includes(op);
               return (
                 <React.Fragment key={op}>

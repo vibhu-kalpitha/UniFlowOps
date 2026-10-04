@@ -10,7 +10,7 @@ export interface User {
   avatarInitials: string;
 }
 
-export type OperationType = 'QC Test' | 'Packing' | 'AQL Checker' | 'Box Transfer';
+export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'Box Transfer';
 
 export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only';
 

@@ -93,7 +93,7 @@ export const repository = {
           startTime: '14:00',
           endTime: '18:00',
           date: new Date().toISOString().split('T')[0],
-          enabledOperations: defaultPo.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
+          enabledOperations: defaultPo.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
         };
         const job: ActiveJob = {
           productionOrder: defaultPo,

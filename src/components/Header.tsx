@@ -75,7 +75,7 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
               <div style={styles.logoBadge}>
                 <span style={styles.logoIcon}>⚡</span>
               </div>
-              <span style={styles.brandText}>UniFlow <span style={{ color: 'var(--primary-teal)' }}>Ops</span></span>
+              <span style={styles.brandText}>UniFlow</span>
             </div>
             {title && (
               <span style={styles.titleDivider}>

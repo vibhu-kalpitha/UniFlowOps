@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { CheckCircle2, Package, Search, ArrowLeftRight, Wifi, WifiOff } from 'lucide-react';
+import { CheckCircle2, Package, Search, ArrowLeftRight, Wifi, WifiOff, ScanLine } from 'lucide-react';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import '../../styles/tokens.css';
 
@@ -16,8 +16,17 @@ export const ScanCenter: React.FC = () => {
         <p style={styles.subtitle}>Choose operation to start scanning</p>
       </div>
 
-      {/* 4 Operations Grid */}
+      {/* Operations Grid */}
       <div style={styles.grid}>
+        {/* Pre QC */}
+        <button style={styles.tile} onClick={() => navigate('/operator/pre-qc')}>
+          <div style={{ ...styles.iconWrap, backgroundColor: 'rgba(22, 184, 174, 0.15)' }}>
+            <ScanLine size={28} color="var(--primary-teal)" />
+          </div>
+          <span style={styles.tileTitle}>Pre QC</span>
+          <span style={styles.tileDesc}>Validate product barcode against PO configuration</span>
+        </button>
+
         {/* QC Test */}
         <button style={styles.tile} onClick={() => navigate('/operator/qc')}>
           <div style={{ ...styles.iconWrap, backgroundColor: 'rgba(24, 184, 121, 0.15)' }}>

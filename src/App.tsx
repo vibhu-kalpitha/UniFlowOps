@@ -14,6 +14,7 @@ import { OperatorHome } from './pages/operator/OperatorHome';
 import { SelectAssignedWork } from './pages/operator/SelectAssignedWork';
 import { OperatorOrders } from './pages/operator/OperatorOrders';
 import { ScanCenter } from './pages/operator/ScanCenter';
+import { PreQCPage } from './pages/operator/PreQCPage';
 import { QCTestPage } from './pages/operator/QCTestPage';
 import { PackingPage } from './pages/operator/PackingPage';
 import { AQLBoxScanPage } from './pages/operator/AQLBoxScanPage';
@@ -130,6 +131,14 @@ const AppRoutes: React.FC = () => {
           element={
             <RoleRouteGuard allowedRole="operator">
               <ScanCenter />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/operator/pre-qc"
+          element={
+            <RoleRouteGuard allowedRole="operator">
+              <PreQCPage />
             </RoleRouteGuard>
           }
         />

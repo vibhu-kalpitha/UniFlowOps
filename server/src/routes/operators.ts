@@ -71,6 +71,7 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
         const a = assignedOp.toUpperCase().replace(/[^A-Z]/g, '');
         const t = targetOp.toUpperCase().replace(/[^A-Z]/g, '');
         if (a === t) return true;
+        if (a.includes('PRE') || t.includes('PRE')) return a.includes('PRE') && t.includes('PRE');
         if (a.includes('AQL') && t.includes('AQL')) return true;
         if (a.includes('QC') && t.includes('QC')) return true;
         if (a.includes('PACK') && t.includes('PACK')) return true;
@@ -102,6 +103,7 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
         return p.selectedOperations.some((op: string) => {
           const opClean = op.toUpperCase().replace(/[^A-Z]/g, '');
           if (opClean === targetClean) return true;
+          if (opClean.includes('PRE') || targetClean.includes('PRE')) return opClean.includes('PRE') && targetClean.includes('PRE');
           if (opClean.includes('AQL') && targetClean.includes('AQL')) return true;
           if (opClean.includes('QC') && targetClean.includes('QC')) return true;
           if (opClean.includes('PACK') && targetClean.includes('PACK')) return true;

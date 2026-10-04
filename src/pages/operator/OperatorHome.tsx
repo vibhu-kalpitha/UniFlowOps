@@ -81,7 +81,7 @@ export const OperatorHome: React.FC = () => {
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
-  const selectedOps = po?.selectedOperations || ['QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
+  const selectedOps = po?.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
 
   const handleOpClick = (opName: string, route: string) => {
     if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') {
@@ -368,10 +368,29 @@ export const OperatorHome: React.FC = () => {
             </div>
           </div>
 
-          {/* 4 Operation Action Tiles */}
+          {/* Operation Action Tiles */}
           <div>
             <h4 style={styles.sectionHeader}>Operations</h4>
             <div className="op-ops-grid-2x2" style={styles.opsGrid}>
+              {/* Pre QC */}
+              {selectedOps.includes('Pre QC') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileTeal}
+                  onClick={() => handleOpClick('Pre QC', '/operator/pre-qc')}
+                >
+                  <div style={styles.opIconTeal}>
+                    <ScanLine size={26} color="var(--primary-teal)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>Pre QC</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Validate product barcode against PO configuration
+                    </span>
+                  </div>
+                </button>
+              )}
+
               {/* QC Test */}
               {selectedOps.includes('QC Test') && (
                 <button
@@ -775,6 +794,26 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     gap: '12px'
+  },
+  opTileTeal: {
+    height: '110px',
+    borderRadius: '18px',
+    backgroundColor: 'rgba(22, 184, 174, 0.08)',
+    border: '1px solid rgba(22, 184, 174, 0.25)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px'
+  },
+  opIconTeal: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   opTileGreen: {
     height: '110px',

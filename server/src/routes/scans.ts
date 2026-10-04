@@ -71,6 +71,7 @@ export async function checkOperatorAllocation(operatorId: string, role: string, 
 export async function checkOperationEnabledForPO(poId: string, opName: string): Promise<boolean> {
   let dbOp = opName;
   if (opName === 'QC Test' || opName === 'QC' || opName === 'TEST') dbOp = 'QC_TEST';
+  else if (opName === 'Pre QC' || opName === 'PRE_QC' || opName === 'PREQC') dbOp = 'PRE_QC';
   else if (opName === 'Packing' || opName === 'PACKING') dbOp = 'PACKING';
   else if (opName === 'AQL Checker' || opName === 'AQL') dbOp = 'AQL';
   else if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') dbOp = 'BOX_TRANSFER';
@@ -122,7 +123,7 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
   return {
     valid: false,
     error: 'CONFIG_NOT_SELECTED',
-    message: `Product configuration for '${code}' is not selected for Production Order ${po.po_number || po.id}.`
+    message: `Unselected Configuration — '${code}' does not belong to Production Order ${po.po_number || po.id}.`
   };
 }
 
@@ -138,6 +139,54 @@ export function validateProductQrRange(targetObj: any, rawCode: string) {
     return { valid: true };
   }
   return { valid: false, error: 'CONFIG_NOT_SELECTED', message: `Product configuration mismatch for '${code}'.` };
+}
+
+export async function calculatePreQCProgress(poId: string) {
+  const po = await resolvePO(poId);
+  if (!po) {
+    return {
+      targetQuantity: 0,
+      inspectedUnique: 0,
+      passedUnique: 0,
+      failedUnique: 0,
+      remainingToInspect: 0,
+      remainingToPass: 0,
+      isComplete: false,
+    };
+  }
+
+  const configTotal = await db.prepare(`SELECT SUM(quantity) as sumQty FROM production_order_configs WHERE production_order_id = ?`).get(po.id) as any;
+  let targetQuantity = configTotal?.sumQty ? Number(configTotal.sumQty) : 0;
+  if (!targetQuantity) {
+    const soTotal = await db.prepare(`SELECT SUM(order_quantity) as sumQty FROM sales_orders WHERE production_order_id = ?`).get(po.id) as any;
+    targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 1000;
+  }
+
+  const passRow = await db.prepare(`
+    SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+    JOIN item_units iu ON iu.id = pq.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND pq.pre_qc_result = 'PASS'
+  `).get(po.id, po.id) as any;
+
+  const passedUnique = passRow?.cnt || 0;
+  const inspectedUnique = passedUnique;
+  const failedUnique = 0;
+  const remainingToInspect = Math.max(0, targetQuantity - inspectedUnique);
+  const remainingToPass = Math.max(0, targetQuantity - passedUnique);
+  const isComplete = passedUnique >= targetQuantity;
+
+  return {
+    poId: po.id,
+    poNumber: po.po_number,
+    targetQuantity,
+    inspectedUnique,
+    passedUnique,
+    failedUnique,
+    remainingToInspect,
+    remainingToPass,
+    isComplete,
+  };
 }
 
 export async function calculatePOProgress(poId: string) {
@@ -214,6 +263,167 @@ export async function calculatePOProgress(poId: string) {
 export async function calculateSOProgress(soId: string) {
   return calculatePOProgress(soId);
 }
+
+// ── PRE QC ENDPOINTS ───────────────────────────────────────────────────
+
+// POST /api/pre-qc/scan
+router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const rawCode = req.body.code || req.body.itemQr;
+    const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
+    if (!rawCode || typeof rawCode !== 'string') {
+      return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
+    }
+    const code = rawCode.trim().toUpperCase();
+    const po = await resolvePO(targetPoKey);
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, po.id);
+    if (!isAllocated) {
+      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
+    }
+
+    const isOpEnabled = await checkOperationEnabledForPO(po.id, 'Pre QC');
+    if (!isOpEnabled) {
+      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
+    }
+
+    const rangeCheck = await validateProductQrRangeForPO(po, code);
+    if (!rangeCheck.valid) {
+      return res.status(400).json({
+        error: rangeCheck.error,
+        message: rangeCheck.message,
+        expectedRange: (rangeCheck as any).expectedRange
+      });
+    }
+
+    const item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, po.map_po, code) as any;
+
+    if (item) {
+      const existingPreQc = await db.prepare(`
+        SELECT * FROM pre_qc_results WHERE item_id = ? AND pre_qc_result = 'PASS'
+      `).get(item.id) as any;
+
+      if (existingPreQc || item.status === 'PRE_QC_PASSED') {
+        return res.json({
+          status: 'DUPLICATE',
+          message: 'Already processed Pre QC',
+          item: { qr_code: item.qr_code, size: item.size || 'L' }
+        });
+      }
+    }
+
+    const progress = await calculatePreQCProgress(po.id);
+    return res.json({
+      status: 'VALID',
+      message: 'Barcode valid for Pre QC',
+      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
+      progress
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/pre-qc/record
+router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const rawCode = req.body.code || req.body.itemQr;
+    const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
+    const result = req.body.result || 'PASS';
+
+    if (!rawCode || typeof rawCode !== 'string') {
+      return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
+    }
+    const code = rawCode.trim().toUpperCase();
+    const po = await resolvePO(targetPoKey);
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const rangeCheck = await validateProductQrRangeForPO(po, code);
+    if (!rangeCheck.valid) {
+      return res.status(400).json({ error: rangeCheck.error, message: rangeCheck.message });
+    }
+
+    let item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ?) AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, code) as any;
+
+    if (!item) {
+      const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      const config = rangeCheck.config || {};
+      const sizeVal = config.size || 'L';
+      await db.prepare(`
+        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))
+      `).run(itemId, code, po.id, config.id || null, sizeVal);
+
+      item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
+    } else {
+      await db.prepare(`UPDATE item_units SET status = 'PRE_QC_PASSED', updated_at = NOW(3) WHERE id = ?`).run(item.id);
+    }
+
+    const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await db.prepare(`
+      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at)
+      VALUES (?, ?, ?, ?, ?, NOW(3))
+    `).run(preQcId, item.id, req.user!.id, po.id, result);
+
+    const progress = await calculatePreQCProgress(po.id);
+    return res.json({
+      status: 'SUCCESS',
+      message: `Pre QC ${result} recorded for ${code}`,
+      item: { qr_code: item.qr_code, size: item.size || 'L' },
+      progress
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/pre-qc/progress/:poId
+router.get('/pre-qc/progress/:poId', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const poId = req.params.poId;
+    const operatorId = req.user!.id;
+    const operatorUsername = req.user!.username;
+    const operatorName = (req.user as any).full_name || operatorUsername || 'Operator';
+
+    const po = await resolvePO(poId);
+    const targetPoId = po?.id || poId;
+
+    const progress = await calculatePreQCProgress(targetPoId);
+
+    const opPassedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+      JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND (pq.operator_id = ? OR pq.operator_id = ?)
+        AND pq.pre_qc_result = 'PASS'
+    `).get(targetPoId, targetPoId, operatorId, operatorUsername) as any;
+    const operatorPassedCount = opPassedRow?.cnt || 0;
+
+    return res.json({
+      ...progress,
+      operatorStats: {
+        operatorId,
+        operatorName,
+        passedCount: operatorPassedCount,
+        failedCount: 0
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // 0. POST /api/qc/scan
 router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
