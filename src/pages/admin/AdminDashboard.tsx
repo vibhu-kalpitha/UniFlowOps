@@ -401,7 +401,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Right Side Filter Panel */}
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Filter size={16} color="var(--primary-teal)" />
@@ -1101,6 +1101,22 @@ export const AdminDashboard: React.FC = () => {
 };
 
 const styles: Record<string, any> = {
+  filterInput: {
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    backgroundColor: 'var(--bg-surface-2)',
+    border: '1px solid var(--border-color)',
+    color: 'var(--text-primary)',
+    fontSize: '12px',
+    fontWeight: 600,
+    outline: 'none',
+    textOverflow: 'ellipsis',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap'
+  },
   kpiCardGradient: (bg: string, border: string) => ({
     backgroundColor: 'var(--bg-surface-1)',
     background: `linear-gradient(135deg, var(--bg-surface-1) 0%, ${bg} 100%)`,

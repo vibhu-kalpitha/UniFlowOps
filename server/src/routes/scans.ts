@@ -336,7 +336,8 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
   try {
     const rawCode = req.body.code || req.body.itemQr;
     const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
-    const result = req.body.result || 'PASS';
+    const result = (req.body.preQcResult || req.body.result || 'PASS').toUpperCase();
+    const failureReason = req.body.failureReason ? String(req.body.failureReason).trim() : null;
 
     if (!rawCode || typeof rawCode !== 'string') {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
@@ -357,25 +358,27 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       WHERE (production_order_id = ? OR production_order_id = ?) AND UPPER(TRIM(qr_code)) = ?
     `).get(po.id, po.po_number, code) as any;
 
+    const newStatus = result === 'PASS' ? 'PRE_QC_PASSED' : 'PRE_QC_FAILED';
+
     if (!item) {
       const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
       const config = rangeCheck.config || {};
       const sizeVal = config.size || 'L';
       await db.prepare(`
         INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))
-      `).run(itemId, code, po.id, config.id || null, sizeVal);
+        VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(itemId, code, po.id, config.id || null, sizeVal, newStatus);
 
       item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
     } else {
-      await db.prepare(`UPDATE item_units SET status = 'PRE_QC_PASSED', updated_at = NOW(3) WHERE id = ?`).run(item.id);
+      await db.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
     }
 
     const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     await db.prepare(`
-      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at)
-      VALUES (?, ?, ?, ?, ?, NOW(3))
-    `).run(preQcId, item.id, req.user!.id, po.id, result);
+      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, failure_reason, scanned_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW(3))
+    `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason);
 
     const progress = await calculatePreQCProgress(po.id);
     return res.json({

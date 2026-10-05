@@ -25,7 +25,10 @@ export const PreQCPage: React.FC = () => {
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
+  const [preQcResult, setPreQcResult] = useState<'PASS' | 'FAIL'>('PASS');
+  const [failureReason, setFailureReason] = useState<string>('');
   const [recentScans, setRecentScans] = useState<ScannedItem[]>([]);
+  const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Live Pre QC progress state from server
@@ -34,6 +37,7 @@ export const PreQCPage: React.FC = () => {
     targetQuantity: number;
     inspectedUnique: number;
     passedUnique: number;
+    failedUnique: number;
     remainingToInspect: number;
     remainingToPass: number;
     operatorStats: {
@@ -45,6 +49,7 @@ export const PreQCPage: React.FC = () => {
     targetQuantity: po?.totalQuantity || 10,
     inspectedUnique: 0,
     passedUnique: 0,
+    failedUnique: 0,
     remainingToInspect: po?.totalQuantity || 10,
     remainingToPass: po?.totalQuantity || 10,
     operatorStats: {
@@ -65,6 +70,7 @@ export const PreQCPage: React.FC = () => {
           targetQuantity: res.targetQuantity || po?.totalQuantity || 10,
           inspectedUnique: res.inspectedUnique || 0,
           passedUnique: res.passedUnique || 0,
+          failedUnique: res.failedUnique || 0,
           remainingToInspect: res.remainingToInspect || 0,
           remainingToPass: res.remainingToPass || 0,
           operatorStats: res.operatorStats || {
@@ -86,17 +92,32 @@ export const PreQCPage: React.FC = () => {
 
   const targetPoQty = poProgress.targetQuantity || po?.totalQuantity || 10;
   const preQcPassedQty = poProgress.passedUnique;
+  const remainingQcQty = poProgress.remainingToPass;
 
-  /* ── Pre QC scan handler ─────────────────────────────────────── */
+  /* ── Pre QC barcode scan handler ─────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
+    setSaved(false);
+    setFailureReason('');
 
     try {
-      setIsSaving(true);
       const res = await apiFetch<any>('/api/pre-qc/scan', {
         method: 'POST',
         body: JSON.stringify({ code, productionOrderId: po?.dbId || po?.id, productionOrderNumber: po?.id }),
       });
+
+      if (res?.progress) {
+        setPoProgress(prev => ({
+          ...prev,
+          loading: false,
+          targetQuantity: res.progress.targetQuantity,
+          inspectedUnique: res.progress.inspectedUnique,
+          passedUnique: res.progress.passedUnique,
+          failedUnique: res.progress.failedUnique || 0,
+          remainingToInspect: res.progress.remainingToInspect,
+          remainingToPass: res.progress.remainingToPass,
+        }));
+      }
 
       if (res?.status === 'DUPLICATE') {
         const dupItem: ScannedItem = {
@@ -107,7 +128,8 @@ export const PreQCPage: React.FC = () => {
           scannedAt: new Date().toLocaleTimeString()
         };
         setScannedItem(dupItem);
-        showToast(`⚠️ Item ${code} is ALREADY Pre QC Passed!`, 'warning');
+        setPreQcResult('FAIL');
+        showToast(`⚠️ Item ${code} is ALREADY Pre QC Passed! (Duplicate scan)`, 'warning');
         return {
           status: 'duplicate' as const,
           message: `⚠️ Item ${code} is ALREADY Pre QC Passed! (Duplicate scan)`,
@@ -115,40 +137,22 @@ export const PreQCPage: React.FC = () => {
         };
       }
 
-      // Record Pre QC PASS in database table `pre_qc_results`
-      const recRes = await apiFetch<any>('/api/pre-qc/record', {
-        method: 'POST',
-        body: JSON.stringify({ code, productionOrderId: po?.dbId || po?.id, result: 'PASS' }),
-      });
-
-      if (recRes?.progress) {
-        setPoProgress(prev => ({
-          ...prev,
-          loading: false,
-          targetQuantity: recRes.progress.targetQuantity,
-          inspectedUnique: recRes.progress.inspectedUnique,
-          passedUnique: recRes.progress.passedUnique,
-          remainingToInspect: recRes.progress.remainingToInspect,
-          remainingToPass: recRes.progress.remainingToPass,
-        }));
-      }
-
       const validItem: ScannedItem = {
-        qr: recRes.item?.qr_code || code,
+        qr: res.item?.qr_code || code,
         product: po?.styleName || po?.styleCode || 'Garment',
-        size: recRes.item?.size || 'L',
+        size: res.item?.size || 'L',
         status: 'VALID',
         scannedAt: new Date().toLocaleTimeString()
       };
 
       setScannedItem(validItem);
-      setRecentScans(prev => [validItem, ...prev.slice(0, 9)]);
-      showToast(`✅ Pre QC passed for ${code}`, 'success');
+      setPreQcResult('PASS');
+      showToast(`✅ ${code} validated — Select PASS or FAIL result below`, 'info');
 
       return {
         status: 'accepted' as const,
-        message: `✅ ${code} Pre QC validated successfully for ${po?.id || 'PO'}`,
-        code: recRes.item?.qr_code || code,
+        message: `✅ ${code} validated for ${po?.id || 'PO'}`,
+        code: res.item?.qr_code || code,
       };
     } catch (err: any) {
       const errMsg = err?.message || String(err);
@@ -178,7 +182,76 @@ export const PreQCPage: React.FC = () => {
         message: defaultErr,
         code,
       };
-    } finally {
+    }
+  };
+
+  /* ── Save Pre QC result to database ───────────────────────────── */
+  const handleSave = async () => {
+    if (!scannedItem) {
+      showToast('Please scan a garment QR barcode first.', 'warning');
+      return;
+    }
+    if (scannedItem.status === 'INVALID') {
+      showToast('Cannot save result for invalid barcode configuration.', 'error');
+      return;
+    }
+    if (scannedItem.status === 'DUPLICATE') {
+      showToast('Item has already passed Pre QC (Duplicate scan).', 'warning');
+      return;
+    }
+    if (isSaving) return;
+
+    setIsSaving(true);
+    try {
+      const recRes = await apiFetch<any>('/api/pre-qc/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: scannedItem.qr,
+          productionOrderId: po?.dbId || po?.id,
+          preQcResult,
+          failureReason: preQcResult === 'FAIL' ? failureReason : undefined
+        }),
+      });
+
+      if (recRes?.progress) {
+        setPoProgress(prev => ({
+          ...prev,
+          loading: false,
+          targetQuantity: recRes.progress.targetQuantity,
+          inspectedUnique: recRes.progress.inspectedUnique,
+          passedUnique: recRes.progress.passedUnique,
+          failedUnique: recRes.progress.failedUnique || 0,
+          remainingToInspect: recRes.progress.remainingToInspect,
+          remainingToPass: recRes.progress.remainingToPass,
+        }));
+      }
+
+      const savedRecord: ScannedItem = {
+        ...scannedItem,
+        status: preQcResult === 'PASS' ? 'VALID' : 'INVALID',
+        scannedAt: new Date().toLocaleTimeString()
+      };
+
+      setRecentScans(prev => [savedRecord, ...prev.slice(0, 9)]);
+
+      if (preQcResult === 'PASS') {
+        showToast(`✅ Pre QC PASSED recorded for ${scannedItem.qr}!`, 'success');
+      } else {
+        showToast(`❌ Pre QC FAIL recorded for ${scannedItem.qr}`, 'warning');
+      }
+
+      setSaved(true);
+      setIsSaving(false);
+
+      setTimeout(() => {
+        setScannedItem(null);
+        setPreQcResult('PASS');
+        setFailureReason('');
+        setSaved(false);
+      }, 1000);
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      showToast(`Save failed: ${errMsg}`, 'error');
       setIsSaving(false);
     }
   };
@@ -235,73 +308,133 @@ export const PreQCPage: React.FC = () => {
           </div>
           <ProgressBar current={preQcPassedQty} total={targetPoQty} showText={false} />
         </div>
+
+        {/* Summary Stats Row */}
+        <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+          <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO SUMMARY</span>
+          <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600 }}>
+            <span>Target: <strong>{targetPoQty}</strong></span>
+            <span>Passed: <strong style={{ color: '#10B981' }}>{preQcPassedQty}</strong></span>
+            <span>Remaining: <strong style={{ color: 'var(--primary-teal)' }}>{remainingQcQty}</strong></span>
+          </div>
+        </div>
       </div>
 
       {/* Barcode Scanner Input */}
       <div style={styles.scannerBox}>
+        <ScannerStatus showConnectButton={true} style={{ marginBottom: '10px' }} />
         <ScannerInput
           onScan={handleScanCode}
           placeholder="Scan barcode for Pre QC (e.g. PNFLSS0926001)..."
         />
       </div>
 
-      {/* Scanned Item Result Feedback */}
-      {scannedItem && (
-        <div
-          className="card"
-          style={{
-            margin: 0,
-            borderLeft: `6px solid ${
-              scannedItem.status === 'VALID'
-                ? 'var(--color-green)'
-                : scannedItem.status === 'DUPLICATE'
-                ? 'var(--color-orange)'
-                : 'var(--color-red)'
-            }`,
-            backgroundColor:
-              scannedItem.status === 'VALID'
-                ? 'rgba(16, 185, 129, 0.08)'
-                : scannedItem.status === 'DUPLICATE'
-                ? 'rgba(245, 158, 11, 0.08)'
-                : 'rgba(239, 68, 68, 0.08)'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {scannedItem.status === 'VALID' ? (
-                <CheckCircle2 size={32} color="var(--color-green)" />
-              ) : scannedItem.status === 'DUPLICATE' ? (
-                <ScanLine size={32} color="var(--color-orange)" />
-              ) : (
-                <XCircle size={32} color="var(--color-red)" />
-              )}
-              <div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {scannedItem.qr}
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  Product: {scannedItem.product} • Size: {scannedItem.size}
-                </div>
-              </div>
-            </div>
+      {/* Item Inspection & Result Control Card */}
+      {!scannedItem ? (
+        <div style={styles.emptyCard}>
+          <ScanLine size={36} color="var(--text-muted)" />
+          <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
+            Waiting for barcode scan…
+          </span>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Scan a garment barcode to validate configuration range and record result
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Item Details Card */}
+          <div
+            className="card"
+            style={{
+              margin: 0,
+              backgroundColor: 'var(--bg-surface-1)',
+              borderColor:
+                scannedItem.status === 'INVALID'
+                  ? 'rgba(239, 68, 68, 0.5)'
+                  : scannedItem.status === 'DUPLICATE'
+                  ? 'rgba(245, 158, 11, 0.5)'
+                  : 'rgba(16, 185, 129, 0.4)',
+              borderWidth: '1.5px',
+            }}
+          >
+            <span style={styles.cardHeaderTitle}>ITEM DETAILS</span>
 
-            <StatusPill
-              label={
-                scannedItem.status === 'VALID'
-                  ? 'PRE QC PASSED'
-                  : scannedItem.status === 'DUPLICATE'
-                  ? 'DUPLICATE SCAN'
-                  : 'INVALID CONFIG'
-              }
-              variant={
-                scannedItem.status === 'VALID'
-                  ? 'green'
-                  : scannedItem.status === 'DUPLICATE'
-                  ? 'amber'
-                  : 'red'
-              }
-            />
+            <div style={styles.detailRow}>
+              <span style={styles.detailLabel}>Barcode / QR Code</span>
+              <span style={{ ...styles.detailValue, color: 'var(--primary-teal)', fontSize: '16px' }}>
+                {scannedItem.qr}
+              </span>
+            </div>
+            <div style={styles.detailRow}>
+              <span style={styles.detailLabel}>Garment Style</span>
+              <span style={styles.detailValue}>{scannedItem.product}</span>
+            </div>
+            <div style={styles.detailRow}>
+              <span style={styles.detailLabel}>Size</span>
+              <span style={styles.detailValue}>{scannedItem.size}</span>
+            </div>
+            <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
+              <span style={styles.detailLabel}>Configuration Check</span>
+              {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid Configuration — In Range" variant="green" />}
+              {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Already Scanned (Duplicate)" variant="amber" />}
+              {scannedItem.status === 'INVALID' && <StatusPill label="❌ Unselected Configuration" variant="red" />}
+            </div>
           </div>
+
+          {/* Result Selection Control */}
+          {scannedItem.status === 'VALID' && (
+            <div className="card" style={{ margin: 0, backgroundColor: 'var(--bg-surface-1)' }}>
+              <span style={styles.controlLabel}>Select Pre QC Result</span>
+              <div style={styles.segmentRow}>
+                <button
+                  type="button"
+                  style={preQcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                  onClick={() => setPreQcResult('PASS')}
+                >
+                  <Check size={18} /> PASS
+                </button>
+                <button
+                  type="button"
+                  style={preQcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                  onClick={() => setPreQcResult('FAIL')}
+                >
+                  <XCircle size={18} /> FAIL
+                </button>
+              </div>
+
+              {/* Optional Failure Reason input when FAIL selected */}
+              {preQcResult === 'FAIL' && (
+                <div style={{ marginTop: '12px' }}>
+                  <span style={styles.controlLabel}>Failure Reason (Optional)</span>
+                  <input
+                    type="text"
+                    value={failureReason}
+                    onChange={(e) => setFailureReason(e.target.value)}
+                    placeholder="e.g. Label error, wrong size, fabric defect..."
+                    style={styles.reasonInput}
+                  />
+                </div>
+              )}
+
+              <button
+                className="btn-primary"
+                onClick={handleSave}
+                disabled={saved || isSaving}
+                style={{
+                  marginTop: '16px',
+                  width: '100%',
+                  background: saved
+                    ? 'var(--color-green)'
+                    : preQcResult === 'FAIL'
+                    ? 'var(--color-red)'
+                    : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-dark) 100%)',
+                  opacity: saved ? 0.7 : 1,
+                }}
+              >
+                {saved ? '✅ Saved to Database!' : `Save Pre QC ${preQcResult} Result`}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -331,15 +464,13 @@ export const PreQCPage: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{item.scannedAt}</span>
-                  <StatusPill label={item.status} variant={item.status === 'VALID' ? 'green' : 'red'} />
+                  <StatusPill label={item.status === 'VALID' ? 'PASS' : 'FAIL'} variant={item.status === 'VALID' ? 'green' : 'red'} />
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      <ScannerStatus showConnectButton={true} />
     </div>
   );
 };
@@ -376,5 +507,105 @@ const styles: Record<string, React.CSSProperties> = {
   },
   scannerBox: {
     width: '100%'
+  },
+  emptyCard: {
+    padding: '36px 20px',
+    borderRadius: '16px',
+    border: '2px dashed var(--border-color)',
+    backgroundColor: 'var(--bg-surface-1)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center'
+  },
+  cardHeaderTitle: {
+    fontSize: '11px',
+    fontWeight: 800,
+    color: 'var(--text-secondary)',
+    letterSpacing: '0.05em',
+    marginBottom: '10px',
+    display: 'block'
+  },
+  detailRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 0',
+    borderBottom: '1px solid var(--border-color)'
+  },
+  detailLabel: {
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    fontWeight: 600
+  },
+  detailValue: {
+    fontSize: '14px',
+    color: 'var(--text-primary)',
+    fontWeight: 700
+  },
+  controlLabel: {
+    fontSize: '12px',
+    fontWeight: 700,
+    color: 'var(--text-secondary)',
+    marginBottom: '6px',
+    display: 'block'
+  },
+  segmentRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '10px',
+    marginTop: '6px'
+  },
+  segmentBtn: {
+    padding: '12px',
+    borderRadius: '12px',
+    border: '1.5px solid var(--border-color)',
+    backgroundColor: 'var(--bg-surface-2)',
+    color: 'var(--text-secondary)',
+    fontWeight: 700,
+    fontSize: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    cursor: 'pointer'
+  },
+  passBtnActive: {
+    padding: '12px',
+    borderRadius: '12px',
+    border: '2px solid #10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    color: '#10B981',
+    fontWeight: 800,
+    fontSize: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    cursor: 'pointer'
+  },
+  failBtnActive: {
+    padding: '12px',
+    borderRadius: '12px',
+    border: '2px solid #EF4444',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    color: '#EF4444',
+    fontWeight: 800,
+    fontSize: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    cursor: 'pointer'
+  },
+  reasonInput: {
+    width: '100%',
+    padding: '10px 14px',
+    borderRadius: '10px',
+    backgroundColor: 'var(--bg-surface-2)',
+    border: '1px solid var(--border-color)',
+    color: 'var(--text-primary)',
+    fontSize: '13px'
   }
 };

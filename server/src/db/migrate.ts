@@ -409,6 +409,7 @@ async function runStartupColumnChecks(): Promise<void> {
             operator_id VARCHAR(191) NOT NULL,
             production_order_id VARCHAR(191) NULL,
             pre_qc_result VARCHAR(50) NOT NULL DEFAULT 'PASS',
+            failure_reason TEXT NULL,
             scanned_at DATETIME(3) NOT NULL,
             INDEX idx_pre_qc_item (item_id),
             INDEX idx_pre_qc_po (production_order_id),
@@ -418,6 +419,13 @@ async function runStartupColumnChecks(): Promise<void> {
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('  ✅ Created pre_qc_results table');
+      } else {
+        if (!(await columnExists('pre_qc_results', 'failure_reason'))) {
+          try {
+            await db.exec(`ALTER TABLE pre_qc_results ADD COLUMN failure_reason TEXT NULL AFTER pre_qc_result`);
+            console.log('  ✅ Added pre_qc_results.failure_reason');
+          } catch (_) {}
+        }
       }
     } catch (e: any) { console.warn('  ⚠️ pre_qc_results table:', e.message); }
 

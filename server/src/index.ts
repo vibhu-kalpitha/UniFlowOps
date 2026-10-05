@@ -50,6 +50,7 @@ app.get('/api/health', async (req, res) => {
 
 // Register API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api', authRoutes);
 app.use('/api', productionRoutes);
 app.use('/api/operators/me', operatorRoutes);
 app.use('/api/shifts', shiftRoutes);

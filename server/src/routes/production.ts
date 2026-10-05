@@ -667,7 +667,8 @@ router.get('/admin/users', authenticateToken, requireRole('ADMIN'), async (req, 
 router.post('/admin/users', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
   try {
     const bcrypt = (await import('bcryptjs')).default;
-    const { username, password, fullName, role, employeeNo } = req.body;
+    const { username, password, role, employeeNo } = req.body;
+    const fullName = req.body.fullName || req.body.full_name || req.body.name;
     if (!username || !password || !fullName || !role) {
       return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Username, password, name, and role are required' });
     }
