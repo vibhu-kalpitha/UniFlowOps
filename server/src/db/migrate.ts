@@ -427,6 +427,8 @@ async function runStartupColumnChecks(): Promise<void> {
           } catch (_) {}
         }
       }
+    } catch (e: any) { console.warn('  ⚠️ pre_qc_results:', e.message); }
+
     // ── qc_results columns for independent Test stage tracking ────────
     try {
       if (await tableExists('qc_results')) {

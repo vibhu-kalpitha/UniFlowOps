@@ -916,7 +916,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     } else if (parsed.stage === 'QC' || mode === 'QC_ONLY' || (parsed.qcResult && !parsed.testResult)) {
       targetStage = 'QC';
     } else {
-      targetStage = parsed.stage === 'TEST' ? 'TEST' : (parsed.qcResult ? 'QC' : 'TEST');
+      targetStage = parsed.qcResult ? 'QC' : 'TEST';
     }
 
     // Stage-specific Operator Allocation Check
