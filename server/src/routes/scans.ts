@@ -1676,6 +1676,17 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     const activeItems = items.filter(i => !permanentlyRemovedQrs.includes(i.qr_code.trim().toUpperCase()));
     const totalItems = activeItems.length;
 
+    // Check box completeness: Only fully packed / completed boxes can undergo AQL or Final AQL inspection
+    const isCompletedStatus = ['COMPLETE', 'COMPLETED', 'SEALED', 'CLOSED', 'FULL', 'AQL_PASSED', 'AQL_FAILED', 'FINAL_AQL_PASSED', 'FINAL_AQL_FAILED', 'TRANSFERRED'].includes((box.status || '').toUpperCase());
+    const requiredCapacity = box.capacity || 12;
+
+    if (!isCompletedStatus || totalItems < requiredCapacity) {
+      return res.status(400).json({
+        error: 'BOX_NOT_COMPLETED',
+        message: `Box ${boxNumber} is not fully packed / completed (${totalItems}/${requiredCapacity} items). Only fully packed boxes can undergo ${isFinalAql ? 'Final AQL' : 'AQL'} inspection.`
+      });
+    }
+
     // Check for an existing inspection on this box for THIS STAGE
     let existingInspection = await db.prepare(`
       SELECT ai.*, u.full_name as inspector_name, u.username as inspector_username
@@ -1939,7 +1950,7 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
 });
 
 // POST /api/aql/inspections/direct-complete
-router.post('/api/aql/inspections/direct-complete', authenticateToken, async (req: AuthRequest, res, next) => {
+router.post('/aql/inspections/direct-complete', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { boxNumber, result, failureReason, stage } = req.body;
     const operatorId = req.user!.id;

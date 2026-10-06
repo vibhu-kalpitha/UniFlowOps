@@ -111,6 +111,14 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
   /* ── Scan box handler ─────────────────────────────────────── */
   const handleScanBox = async (code: string) => {
     const localBox = packingBoxes[code];
+    if (localBox && localBox.status !== 'COMPLETED' && localBox.items.length < localBox.capacity) {
+      return {
+        status: 'rejected' as const,
+        message: `Box ${code} is not fully packed / completed (${localBox.items.length}/${localBox.capacity} items). Only completed boxes can undergo ${stageTitle}.`,
+        code
+      };
+    }
+
     const localItems: string[] = localBox?.items ? localBox.items.map(i => i.qr) : [];
 
     let serverItems: string[] = [];
@@ -131,7 +139,13 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
       sampleRequirement = res.requiredSamples || totalItems || 12;
       previousPassedSamples = res.previousPassedSamples || [];
       permanentlyRemovedQrs = res.permanentlyRemovedQrs || [];
-    } catch { /* offline — use local packing data */ }
+    } catch (err: any) {
+      return {
+        status: 'rejected' as const,
+        message: err.message || `Box ${code} is not fully packed / completed. Only completed boxes can undergo ${stageTitle}.`,
+        code
+      };
+    }
 
     const permRemovedSet = new Set(permanentlyRemovedQrs.map(q => q.toUpperCase()));
 

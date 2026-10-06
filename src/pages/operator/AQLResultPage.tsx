@@ -46,7 +46,9 @@ export const AQLResultPage: React.FC<AQLResultPageProps> = ({ isFinalAql = false
     const payload = {
       result: finalResult,
       failureReason: (isPassed || isInProgress) ? undefined : defectReason,
-      boxNumber: session.boxNumber || 'BX-000218'
+      boxNumber: session.boxNumber || 'BX-000218',
+      samples: session.samples || [],
+      stage: session.stage || (isFinal ? 'FINAL_AQL' : 'AQL')
     };
 
     try {
