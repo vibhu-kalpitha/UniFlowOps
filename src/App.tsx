@@ -42,8 +42,9 @@ import { AdminMore } from './pages/admin/AdminMore';
 import { AdminSessions } from './pages/admin/AdminSessions';
 
 // Role Guard Component
-const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin'; children: React.ReactNode }> = ({
-  allowedRole,
+// Role Guard Component
+const RoleRouteGuard: React.FC<{ allowedRoles: ('operator' | 'supervisor' | 'admin')[] | ('operator' | 'supervisor' | 'admin'); children: React.ReactNode }> = ({
+  allowedRoles,
   children
 }) => {
   const { isAuthenticated, currentRole, authLoading } = useApp();
@@ -60,7 +61,8 @@ const RoleRouteGuard: React.FC<{ allowedRole: 'operator' | 'supervisor' | 'admin
     return <Navigate to="/login" replace />;
   }
 
-  if (currentRole !== allowedRole) {
+  const roleList = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+  if (!currentRole || !roleList.includes(currentRole)) {
     const fallbackPath = currentRole === 'operator' ? '/operator/home' : currentRole === 'supervisor' ? '/supervisor/home' : '/admin/dashboard';
     return <Navigate to={fallbackPath} replace />;
   }
@@ -105,7 +107,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/home"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <OperatorHome />
             </RoleRouteGuard>
           }
@@ -113,7 +115,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/assignments"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <SelectAssignedWork />
             </RoleRouteGuard>
           }
@@ -121,7 +123,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/orders"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <OperatorOrders />
             </RoleRouteGuard>
           }
@@ -129,7 +131,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/scan"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <ScanCenter />
             </RoleRouteGuard>
           }
@@ -137,7 +139,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/pre-qc"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <PreQCPage />
             </RoleRouteGuard>
           }
@@ -145,7 +147,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/qc"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <QCTestPage />
             </RoleRouteGuard>
           }
@@ -153,7 +155,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/packing"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <PackingPage />
             </RoleRouteGuard>
           }
@@ -161,7 +163,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/aql/box"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <AQLBoxScanPage />
             </RoleRouteGuard>
           }
@@ -169,7 +171,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/aql/samples"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <AQLSamplesPage />
             </RoleRouteGuard>
           }
@@ -177,7 +179,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/aql/result"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <AQLResultPage />
             </RoleRouteGuard>
           }
@@ -185,7 +187,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/transfer"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <BoxTransferPage />
             </RoleRouteGuard>
           }
@@ -193,7 +195,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/alerts"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <AlertsPage />
             </RoleRouteGuard>
           }
@@ -201,7 +203,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/operator/profile"
           element={
-            <RoleRouteGuard allowedRole="operator">
+            <RoleRouteGuard allowedRoles="operator">
               <OperatorProfile />
             </RoleRouteGuard>
           }
@@ -211,7 +213,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/home"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <SupervisorHome />
             </RoleRouteGuard>
           }
@@ -219,7 +221,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/production-orders/new/style"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <SelectStylePage />
             </RoleRouteGuard>
           }
@@ -227,7 +229,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/production-orders/new/general"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <CreatePOGeneral />
             </RoleRouteGuard>
           }
@@ -235,7 +237,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/production-orders/new/sales-orders"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <CreatePOSalesOrders />
             </RoleRouteGuard>
           }
@@ -243,7 +245,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/production-orders/new/review"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <CreatePOReview />
             </RoleRouteGuard>
           }
@@ -251,7 +253,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/shifts"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <ShiftManagementPage />
             </RoleRouteGuard>
           }
@@ -259,7 +261,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/orders"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <SupervisorOrders />
             </RoleRouteGuard>
           }
@@ -267,7 +269,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/alerts"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <AlertsPage />
             </RoleRouteGuard>
           }
@@ -275,7 +277,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/supervisor/profile"
           element={
-            <RoleRouteGuard allowedRole="supervisor">
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
               <SupervisorProfile />
             </RoleRouteGuard>
           }
@@ -284,11 +286,11 @@ const AppRoutes: React.FC = () => {
         {/* Shared Test Scanner Diagnostic Route */}
         <Route path="/test-scanner" element={<TestScannerPage />} />
 
-        {/* Admin Routes */}
+        {/* Operational & Admin Routes */}
         <Route
           path="/admin/dashboard"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AdminDashboard />
             </RoleRouteGuard>
           }
@@ -296,7 +298,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/admin/orders"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AdminOrders />
             </RoleRouteGuard>
           }
@@ -304,7 +306,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/admin/users"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AdminUsers />
             </RoleRouteGuard>
           }
@@ -312,7 +314,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/admin/reports"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AdminReports />
             </RoleRouteGuard>
           }
@@ -320,7 +322,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/admin/alerts"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AlertsPage />
             </RoleRouteGuard>
           }
@@ -328,7 +330,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/admin/sessions"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles="admin">
               <AdminSessions />
             </RoleRouteGuard>
           }
@@ -336,7 +338,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="/admin/more"
           element={
-            <RoleRouteGuard allowedRole="admin">
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AdminMore />
             </RoleRouteGuard>
           }

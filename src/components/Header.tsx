@@ -38,7 +38,10 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
     } else if (currentRole === 'supervisor') {
       return [
         { label: 'Home', path: '/supervisor/home', icon: Home },
+        { label: 'Dashboard', path: '/admin/dashboard', icon: BarChart },
         { label: 'Orders', path: '/supervisor/orders', icon: ClipboardList },
+        { label: 'Users', path: '/admin/users', icon: User },
+        { label: 'Reports', path: '/admin/reports', icon: Package },
         { label: 'Alerts', path: '/supervisor/alerts', icon: Bell, badge: unreadAlertsCount },
         { label: 'Profile', path: '/supervisor/profile', icon: User }
       ];

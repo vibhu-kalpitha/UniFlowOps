@@ -194,11 +194,9 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
     const isSupervisorOnly = req.user?.role === 'SUPERVISOR';
     const selectedPoId = (req.query.poId || '').toString().trim();
 
-    // Query authorized POs for this supervisor
-    let poWhere = isSupervisorOnly && supervisorId 
-      ? `WHERE po.supervisor_id = ? OR po.supervisor_id IS NULL OR po.id IN (SELECT DISTINCT sales_order_id FROM operator_work_assignments)`
-      : ``;
-    let poParams: any[] = isSupervisorOnly && supervisorId ? [supervisorId] : [];
+    // Query authorized POs for this supervisor (Supervisors have global production visibility)
+    let poWhere = ``;
+    let poParams: any[] = [];
 
     const pos = await db.prepare(`
       SELECT po.*, s.name as style_name, s.code as style_code, u.full_name as supervisor_name

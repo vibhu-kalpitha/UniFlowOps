@@ -838,6 +838,35 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(scansRouteCode).toContain('WRONG_SEQUENCE');
     expect(scansRouteCode).toContain('RESULT_REQUIRED');
   });
+
+  it('14. Supervisor Role Permissions & Global PO History Access Validation', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const dashboardRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/dashboard.ts'),
+      'utf-8'
+    );
+    const productionRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/production.ts'),
+      'utf-8'
+    );
+    const authRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/auth.ts'),
+      'utf-8'
+    );
+
+    // Verify GET /api/dashboard/supervisor does not restrict POs by supervisor_id
+    expect(dashboardRouteCode).not.toContain('po.supervisor_id = ? OR po.supervisor_id IS NULL');
+    expect(dashboardRouteCode).toContain('Supervisors have global production visibility');
+
+    // Verify GET /api/admin/users and POST /api/admin/users support SUPERVISOR role
+    expect(productionRouteCode).toContain("requireRole(['ADMIN', 'SUPERVISOR'])");
+    expect(productionRouteCode).toContain("Supervisors are only authorized to create Operator accounts.");
+    expect(productionRouteCode).toContain("Supervisors are only authorized to manage Operator accounts.");
+
+    // Verify POST /api/auth/reset-password allows SUPERVISOR with Operator restriction
+    expect(authRouteCode).toContain("Supervisors are only authorized to reset passwords for Operator accounts.");
+  });
 });
 
 

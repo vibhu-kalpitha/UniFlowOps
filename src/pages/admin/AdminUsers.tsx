@@ -16,7 +16,8 @@ interface UserRecord {
 }
 
 export const AdminUsers: React.FC = () => {
-  const { showToast } = useApp();
+  const { showToast, currentRole } = useApp();
+  const isSupervisorUser = currentRole === 'supervisor';
 
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -325,46 +326,54 @@ export const AdminUsers: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px dashed var(--border-color)' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleUserStatus(u)}
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      color: isActive ? '#EF4444' : '#10B981',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    {isActive ? <UserX size={14} /> : <UserCheck size={14} />}
-                    {isActive ? 'Deactivate' : 'Activate'}
-                  </button>
+                  {isSupervisorUser && u.role !== 'Operator' ? (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, fontStyle: 'italic' }}>
+                      Admin Managed Account
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleUserStatus(u)}
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: isActive ? '#EF4444' : '#10B981',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        {isActive ? <UserX size={14} /> : <UserCheck size={14} />}
+                        {isActive ? 'Deactivate' : 'Activate'}
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedResetUser(u);
-                      setNewPassword('');
-                      setShowResetModal(true);
-                    }}
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      color: 'var(--primary-teal)',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    <KeyRound size={14} /> Reset Password
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedResetUser(u);
+                          setNewPassword('');
+                          setShowResetModal(true);
+                        }}
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: 'var(--primary-teal)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <KeyRound size={14} /> Reset Password
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -377,7 +386,9 @@ export const AdminUsers: React.FC = () => {
         <div style={styles.modalOverlay}>
           <div style={styles.modalContent}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Add New User Account</h3>
+              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>
+                {isSupervisorUser ? 'Add New Operator Account' : 'Add New User Account'}
+              </h3>
               <button style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setShowAddModal(false)}>
                 <X size={20} color="var(--text-secondary)" />
               </button>
@@ -399,10 +410,15 @@ export const AdminUsers: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <label style={styles.label}>Role</label>
-                  <select className="input-field select-field" value={role} onChange={e => setRole(e.target.value as any)}>
+                  <select
+                    className="input-field select-field"
+                    value={isSupervisorUser ? 'Operator' : role}
+                    disabled={isSupervisorUser}
+                    onChange={e => setRole(e.target.value as any)}
+                  >
                     <option value="Operator">Operator</option>
-                    <option value="Supervisor">Supervisor</option>
-                    <option value="Admin">Admin</option>
+                    {!isSupervisorUser && <option value="Supervisor">Supervisor</option>}
+                    {!isSupervisorUser && <option value="Admin">Admin</option>}
                   </select>
                 </div>
                 <div>
@@ -418,7 +434,7 @@ export const AdminUsers: React.FC = () => {
               </div>
 
               <button type="submit" className="btn-primary" style={{ marginTop: '10px', width: '100%' }}>
-                Create User Account
+                {isSupervisorUser ? 'Create Operator Account' : 'Create User Account'}
               </button>
             </form>
           </div>

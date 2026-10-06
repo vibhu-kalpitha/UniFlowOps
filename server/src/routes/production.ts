@@ -638,9 +638,9 @@ router.delete('/production-orders/:id/allocations/:allocId', authenticateToken, 
   }
 });
 
-// ── ADMIN USER MANAGEMENT ENDPOINTS ──────────────────────────────
+// ── ADMIN & SUPERVISOR USER MANAGEMENT ENDPOINTS ──────────────────────────────
 // GET /api/admin/users
-router.get('/admin/users', authenticateToken, requireRole('ADMIN'), async (req, res, next) => {
+router.get('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
   try {
     const users = await db.query(`
       SELECT id, employee_no, username, full_name, role, active, created_at, updated_at
@@ -664,7 +664,7 @@ router.get('/admin/users', authenticateToken, requireRole('ADMIN'), async (req, 
 });
 
 // POST /api/admin/users
-router.post('/admin/users', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+router.post('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
     const bcrypt = (await import('bcryptjs')).default;
     const { username, password, role, employeeNo } = req.body;
@@ -672,6 +672,12 @@ router.post('/admin/users', authenticateToken, requireRole('ADMIN'), async (req:
     if (!username || !password || !fullName || !role) {
       return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Username, password, name, and role are required' });
     }
+
+    const roleUpper = role.toUpperCase();
+    if (req.user?.role === 'SUPERVISOR' && roleUpper !== 'OPERATOR') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to create Operator accounts.' });
+    }
+
     const cleanUser = username.trim().toLowerCase();
     const existing = await db.prepare(`SELECT id FROM users WHERE LOWER(username) = ?`).get(cleanUser);
     if (existing) {
@@ -683,8 +689,8 @@ router.post('/admin/users', authenticateToken, requireRole('ADMIN'), async (req:
     await db.prepare(`
       INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3))
-    `).run(userId, empNo, cleanUser, passwordHash, fullName, role.toUpperCase());
-    await auditLog(req.user!.id, 'CREATE_USER', 'users', userId, { username: cleanUser, role });
+    `).run(userId, empNo, cleanUser, passwordHash, fullName, roleUpper);
+    await auditLog(req.user!.id, 'CREATE_USER', 'users', userId, { username: cleanUser, role: roleUpper });
     return res.status(201).json({ message: 'User created successfully', userId });
   } catch (err) {
     next(err);
@@ -692,7 +698,7 @@ router.post('/admin/users', authenticateToken, requireRole('ADMIN'), async (req:
 });
 
 // PATCH /api/admin/users/:id
-router.patch('/admin/users/:id', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+router.patch('/admin/users/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
     const { fullName, role, active } = req.body;
     const userId = req.params.id;
@@ -700,8 +706,17 @@ router.patch('/admin/users/:id', authenticateToken, requireRole('ADMIN'), async 
     if (!user) {
       return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'User not found' });
     }
+    if (req.user?.role === 'SUPERVISOR' && user.role !== 'OPERATOR') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to manage Operator accounts.' });
+    }
     if (fullName) await db.prepare(`UPDATE users SET full_name = ?, updated_at = NOW(3) WHERE id = ?`).run(fullName, userId);
-    if (role) await db.prepare(`UPDATE users SET role = ?, updated_at = NOW(3) WHERE id = ?`).run(role.toUpperCase(), userId);
+    if (role) {
+      const nextRoleUpper = role.toUpperCase();
+      if (req.user?.role === 'SUPERVISOR' && nextRoleUpper !== 'OPERATOR') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to assign the Operator role.' });
+      }
+      await db.prepare(`UPDATE users SET role = ?, updated_at = NOW(3) WHERE id = ?`).run(nextRoleUpper, userId);
+    }
     if (active !== undefined) await db.prepare(`UPDATE users SET active = ?, updated_at = NOW(3) WHERE id = ?`).run(active ? 1 : 0, userId);
     await auditLog(req.user!.id, 'UPDATE_USER', 'users', userId, { fullName, role, active });
     return res.json({ message: 'User updated successfully' });

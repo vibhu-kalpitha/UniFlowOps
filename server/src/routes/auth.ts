@@ -136,14 +136,18 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(6)
 });
 
-// POST /api/auth/reset-password - ADMIN ONLY
-router.post('/reset-password', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+// POST /api/auth/reset-password - ADMIN & SUPERVISOR (Operators only for Supervisor)
+router.post('/reset-password', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
     const { userId, newPassword } = resetPasswordSchema.parse(req.body);
 
-    const user = await db.prepare(`SELECT id, username, full_name FROM users WHERE id = ? OR username = ?`).get(userId, userId) as any;
+    const user = await db.prepare(`SELECT id, username, full_name, role FROM users WHERE id = ? OR username = ?`).get(userId, userId) as any;
     if (!user) {
       return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+
+    if (req.user?.role === 'SUPERVISOR' && user.role !== 'OPERATOR') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to reset passwords for Operator accounts.' });
     }
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
