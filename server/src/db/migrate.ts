@@ -427,7 +427,29 @@ async function runStartupColumnChecks(): Promise<void> {
           } catch (_) {}
         }
       }
-    } catch (e: any) { console.warn('  ⚠️ pre_qc_results table:', e.message); }
+    // ── qc_results columns for independent Test stage tracking ────────
+    try {
+      if (await tableExists('qc_results')) {
+        if (!(await columnExists('qc_results', 'test_operator_id'))) {
+          try {
+            await db.exec(`ALTER TABLE qc_results ADD COLUMN test_operator_id VARCHAR(191) NULL AFTER test_result`);
+            console.log('  ✅ Added qc_results.test_operator_id');
+          } catch (_) {}
+        }
+        if (!(await columnExists('qc_results', 'test_scanned_at'))) {
+          try {
+            await db.exec(`ALTER TABLE qc_results ADD COLUMN test_scanned_at DATETIME(3) NULL AFTER scanned_at`);
+            console.log('  ✅ Added qc_results.test_scanned_at');
+          } catch (_) {}
+        }
+        if (!(await columnExists('qc_results', 'test_failure_reason'))) {
+          try {
+            await db.exec(`ALTER TABLE qc_results ADD COLUMN test_failure_reason TEXT NULL AFTER failure_reason`);
+            console.log('  ✅ Added qc_results.test_failure_reason');
+          } catch (_) {}
+        }
+      }
+    } catch (e: any) { console.warn('  ⚠️ qc_results columns:', e.message); }
 
     // ── item_units table unique constraint alignment ─────────────────
     try {

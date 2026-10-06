@@ -867,6 +867,46 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     // Verify POST /api/auth/reset-password allows SUPERVISOR with Operator restriction
     expect(authRouteCode).toContain("Supervisors are only authorized to reset passwords for Operator accounts.");
   });
+
+  it('15. QC/Test Independent Multi-Stage Scanning & UI Mode Label Validation', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const poGeneralCode = fs.readFileSync(
+      path.join(__dirname, '../src/pages/supervisor/CreatePOGeneral.tsx'),
+      'utf-8'
+    );
+    const qcPageCode = fs.readFileSync(
+      path.join(__dirname, '../src/pages/operator/QCTestPage.tsx'),
+      'utf-8'
+    );
+    const scansRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/scans.ts'),
+      'utf-8'
+    );
+
+    // 1. Label rename check in CreatePOGeneral.tsx
+    expect(poGeneralCode).toContain('Mode');
+    expect(poGeneralCode).toContain('QC & Test');
+    expect(poGeneralCode).toContain('QC Only');
+    expect(poGeneralCode).toContain('Test Only');
+    expect(poGeneralCode).not.toContain('<label className="form-label" style={{ fontSize: \'13px\', fontWeight: 700, color: \'var(--text-primary)\', display: \'flex\', alignItems: \'center\', gap: \'6px\' }}>\n                    QC Test\n                  </label>');
+
+    // 2. QCTestPage.tsx independent stage sections check
+    expect(qcPageCode).toContain('QC Result');
+    expect(qcPageCode).toContain('Test Result');
+    expect(qcPageCode).toContain("handleSaveStage('QC')");
+    expect(qcPageCode).toContain("handleSaveStage('TEST')");
+    expect(qcPageCode).toContain('✓ PASS Completed');
+
+    // 3. scans.ts backend multi-stage scanning & stage-aware authorization check
+    expect(scansRouteCode).toContain('checkOperatorAllocationForPO');
+    expect(scansRouteCode).toContain("targetStage === 'QC'");
+    expect(scansRouteCode).toContain("targetStage === 'TEST'");
+    expect(scansRouteCode).toContain("status: 'FULLY_COMPLETED'");
+    expect(scansRouteCode).toContain('isFullyCompleted');
+    expect(scansRouteCode).toContain('stageStatus');
+  });
 });
+
 
 

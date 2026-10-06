@@ -49,14 +49,21 @@ export async function resolveSO(soKey?: string | null) {
   return so || { id: po.id, production_order_id: po.id, so_number: po.po_number, map_so: po.map_po, order_quantity: 1000 };
 }
 
-// Helper for operator allocation check on PO level
-export async function checkOperatorAllocationForPO(operatorId: string, role: string, poId: string): Promise<boolean> {
+// Helper for operator allocation check on PO level with stage support
+export async function checkOperatorAllocationForPO(operatorId: string, role: string, poId: string, stage?: 'QC' | 'TEST' | 'PRE_QC' | 'PACKING' | 'AQL' | 'BOX_TRANSFER'): Promise<boolean> {
   if (role === 'SUPERVISOR' || role === 'ADMIN') return true;
+
+  let opCondition = ``;
+  if (stage === 'QC') {
+    opCondition = `AND (operation = 'ALL' OR operation = 'QC_TEST' OR operation = 'QC' OR operation = 'QC Test')`;
+  } else if (stage === 'TEST') {
+    opCondition = `AND (operation = 'ALL' OR operation = 'QC_TEST' OR operation = 'TEST' OR operation = 'QC Test')`;
+  }
 
   const row = await db.prepare(`
     SELECT COUNT(*) as cnt FROM operator_work_assignments
     WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-      AND operator_id = ? AND active = 1
+      AND operator_id = ? AND active = 1 ${opCondition}
   `).get(poId, poId, operatorId) as any;
 
   return !!(row && row.cnt > 0);
@@ -204,6 +211,8 @@ export async function calculatePOProgress(poId: string) {
     };
   }
 
+  const mode = po.qc_test_mode || 'QC_AND_TEST';
+
   const configTotal = await db.prepare(`SELECT SUM(quantity) as sumQty FROM production_order_configs WHERE production_order_id = ?`).get(po.id) as any;
   let targetQuantity = configTotal?.sumQty ? Number(configTotal.sumQty) : 0;
 
@@ -212,13 +221,36 @@ export async function calculatePOProgress(poId: string) {
     targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 1000;
   }
 
-  const passedRow = await db.prepare(`
+  let passedCondition = `qr.qc_result = 'PASS' AND qr.test_result = 'PASS'`;
+  if (mode === 'QC_ONLY') {
+    passedCondition = `qr.qc_result = 'PASS'`;
+  } else if (mode === 'TEST_ONLY') {
+    passedCondition = `qr.test_result = 'PASS'`;
+  }
+
+  const overallRow = await db.prepare(`
     SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
     JOIN item_units iu ON iu.id = qr.item_id
     WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-      AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+      AND ${passedCondition}
   `).get(po.id, po.id) as any;
-  const passedUnique = passedRow?.cnt || 0;
+  const overallCompletedCount = overallRow?.cnt || 0;
+
+  const qcRow = await db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+    JOIN item_units iu ON iu.id = qr.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND qr.qc_result = 'PASS'
+  `).get(po.id, po.id) as any;
+  const qcPassedCount = qcRow?.cnt || 0;
+
+  const testRow = await db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+    JOIN item_units iu ON iu.id = qr.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND qr.test_result = 'PASS'
+  `).get(po.id, po.id) as any;
+  const testPassedCount = testRow?.cnt || 0;
 
   const failedRow = await db.prepare(`
     SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_fail_log qf
@@ -242,16 +274,20 @@ export async function calculatePOProgress(poId: string) {
   const inspectedUnique = inspectedRow?.cnt || 0;
 
   const remainingToInspect = Math.max(0, targetQuantity - inspectedUnique);
-  const remainingToPass = Math.max(0, targetQuantity - passedUnique);
-  const isComplete = passedUnique >= targetQuantity;
+  const remainingToPass = Math.max(0, targetQuantity - overallCompletedCount);
+  const isComplete = overallCompletedCount >= targetQuantity;
   const allAdmitted = inspectedUnique >= targetQuantity;
 
   return {
     poId: po.id,
     poNumber: po.po_number,
+    qcTestMode: mode,
     targetQuantity,
     inspectedUnique,
-    passedUnique,
+    passedUnique: overallCompletedCount,
+    qcPassedCount,
+    testPassedCount,
+    overallCompletedCount,
     failedUnique,
     remainingToInspect,
     remainingToPass,
@@ -468,25 +504,62 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
     `).get(po.id, po.po_number, po.map_po, code) as any
     : await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
 
-    if (item) {
-      const existingPass = await db.prepare(`
-        SELECT * FROM qc_results WHERE item_id = ? AND qc_result = 'PASS' AND test_result = 'PASS'
-      `).get(item.id) as any;
+    const mode = po.qc_test_mode || 'QC_AND_TEST';
+    let existingQc: any = null;
+    let qcCompleted = false;
+    let testCompleted = false;
+    let isFullyCompleted = false;
 
-      if (existingPass || item.status === 'QC_PASSED' || item.status === 'PACKED') {
+    if (item) {
+      existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
+      if (existingQc) {
+        qcCompleted = existingQc.qc_result === 'PASS';
+        testCompleted = existingQc.test_result === 'PASS';
+      }
+      if (mode === 'QC_ONLY') {
+        isFullyCompleted = qcCompleted;
+      } else if (mode === 'TEST_ONLY') {
+        isFullyCompleted = testCompleted;
+      } else {
+        isFullyCompleted = qcCompleted && testCompleted;
+      }
+
+      if (isFullyCompleted || item.status === 'QC_PASSED' || item.status === 'PACKED') {
+        const progress = po ? await calculatePOProgress(po.id) : undefined;
         return res.json({
-          status: 'DUPLICATE',
-          message: 'Already processed QC',
-          item: { qr_code: item.qr_code, size: item.size || 'L' }
+          status: 'FULLY_COMPLETED',
+          message: 'QC & Test already completed for this garment.',
+          item: { qr_code: item.qr_code, size: item.size || 'L' },
+          stageStatus: {
+            qcResult: existingQc?.qc_result || 'PENDING',
+            testResult: existingQc?.test_result || 'PENDING',
+            qcCompleted,
+            testCompleted,
+            isFullyCompleted: true
+          },
+          progress
         });
       }
     }
 
     const progress = po ? await calculatePOProgress(po.id) : undefined;
+    const msg = qcCompleted 
+      ? 'QC already completed. Test result is pending.' 
+      : testCompleted 
+      ? 'Test already completed. QC result is pending.' 
+      : 'Barcode valid for inspection';
+
     return res.json({
       status: 'VALID',
-      message: 'Barcode valid for QC',
+      message: msg,
       item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
+      stageStatus: {
+        qcResult: existingQc?.qc_result || 'PENDING',
+        testResult: existingQc?.test_result || 'PENDING',
+        qcCompleted,
+        testCompleted,
+        isFullyCompleted: false
+      },
       progress
     });
   } catch (err) {
@@ -812,6 +885,7 @@ const qcResultSchema = z.object({
   productionOrderId: z.string().optional(),
   salesOrderNumber: z.string().optional(),
   salesOrderId: z.string().optional(),
+  stage: z.enum(['QC', 'TEST', 'ALL']).optional(),
   qcResult: z.enum(['PASS', 'FAIL']).optional(),
   testResult: z.enum(['PASS', 'FAIL']).optional(),
   failureReason: z.string().optional()
@@ -833,40 +907,30 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
-    const isAllocatedResults = await checkOperatorAllocationForPO(operatorId, userRole, po.id);
-    if (!isAllocatedResults) {
-      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
-    }
-
-    const isOpEnabledResults = await checkOperationEnabledForPO(po.id, 'QC Test');
-    if (!isOpEnabledResults) {
-      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `QC Test operation is not enabled for Production Order ${po.po_number || po.id}.` });
-    }
-
     const mode = po.qc_test_mode || 'QC_AND_TEST';
 
-    let qcResult: 'PASS' | 'FAIL' = 'PASS';
-    let testResult: 'PASS' | 'FAIL' = 'PASS';
-
-    if (mode === 'QC_ONLY') {
-      if (!parsed.qcResult) {
-        return res.status(400).json({ error: 'QC_RESULT_REQUIRED', message: 'QC Result (PASS/FAIL) is required.' });
-      }
-      qcResult = parsed.qcResult;
-      testResult = 'PASS';
-    } else if (mode === 'TEST_ONLY') {
-      if (!parsed.testResult) {
-        return res.status(400).json({ error: 'TEST_RESULT_REQUIRED', message: 'Test Result (PASS/FAIL) is required.' });
-      }
-      qcResult = 'PASS';
-      testResult = parsed.testResult;
+    // Infer target stage
+    let targetStage: 'QC' | 'TEST' = 'QC';
+    if (parsed.stage === 'TEST' || mode === 'TEST_ONLY' || (!parsed.qcResult && parsed.testResult)) {
+      targetStage = 'TEST';
+    } else if (parsed.stage === 'QC' || mode === 'QC_ONLY' || (parsed.qcResult && !parsed.testResult)) {
+      targetStage = 'QC';
     } else {
-      // QC & Test mode
-      if (!parsed.qcResult || !parsed.testResult) {
-        return res.status(400).json({ error: 'INCOMPLETE_SUBMISSION', message: 'Both QC Result and Test Result are required for QC & Test mode.' });
-      }
-      qcResult = parsed.qcResult;
-      testResult = parsed.testResult;
+      targetStage = parsed.stage === 'TEST' ? 'TEST' : (parsed.qcResult ? 'QC' : 'TEST');
+    }
+
+    // Stage-specific Operator Allocation Check
+    const isAllocated = await checkOperatorAllocationForPO(operatorId, userRole, po.id, targetStage);
+    if (!isAllocated) {
+      return res.status(403).json({
+        error: 'UNAUTHORIZED_STAGE',
+        message: `Operator ${req.user!.username} is not authorized for the ${targetStage} stage on Production Order ${po.po_number || po.id}.`
+      });
+    }
+
+    const isOpEnabled = await checkOperationEnabledForPO(po.id, 'QC Test');
+    if (!isOpEnabled) {
+      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `QC Test operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
     const rangeCheck = await validateProductQrRangeForPO(po, itemQr);
@@ -887,14 +951,6 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       }
     }
 
-    // Operator scoping check
-    if (!(await checkOperatorAllocationForPO(operatorId, userRole, po.id))) {
-      return res.status(403).json({
-        error: 'OPERATOR_UNAUTHORIZED',
-        message: `Operator ${req.user!.username} is not allocated to Production Order ${po.po_number}`
-      });
-    }
-
     let item = await db.prepare(`
       SELECT * FROM item_units 
       WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
@@ -913,82 +969,142 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       item.production_order_id = po.id;
     }
 
-    const isPass = qcResult === 'PASS' && testResult === 'PASS';
     const existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
 
-    const currentProgress = await calculatePOProgress(po.id);
-    if (!existingQc && isPass && currentProgress.targetQuantity > 0 && currentProgress.passedUnique >= currentProgress.targetQuantity) {
-      await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'REJECTED', 'TARGET_QUANTITY_REACHED', 'Target quantity reached');
-      return res.status(400).json({
-        error: 'TARGET_QUANTITY_REACHED',
-        message: `Target quantity (${currentProgress.targetQuantity} Pcs) for Production Order ${po.po_number || po.id} has already been reached.`
-      });
-    }
-
-    const isAlreadyPassed = item.status === 'QC_PASSED' || item.status === 'PACKED' || (existingQc && existingQc.qc_result === 'PASS' && existingQc.test_result === 'PASS');
-
-    if (isAlreadyPassed && isPass) {
-      await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'DUPLICATE');
+    // Stage-specific duplicate check
+    if (targetStage === 'QC' && existingQc && existingQc.qc_result === 'PASS') {
       const progress = await calculatePOProgress(po.id);
       return res.status(200).json({
-        message: `Item ${itemQr} is already QC Passed (Duplicate Scan).`,
+        message: `QC stage already completed for item ${itemQr}.`,
         itemQr,
-        status: item.status || 'QC_PASSED',
         isDuplicate: true,
+        targetStage,
+        stageStatus: {
+          qcResult: existingQc.qc_result,
+          testResult: existingQc.test_result || 'PENDING',
+          qcCompleted: true,
+          testCompleted: existingQc.test_result === 'PASS',
+          isFullyCompleted: mode === 'QC_ONLY' || existingQc.test_result === 'PASS'
+        },
         progress
       });
     }
 
-    const finalItemStatus = isPass ? 'QC_PASSED' : 'QC_FAILED';
+    if (targetStage === 'TEST' && existingQc && existingQc.test_result === 'PASS') {
+      const progress = await calculatePOProgress(po.id);
+      return res.status(200).json({
+        message: `Test stage already completed for item ${itemQr}.`,
+        itemQr,
+        isDuplicate: true,
+        targetStage,
+        stageStatus: {
+          qcResult: existingQc?.qc_result || 'PENDING',
+          testResult: existingQc.test_result,
+          qcCompleted: existingQc?.qc_result === 'PASS',
+          testCompleted: true,
+          isFullyCompleted: mode === 'TEST_ONLY' || existingQc?.qc_result === 'PASS'
+        },
+        progress
+      });
+    }
+
+    let nextQcResult = existingQc?.qc_result || 'PENDING';
+    let nextTestResult = existingQc?.test_result || 'PENDING';
+    let qcOpId = existingQc?.operator_id || operatorId;
+    let testOpId = existingQc?.test_operator_id || (targetStage === 'TEST' ? operatorId : null);
+    let qcScannedAt = existingQc?.scanned_at || new Date();
+    let testScannedAt = existingQc?.test_scanned_at || (targetStage === 'TEST' ? new Date() : null);
+
+    if (targetStage === 'QC') {
+      if (!parsed.qcResult) {
+        return res.status(400).json({ error: 'QC_RESULT_REQUIRED', message: 'QC Result (PASS/FAIL) is required.' });
+      }
+      nextQcResult = parsed.qcResult;
+      qcOpId = operatorId;
+      qcScannedAt = new Date();
+      if (mode === 'QC_ONLY') {
+        nextTestResult = 'PASS';
+      }
+    } else if (targetStage === 'TEST') {
+      if (!parsed.testResult) {
+        return res.status(400).json({ error: 'TEST_RESULT_REQUIRED', message: 'Test Result (PASS/FAIL) is required.' });
+      }
+      nextTestResult = parsed.testResult;
+      testOpId = operatorId;
+      testScannedAt = new Date();
+      if (mode === 'TEST_ONLY') {
+        nextQcResult = 'PASS';
+      }
+    }
+
+    let isFullyCompleted = false;
+    if (mode === 'QC_ONLY') {
+      isFullyCompleted = nextQcResult === 'PASS';
+    } else if (mode === 'TEST_ONLY') {
+      isFullyCompleted = nextTestResult === 'PASS';
+    } else {
+      isFullyCompleted = nextQcResult === 'PASS' && nextTestResult === 'PASS';
+    }
+
+    const finalItemStatus = isFullyCompleted ? 'QC_PASSED' : (nextQcResult === 'FAIL' || nextTestResult === 'FAIL' ? 'QC_FAILED' : 'CREATED');
+
     const existingFailsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_fail_log WHERE item_id = ?`).get(item.id) as any;
-    const existingFails = existingFailsRow?.cnt || 0;
-    let failCount = existingFails;
+    let failCount = existingFailsRow?.cnt || 0;
     let retryCount = 0;
 
     await db.transaction(async (tx) => {
-      if (!isPass) {
+      const stageResultVal = targetStage === 'QC' ? nextQcResult : nextTestResult;
+      if (stageResultVal === 'FAIL') {
         failCount += 1;
         const failLogId = `qcfail-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
           INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, po_id, failure_type)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, 'QC_FAIL')
-        `).run(failLogId, item.id, operatorId, qcResult, testResult, failureReason || null, failCount, idempotencyKey || null, itemQr, po.id);
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, ?)
+        `).run(failLogId, item.id, operatorId, nextQcResult, nextTestResult, failureReason || null, failCount, idempotencyKey || null, itemQr, po.id, `${targetStage}_FAIL`);
 
         const alertId = `alt-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
           INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, reference_type, reference_id, created_at)
           VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'QC Test Failure Alert', ?, 'qc_fail_log', ?, NOW(3))
-        `).run(alertId, `QC failed for item ${itemQr} on PO ${po.po_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId);
+        `).run(alertId, `${targetStage} failed for item ${itemQr} on PO ${po.po_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId);
       }
 
       if (existingQc) {
         retryCount = (existingQc.retry_count || 0) + 1;
         await tx.prepare(`
           UPDATE qc_results 
-          SET operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = NOW(3)
+          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3)
           WHERE item_id = ?
-        `).run(operatorId, qcResult, testResult, failureReason || null, retryCount, item.id);
+        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, item.id);
       } else {
         retryCount = 0;
         const qcId = `qc-${Date.now()}`;
         await tx.prepare(`
-          INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at)
-          VALUES (?, ?, ?, ?, ?, ?, 0, NOW(3), NOW(3))
-        `).run(qcId, item.id, operatorId, qcResult, testResult, failureReason || null);
+          INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?)
+        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || null, qcScannedAt, testScannedAt);
       }
 
       await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalItemStatus, item.id);
     });
 
     await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'ACCEPTED');
-    await auditLog(operatorId, 'QC_RESULT_SAVED', 'item_units', item.id, { qcResult, testResult, retryCount, failCount });
+    await auditLog(operatorId, `${targetStage}_RESULT_SAVED`, 'item_units', item.id, { stage: targetStage, qcResult: nextQcResult, testResult: nextTestResult });
 
     const progress = await calculatePOProgress(po.id);
 
     return res.status(200).json({
-      message: isPass ? (retryCount > 0 ? `QC Passed after ${retryCount} attempt(s)!` : 'QC Passed!') : `QC Failed (Attempt #${failCount})`,
+      message: isFullyCompleted ? 'QC & Test Completed!' : `${targetStage} Result Saved!`,
       itemQr,
       status: finalItemStatus,
+      targetStage,
+      stageStatus: {
+        qcResult: nextQcResult,
+        testResult: nextTestResult,
+        qcCompleted: nextQcResult === 'PASS',
+        testCompleted: nextTestResult === 'PASS',
+        isFullyCompleted
+      },
       retryCount,
       totalFails: failCount,
       progress

@@ -5,7 +5,7 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
@@ -15,6 +15,20 @@ interface ScannedItem {
   product: string;
   size: string;
   status: 'VALID' | 'DUPLICATE' | 'INVALID';
+}
+
+interface StageStatus {
+  mode?: string;
+  qcCompleted: boolean;
+  testCompleted: boolean;
+  qcResult: 'PASS' | 'FAIL' | 'PENDING';
+  testResult: 'PASS' | 'FAIL' | 'PENDING';
+  qcOperatorName?: string | null;
+  qcScannedAt?: string | null;
+  testOperatorName?: string | null;
+  testScannedAt?: string | null;
+  isFullyCompleted: boolean;
+  nextPendingStage?: 'QC' | 'TEST' | 'NONE';
 }
 
 interface QcHistoryItem {
@@ -40,12 +54,14 @@ export const QCTestPage: React.FC = () => {
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
+  const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
-  const [failureReason, setFailureReason] = useState<string>('');
+  const [qcFailureReason, setQcFailureReason] = useState<string>('');
+  const [testFailureReason, setTestFailureReason] = useState<string>('');
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [savingStage, setSavingStage] = useState<'QC' | 'TEST' | null>(null);
+  const [savedStage, setSavedStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
 
   // Authoritative backend progress state
   const [poProgress, setPoProgress] = useState<{
@@ -113,14 +129,15 @@ export const QCTestPage: React.FC = () => {
   const qcPassedQty = poProgress.passedUnique;
   const remainingQcQty = poProgress.remainingToPass;
   const isQCComplete = poProgress.passedUnique >= targetPoQty;
-  const isAllAdmitted = poProgress.inspectedUnique >= targetPoQty;
 
   /* ── scan handler ──────────────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
-    setSaved(false);
-    setFailureReason('');
+    setSavedStage(null);
+    setQcFailureReason('');
+    setTestFailureReason('');
     setHistoryData(null);
+    setStageStatus(null);
 
     try {
       const hRes = await apiFetch(`/api/qc/history/${code}`);
@@ -154,28 +171,52 @@ export const QCTestPage: React.FC = () => {
         }));
       }
 
-      const isDup = res.status === 'DUPLICATE';
+      const stStatus: StageStatus = res.stageStatus || {
+        qcResult: 'PENDING',
+        testResult: 'PENDING',
+        qcCompleted: false,
+        testCompleted: false,
+        isFullyCompleted: false,
+      };
+
+      setStageStatus(stStatus);
+
+      if (res.status === 'FULLY_COMPLETED' || stStatus.isFullyCompleted) {
+        setScannedItem({
+          qr: res.item?.qr_code || code,
+          product: po?.styleName || po?.styleCode || 'Garment',
+          size: res.item?.size || 'L',
+          status: 'DUPLICATE',
+        });
+        showToast(`⚠️ ${qcMode} already completed for item ${code}.`, 'warning');
+        return {
+          status: 'duplicate' as const,
+          message: `⚠️ Item ${code} is ALREADY ${qcMode} Completed!`,
+          code: res.item?.qr_code || code,
+        };
+      }
 
       setScannedItem({
         qr: res.item?.qr_code || code,
         product: po?.styleName || po?.styleCode || 'Garment',
         size: res.item?.size || 'L',
-        status: isDup ? 'DUPLICATE' : 'VALID',
+        status: 'VALID',
       });
-      setQcResult(isDup ? 'FAIL' : 'PASS');
-      setTestResult(isDup ? 'FAIL' : 'PASS');
 
-      if (isDup) {
-        return {
-          status: 'duplicate' as const,
-          message: `⚠️ Item ${code} is ALREADY QC PASSED! (Duplicate scan)`,
-          code: res.item?.qr_code || code,
-        };
+      setQcResult('PASS');
+      setTestResult('PASS');
+
+      if (stStatus.qcCompleted && !stStatus.testCompleted) {
+        showToast(`ℹ️ QC already completed for ${code}. Test stage is pending.`, 'info');
+      } else if (stStatus.testCompleted && !stStatus.qcCompleted) {
+        showToast(`ℹ️ Test already completed for ${code}. QC stage is pending.`, 'info');
+      } else {
+        showToast(`✅ ${code} scanned successfully`, 'success');
       }
 
       return {
         status: 'accepted' as const,
-        message: `✅ ${code} validated successfully for ${po?.id || 'PO'}`,
+        message: res.message || `✅ ${code} scanned successfully`,
         code: res.item?.qr_code || code,
       };
     } catch (err: any) {
@@ -212,8 +253,8 @@ export const QCTestPage: React.FC = () => {
     }
   };
 
-  /* ── save handler ──────────────────────────────────────────── */
-  const handleSave = async () => {
+  /* ── save stage handler ──────────────────────────────────────────── */
+  const handleSaveStage = async (stageToSave: 'QC' | 'TEST') => {
     if (!scannedItem) {
       showToast('Please scan a garment QR first.', 'warning');
       return;
@@ -222,15 +263,18 @@ export const QCTestPage: React.FC = () => {
       showToast('Cannot save result for invalid item.', 'error');
       return;
     }
-    if (scannedItem.status === 'DUPLICATE') {
-      showToast('Item is already QC Passed (Duplicate Scan).', 'warning');
+    if (stageStatus?.isFullyCompleted) {
+      showToast('Item is already fully completed.', 'warning');
       return;
     }
-    if (isSaving) return;
+    if (savingStage) return;
 
-    setIsSaving(true);
-    const key = `qc-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
+    setSavingStage(stageToSave);
+    const key = `qc-${stageToSave.toLowerCase()}-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
     let saveRes: any = null;
+
+    const resultVal = stageToSave === 'QC' ? qcResult : testResult;
+    const reasonVal = stageToSave === 'QC' ? qcFailureReason : testFailureReason;
 
     try {
       const payload: any = {
@@ -238,15 +282,13 @@ export const QCTestPage: React.FC = () => {
         itemQr: scannedItem.qr,
         productionOrderId: po?.dbId || po?.id,
         productionOrderNumber: po?.id || 'PO-2026-0184',
-        failureReason: (qcResult === 'FAIL' || testResult === 'FAIL') ? failureReason : undefined,
+        stage: stageToSave,
+        failureReason: resultVal === 'FAIL' ? reasonVal : undefined,
       };
 
-      if (qcMode === 'QC Only') {
+      if (stageToSave === 'QC') {
         payload.qcResult = qcResult;
-      } else if (qcMode === 'Test Only') {
-        payload.testResult = testResult;
       } else {
-        payload.qcResult = qcResult;
         payload.testResult = testResult;
       }
 
@@ -256,14 +298,15 @@ export const QCTestPage: React.FC = () => {
       });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
+      if (err?.error === 'UNAUTHORIZED_STAGE') {
+        showToast(`⛔ ${errMsg}`, 'error');
+      } else if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
         const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
         showToast(`Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`, 'error');
-        setIsSaving(false);
-        return;
+      } else {
+        showToast(`Save failed: ${errMsg}`, 'error');
       }
-      showToast(`Save failed: ${errMsg}`, 'error');
-      setIsSaving(false);
+      setSavingStage(null);
       return;
     }
 
@@ -281,27 +324,45 @@ export const QCTestPage: React.FC = () => {
     }
     await fetchProgress();
 
-    const isPass = (qcMode === 'QC Only' ? qcResult === 'PASS' : qcMode === 'Test Only' ? testResult === 'PASS' : (qcResult === 'PASS' && testResult === 'PASS'));
+    const newStageStatus: StageStatus = saveRes?.stageStatus || {
+      qcCompleted: stageToSave === 'QC' ? resultVal === 'PASS' : (stageStatus?.qcCompleted || false),
+      testCompleted: stageToSave === 'TEST' ? resultVal === 'PASS' : (stageStatus?.testCompleted || false),
+      qcResult: stageToSave === 'QC' ? resultVal : (stageStatus?.qcResult || 'PENDING'),
+      testResult: stageToSave === 'TEST' ? resultVal : (stageStatus?.testResult || 'PENDING'),
+      isFullyCompleted: false,
+    };
 
-    if (isPass) {
-      incrementQCPassed();
-      const retryText = saveRes?.retryCount > 0 ? ` (Passed on retry #${saveRes.retryCount})` : '';
-      showToast(`✅ ${qcMode} PASSED for ${scannedItem.qr}${retryText}!`, 'success');
+    const isFullyCompleteNow = (qcMode === 'QC Only' && newStageStatus.qcCompleted) ||
+      (qcMode === 'Test Only' && newStageStatus.testCompleted) ||
+      (newStageStatus.qcCompleted && newStageStatus.testCompleted);
+
+    newStageStatus.isFullyCompleted = isFullyCompleteNow;
+    setStageStatus(newStageStatus);
+
+    if (resultVal === 'PASS') {
+      showToast(`✅ ${stageToSave} stage PASSED for ${scannedItem.qr}!`, 'success');
     } else {
-      const attemptText = saveRes?.totalFails ? ` (Failed ${saveRes.totalFails} time(s))` : '';
-      showToast(`❌ Failure recorded for ${scannedItem.qr}${attemptText}`, 'warning');
+      showToast(`❌ ${stageToSave} stage FAILED for ${scannedItem.qr}`, 'warning');
     }
 
-    setSaved(true);
-    setIsSaving(false);
-    setTimeout(() => {
-      setScannedItem(null);
-      setQcResult('PASS');
-      setTestResult('PASS');
-      setFailureReason('');
-      setHistoryData(null);
-      setSaved(false);
-    }, 1200);
+    setSavingStage(null);
+    setSavedStage(stageToSave);
+
+    if (isFullyCompleteNow) {
+      incrementQCPassed();
+      setSavedStage('ALL');
+      showToast(`🎉 ALL STAGES (${qcMode}) COMPLETED for ${scannedItem.qr}!`, 'success');
+      setTimeout(() => {
+        setScannedItem(null);
+        setStageStatus(null);
+        setQcResult('PASS');
+        setTestResult('PASS');
+        setQcFailureReason('');
+        setTestFailureReason('');
+        setHistoryData(null);
+        setSavedStage(null);
+      }, 1500);
+    }
   };
 
   if (!po || showPoSelector) {
@@ -333,7 +394,7 @@ export const QCTestPage: React.FC = () => {
                 QC Inspection • {formatPoDisplayName(po)}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                Configured QC Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
+                Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
               </span>
             </div>
           </div>
@@ -411,7 +472,7 @@ export const QCTestPage: React.FC = () => {
             {isQCComplete && (
               <div style={{ padding: '10px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>
                 <span style={{ fontSize: '13px', fontWeight: 800, color: '#10B981' }}>
-                  ✅ QC complete — {qcPassedQty}/{targetPoQty} passed
+                  ✅ Inspection Complete — {qcPassedQty}/{targetPoQty} passed
                 </span>
               </div>
             )}
@@ -463,7 +524,7 @@ export const QCTestPage: React.FC = () => {
                 <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
                   <span style={styles.detailLabel}>Validation</span>
                   {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid — In Range" variant="green" />}
-                  {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Duplicate" variant="amber" />}
+                  {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Fully Completed" variant="amber" />}
                   {scannedItem.status === 'INVALID' && <StatusPill label="❌ Out of Range" variant="red" />}
                 </div>
 
@@ -485,88 +546,146 @@ export const QCTestPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Mode-specific Result Controls */}
+              {/* OVERALL STAGE STATUS BANNER IF FULLY COMPLETED */}
+              {stageStatus?.isFullyCompleted && (
+                <div style={{ padding: '12px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '12px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <CheckCircle2 size={18} /> Overall: {qcMode} COMPLETED
+                  </span>
+                </div>
+              )}
+
+              {/* INDEPENDENT QC STAGE SECTION */}
               {(qcMode === 'QC & Test' || qcMode === 'QC Only') && (
-                <div>
-                  <span style={styles.controlLabel}>QC Result</span>
-                  <div style={styles.segmentRow}>
-                    <button
-                      type="button"
-                      style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                      onClick={() => setQcResult('PASS')}
-                    >
-                      <Check size={18} /> PASS
-                    </button>
-                    <button
-                      type="button"
-                      style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                      onClick={() => setQcResult('FAIL')}
-                    >
-                      <XCircle size={18} /> FAIL
-                    </button>
+                <div style={styles.stageCard}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={styles.controlLabel}>
+                      <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> QC Result
+                    </span>
+                    {stageStatus?.qcCompleted && (
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <CheckCircle2 size={14} /> ✓ PASS Completed
+                      </span>
+                    )}
                   </div>
+
+                  {stageStatus?.qcCompleted ? (
+                    <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
+                      QC Stage Completed {stageStatus.qcOperatorName ? `by ${stageStatus.qcOperatorName}` : ''}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={styles.segmentRow}>
+                        <button
+                          type="button"
+                          style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                          onClick={() => setQcResult('PASS')}
+                        >
+                          <Check size={18} /> PASS
+                        </button>
+                        <button
+                          type="button"
+                          style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                          onClick={() => setQcResult('FAIL')}
+                        >
+                          <XCircle size={18} /> FAIL
+                        </button>
+                      </div>
+
+                      {qcResult === 'FAIL' && (
+                        <div style={{ marginTop: '8px' }}>
+                          <input
+                            type="text"
+                            value={qcFailureReason}
+                            onChange={(e) => setQcFailureReason(e.target.value)}
+                            placeholder="QC Failure Reason (e.g. Stitching error, fabric defect)..."
+                            style={styles.textInput}
+                          />
+                        </div>
+                      )}
+
+                      <button
+                        className="btn-primary"
+                        onClick={() => handleSaveStage('QC')}
+                        disabled={savingStage !== null}
+                        style={{
+                          marginTop: '10px',
+                          width: '100%',
+                          background: savedStage === 'QC' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                        }}
+                      >
+                        {savingStage === 'QC' ? 'Saving QC...' : savedStage === 'QC' ? '✅ QC Saved!' : 'Save QC Result'}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
+              {/* INDEPENDENT TEST STAGE SECTION */}
               {(qcMode === 'QC & Test' || qcMode === 'Test Only') && (
-                <div>
-                  <span style={styles.controlLabel}>Test Result</span>
-                  <div style={styles.segmentRow}>
-                    <button
-                      type="button"
-                      style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                      onClick={() => setTestResult('PASS')}
-                    >
-                      <Check size={18} /> PASS
-                    </button>
-                    <button
-                      type="button"
-                      style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                      onClick={() => setTestResult('FAIL')}
-                    >
-                      <XCircle size={18} /> FAIL
-                    </button>
+                <div style={styles.stageCard}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={styles.controlLabel}>
+                      <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Test Result
+                    </span>
+                    {stageStatus?.testCompleted && (
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <CheckCircle2 size={14} /> ✓ PASS Completed
+                      </span>
+                    )}
                   </div>
+
+                  {stageStatus?.testCompleted ? (
+                    <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
+                      Test Stage Completed {stageStatus.testOperatorName ? `by ${stageStatus.testOperatorName}` : ''}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={styles.segmentRow}>
+                        <button
+                          type="button"
+                          style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                          onClick={() => setTestResult('PASS')}
+                        >
+                          <Check size={18} /> PASS
+                        </button>
+                        <button
+                          type="button"
+                          style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                          onClick={() => setTestResult('FAIL')}
+                        >
+                          <XCircle size={18} /> FAIL
+                        </button>
+                      </div>
+
+                      {testResult === 'FAIL' && (
+                        <div style={{ marginTop: '8px' }}>
+                          <input
+                            type="text"
+                            value={testFailureReason}
+                            onChange={(e) => setTestFailureReason(e.target.value)}
+                            placeholder="Test Failure Reason (e.g. Wash test fail, measurement out of spec)..."
+                            style={styles.textInput}
+                          />
+                        </div>
+                      )}
+
+                      <button
+                        className="btn-primary"
+                        onClick={() => handleSaveStage('TEST')}
+                        disabled={savingStage !== null}
+                        style={{
+                          marginTop: '10px',
+                          width: '100%',
+                          background: savedStage === 'TEST' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                        }}
+                      >
+                        {savingStage === 'TEST' ? 'Saving Test...' : savedStage === 'TEST' ? '✅ Test Saved!' : 'Save Test Result'}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
-
-              {((qcMode !== 'Test Only' && qcResult === 'FAIL') || (qcMode !== 'QC Only' && testResult === 'FAIL')) && (
-                <div>
-                  <span style={styles.controlLabel}>Failure Reason (Optional)</span>
-                  <input
-                    type="text"
-                    value={failureReason}
-                    onChange={(e) => setFailureReason(e.target.value)}
-                    placeholder="e.g. Stitching error, fabric tear, out of spec..."
-                    style={{
-                      width: '100%',
-                      padding: '10px 14px',
-                      borderRadius: '10px',
-                      backgroundColor: 'var(--bg-surface-2)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-primary)',
-                      fontSize: '13px'
-                    }}
-                  />
-                </div>
-              )}
-
-              <button
-                className="btn-primary"
-                onClick={handleSave}
-                disabled={saved || isSaving}
-                style={{
-                  marginTop: '8px',
-                  background: saved
-                    ? 'var(--color-green)'
-                    : scannedItem.status === 'INVALID'
-                    ? 'var(--color-red)'
-                    : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-                  opacity: saved ? 0.7 : 1,
-                }}
-              >
-                {saved ? '✅ Saved!' : `Save ${qcMode} Result`}
-              </button>
             </>
           )}
         </div>
@@ -605,12 +724,13 @@ export const QCTestPage: React.FC = () => {
 
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              QC INSTRUCTIONS
+              QC & TEST INSTRUCTIONS
             </span>
             <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               <li>Scan the product QR code barcode.</li>
               <li>Perform required inspection according to selected mode ({qcMode}).</li>
-              <li>Record PASS/FAIL result and save to production database.</li>
+              <li>Save QC and/or Test results independently.</li>
+              <li>Multi-stage mode allows scanning the same QR to complete pending stages.</li>
             </ul>
           </div>
         </div>
@@ -636,6 +756,12 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     textAlign: 'center',
   },
+  stageCard: {
+    backgroundColor: 'var(--bg-surface-1)',
+    border: '1px solid var(--border-color)',
+    borderRadius: '14px',
+    padding: '14px',
+  },
   cardHeaderTitle: {
     fontSize: '11px',
     fontWeight: 700,
@@ -658,7 +784,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: 'var(--text-secondary)',
     marginBottom: '6px',
-    display: 'block',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  textInput: {
+    width: '100%',
+    padding: '10px 14px',
+    borderRadius: '10px',
+    backgroundColor: 'var(--bg-surface-2)',
+    border: '1px solid var(--border-color)',
+    color: 'var(--text-primary)',
+    fontSize: '13px'
   },
   segmentRow: { display: 'flex', gap: '10px' },
   segmentBtn: {

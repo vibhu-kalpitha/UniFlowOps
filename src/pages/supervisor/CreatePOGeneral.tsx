@@ -501,7 +501,7 @@ export const CreatePOGeneral: React.FC = () => {
 
                   {op === 'QC Test' && isChecked && (
                     <div style={{ marginLeft: '12px', padding: '12px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                      <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>QC Test Mode</label>
+                      <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>Mode</label>
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                         Specify whether operator must perform both QC &amp; Test, QC Only, or Test Only.
                       </p>
