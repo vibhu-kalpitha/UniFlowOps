@@ -161,10 +161,18 @@ const AppRoutes: React.FC = () => {
           }
         />
         <Route
+          path="/operator/aql"
+          element={
+            <RoleRouteGuard allowedRoles="operator">
+              <AQLBoxScanPage isFinalAql={false} />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
           path="/operator/aql/box"
           element={
             <RoleRouteGuard allowedRoles="operator">
-              <AQLBoxScanPage />
+              <AQLBoxScanPage isFinalAql={false} />
             </RoleRouteGuard>
           }
         />
@@ -172,7 +180,7 @@ const AppRoutes: React.FC = () => {
           path="/operator/aql/samples"
           element={
             <RoleRouteGuard allowedRoles="operator">
-              <AQLSamplesPage />
+              <AQLSamplesPage isFinalAql={false} />
             </RoleRouteGuard>
           }
         />
@@ -180,7 +188,41 @@ const AppRoutes: React.FC = () => {
           path="/operator/aql/result"
           element={
             <RoleRouteGuard allowedRoles="operator">
-              <AQLResultPage />
+              <AQLResultPage isFinalAql={false} />
+            </RoleRouteGuard>
+          }
+        />
+
+        {/* Final AQL Routes */}
+        <Route
+          path="/operator/final-aql"
+          element={
+            <RoleRouteGuard allowedRoles="operator">
+              <AQLBoxScanPage isFinalAql={true} />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/operator/final-aql/box"
+          element={
+            <RoleRouteGuard allowedRoles="operator">
+              <AQLBoxScanPage isFinalAql={true} />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/operator/final-aql/samples"
+          element={
+            <RoleRouteGuard allowedRoles="operator">
+              <AQLSamplesPage isFinalAql={true} />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/operator/final-aql/result"
+          element={
+            <RoleRouteGuard allowedRoles="operator">
+              <AQLResultPage isFinalAql={true} />
             </RoleRouteGuard>
           }
         />

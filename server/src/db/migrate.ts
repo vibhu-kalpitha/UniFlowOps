@@ -453,6 +453,18 @@ async function runStartupColumnChecks(): Promise<void> {
       }
     } catch (e: any) { console.warn('  ⚠️ qc_results columns:', e.message); }
 
+    // ── aql_inspections columns for Final AQL stage separation ────────
+    try {
+      if (await tableExists('aql_inspections')) {
+        if (!(await columnExists('aql_inspections', 'stage'))) {
+          try {
+            await db.exec(`ALTER TABLE aql_inspections ADD COLUMN stage VARCHAR(50) NOT NULL DEFAULT 'AQL' AFTER box_id`);
+            console.log('  ✅ Added aql_inspections.stage');
+          } catch (_) {}
+        }
+      }
+    } catch (e: any) { console.warn('  ⚠️ aql_inspections stage column:', e.message); }
+
     // ── item_units table unique constraint alignment ─────────────────
     try {
       if (await tableExists('item_units')) {

@@ -906,7 +906,123 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(scansRouteCode).toContain('isFullyCompleted');
     expect(scansRouteCode).toContain('stageStatus');
   });
+
+  it('16. Final AQL, Partial Box Inspection, Resume & Stage Independence Validation', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const poGeneralCode = fs.readFileSync(
+      path.join(__dirname, '../src/pages/supervisor/CreatePOGeneral.tsx'),
+      'utf-8'
+    );
+    const scansRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/scans.ts'),
+      'utf-8'
+    );
+    const operatorsRouteCode = fs.readFileSync(
+      path.join(__dirname, '../server/src/routes/operators.ts'),
+      'utf-8'
+    );
+
+    // 1. PO Creation page contains FINAL AQL
+    expect(poGeneralCode).toContain('FINAL AQL');
+
+    // 2. Operator matching logic distinguishes FINAL_AQL from normal AQL
+    expect(operatorsRouteCode).toContain("t.includes('FINAL')");
+
+    // 3. Backend scan route parses AQL stage ('FINAL_AQL' vs 'AQL') and checks stage allocation
+    expect(scansRouteCode).toContain("FINAL_AQL");
+    expect(scansRouteCode).toContain("isFinalAql");
+    expect(scansRouteCode).toContain("checkOperatorAllocationForPO");
+
+    // 4. DB integration test for stage separation and partial inspection if DB is connected
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const timestamp = Date.now();
+      const poId = `po-faql-${timestamp}`;
+      const boxId = `box-faql-${timestamp}`;
+      const item1Id = `itm-faql-1-${timestamp}`;
+      const item2Id = `itm-faql-2-${timestamp}`;
+
+      try {
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, status, created_at, updated_at) VALUES (?, ?, 'CURRENT', NOW(3), NOW(3))`,
+          [poId, `PO-FAQL-${timestamp}`]
+        );
+        await db.execute(
+          `INSERT INTO boxes (id, box_number, production_order_id, status, capacity, created_at, updated_at) VALUES (?, ?, ?, 'SEALED', 12, NOW(3), NOW(3))`,
+          [boxId, `BX-FAQL-${timestamp}`, poId]
+        );
+        await db.execute(
+          `INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'QC_PASSED', NOW(3), NOW(3))`,
+          [item1Id, `QR-FAQL-1-${timestamp}`, poId]
+        );
+        await db.execute(
+          `INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'QC_PASSED', NOW(3), NOW(3))`,
+          [item2Id, `QR-FAQL-2-${timestamp}`, poId]
+        );
+        await db.execute(
+          `INSERT INTO box_items (id, box_id, item_unit_id, active, created_at) VALUES (?, ?, ?, 1, NOW(3))`,
+          [`bi-1-${timestamp}`, boxId, item1Id]
+        );
+        await db.execute(
+          `INSERT INTO box_items (id, box_id, item_unit_id, active, created_at) VALUES (?, ?, ?, 1, NOW(3))`,
+          [`bi-2-${timestamp}`, boxId, item2Id]
+        );
+
+        // Create Normal AQL Inspection (partial 1 item)
+        const aql1Id = `aql-n-${timestamp}`;
+        await db.execute(
+          `INSERT INTO aql_inspections (id, production_order_id, box_id, stage, overall_result, sample_required, sample_inspected, pass_count, fail_count, created_at, updated_at)
+           VALUES (?, ?, ?, 'AQL', 'IN_PROGRESS', 12, 1, 1, 0, NOW(3), NOW(3))`,
+          [aql1Id, poId, boxId]
+        );
+        await db.execute(
+          `INSERT INTO aql_samples (id, inspection_id, sample_index, item_unit_id, result, scanned_at)
+           VALUES (?, ?, 1, ?, 'PASS', NOW(3))`,
+          [`s-n1-${timestamp}`, aql1Id, item1Id]
+        );
+
+        // Create Final AQL Inspection for SAME box (separate stage, independent samples)
+        const faql1Id = `aql-f-${timestamp}`;
+        await db.execute(
+          `INSERT INTO aql_inspections (id, production_order_id, box_id, stage, overall_result, sample_required, sample_inspected, pass_count, fail_count, created_at, updated_at)
+           VALUES (?, ?, ?, 'FINAL_AQL', 'IN_PROGRESS', 12, 1, 1, 0, NOW(3), NOW(3))`,
+          [faql1Id, poId, boxId]
+        );
+        await db.execute(
+          `INSERT INTO aql_samples (id, inspection_id, sample_index, item_unit_id, result, scanned_at)
+           VALUES (?, ?, 1, ?, 'PASS', NOW(3))`,
+          [`s-f1-${timestamp}`, faql1Id, item2Id]
+        );
+
+        // Query & Verify Stage Separation
+        const normalInspection = await db.queryOne<any>(`SELECT * FROM aql_inspections WHERE id = ?`, [aql1Id]);
+        const finalInspection = await db.queryOne<any>(`SELECT * FROM aql_inspections WHERE id = ?`, [faql1Id]);
+
+        expect(normalInspection?.stage).toBe('AQL');
+        expect(finalInspection?.stage).toBe('FINAL_AQL');
+        expect(normalInspection?.id).not.toBe(finalInspection?.id);
+
+        const normalSamples = await db.query<any>(`SELECT * FROM aql_samples WHERE inspection_id = ?`, [aql1Id]);
+        const finalSamples = await db.query<any>(`SELECT * FROM aql_samples WHERE inspection_id = ?`, [faql1Id]);
+
+        expect(normalSamples.length).toBe(1);
+        expect(finalSamples.length).toBe(1);
+        expect(normalSamples[0].item_unit_id).toBe(item1Id);
+        expect(finalSamples[0].item_unit_id).toBe(item2Id);
+      } finally {
+        await db.execute(`DELETE FROM aql_samples WHERE id IN (?, ?)`, [`s-n1-${timestamp}`, `s-f1-${timestamp}`]);
+        await db.execute(`DELETE FROM aql_inspections WHERE id IN (?, ?)`, [`aql-n-${timestamp}`, `aql-f-${timestamp}`]);
+        await db.execute(`DELETE FROM box_items WHERE box_id = ?`, [boxId]);
+        await db.execute(`DELETE FROM item_units WHERE id IN (?, ?)`, [item1Id, item2Id]);
+        await db.execute(`DELETE FROM boxes WHERE id = ?`, [boxId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  }, 20000);
 });
+
 
 
 

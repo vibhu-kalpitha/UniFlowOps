@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { ProductionOrder, SalesOrder } from '../../types';
+import { ProductionOrder, SalesOrder, OperationType } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
@@ -14,7 +14,7 @@ export const OperatorHome: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession, scannerConnected, setScannerConnected, showToast } = useApp();
 
-  const [pendingOperation, setPendingOperation] = useState<{ name: string; route: string } | null>(null);
+  const [pendingOperation, setPendingOperation] = useState<{ name: OperationType | string; route: string } | null>(null);
   const [selectedPoForModal, setSelectedPoForModal] = useState<ProductionOrder | null>(null);
 
   const [fetchedPoDetails, setFetchedPoDetails] = useState<any>(null);
@@ -81,9 +81,9 @@ export const OperatorHome: React.FC = () => {
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
-  const selectedOps = po?.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
+  const selectedOps = po?.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'FINAL AQL', 'Box Transfer'];
 
-  const handleOpClick = (opName: string, route: string) => {
+  const handleOpClick = (opName: OperationType | string, route: string) => {
     if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') {
       navigate(route);
       return;
@@ -430,7 +430,7 @@ export const OperatorHome: React.FC = () => {
               )}
 
               {/* AQL Checker */}
-              {selectedOps.includes('AQL Checker') && (
+              {(selectedOps.includes('AQL Checker') || selectedOps.includes('AQL')) && (
                 <button
                   className="op-card-interactive"
                   style={styles.opTilePurple}
@@ -442,7 +442,26 @@ export const OperatorHome: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>AQL Checker</span>
                     <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Perform AQL sample audits on sealed boxes
+                      Perform Normal AQL sample audits on sealed boxes
+                    </span>
+                  </div>
+                </button>
+              )}
+
+              {/* FINAL AQL */}
+              {(selectedOps.includes('FINAL AQL') || selectedOps.includes('FINAL_AQL') || selectedOps.includes('Final AQL')) && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileTeal}
+                  onClick={() => handleOpClick('FINAL AQL', '/operator/final-aql/box')}
+                >
+                  <div style={styles.opIconTeal}>
+                    <Search size={26} color="var(--primary-teal)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>FINAL AQL</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Perform Final AQL inspection on packed boxes
                     </span>
                   </div>
                 </button>

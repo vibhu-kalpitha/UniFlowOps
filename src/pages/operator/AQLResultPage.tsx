@@ -7,24 +7,31 @@ import { CheckCircle2, AlertTriangle, ArrowRight, ShieldAlert, ShieldCheck } fro
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
-export const AQLResultPage: React.FC = () => {
+interface AQLResultPageProps {
+  isFinalAql?: boolean;
+}
+
+export const AQLResultPage: React.FC<AQLResultPageProps> = ({ isFinalAql = false }) => {
   const navigate = useNavigate();
   const { aqlSession, saveAQLSession, showToast } = useApp();
 
   React.useEffect(() => {
     if (!aqlSession) {
-      navigate('/operator/aql');
+      navigate(isFinalAql ? '/operator/final-aql/box' : '/operator/aql/box');
     }
-  }, [aqlSession, navigate]);
+  }, [aqlSession, navigate, isFinalAql]);
 
   if (!aqlSession) {
     return null;
   }
 
   const session = aqlSession;
+  const isFinal = isFinalAql || session.stage === 'FINAL_AQL';
+  const stageTitle = isFinal ? 'FINAL AQL' : 'AQL';
 
+  const isInProgress = session.overallResult === 'IN_PROGRESS';
   const hasFailedSample = session.samples.some(s => s.result === 'FAIL');
-  const isPassed = session.overallResult === 'PASSED' && !hasFailedSample;
+  const isPassed = !isInProgress && session.overallResult === 'PASSED' && !hasFailedSample;
 
   const totalRequired = session.sampleRequired || session.samples.length || 12;
 
@@ -35,10 +42,10 @@ export const AQLResultPage: React.FC = () => {
     if (isSaving) return;
     setIsSaving(true);
 
-    const finalResult = isPassed ? 'PASSED' : 'FAILED';
+    const finalResult = isInProgress ? 'IN_PROGRESS' : (isPassed ? 'PASSED' : 'FAILED');
     const payload = {
       result: finalResult,
-      failureReason: isPassed ? undefined : defectReason,
+      failureReason: (isPassed || isInProgress) ? undefined : defectReason,
       boxNumber: session.boxNumber || 'BX-000218'
     };
 
@@ -55,16 +62,18 @@ export const AQLResultPage: React.FC = () => {
         });
       }
 
-      if (isPassed) {
-        showToast(`AQL PASSED for Box ${session.boxNumber}. Saved to Database!`, 'success');
+      if (isInProgress) {
+        showToast(`${stageTitle} Session Saved (${session.samples.length}/${totalRequired} Inspected). Saved to Database!`, 'info');
+      } else if (isPassed) {
+        showToast(`${stageTitle} PASSED for Box ${session.boxNumber}. Saved to Database!`, 'success');
       } else {
-        showToast(`AQL FAILED logged for Box ${session.boxNumber} (${defectReason}) in Database!`, 'error');
+        showToast(`${stageTitle} FAILED logged for Box ${session.boxNumber} (${defectReason}) in Database!`, 'error');
       }
       saveAQLSession(null);
       navigate('/operator/home');
     } catch (err: any) {
       setIsSaving(false);
-      showToast(err.message || 'Failed to save AQL result to database. Please retry.', 'error');
+      showToast(err.message || `Failed to save ${stageTitle} result to database. Please retry.`, 'error');
     }
   };
 
@@ -82,8 +91,8 @@ export const AQLResultPage: React.FC = () => {
           <span>Samples ({session.samples.length}/{totalRequired})</span>
         </div>
         <div style={styles.stepDivider} />
-        <div style={isPassed ? styles.stepActiveGreen : styles.stepActiveRed}>
-          <span style={isPassed ? styles.stepNumActiveGreen : styles.stepNumActiveRed}>3</span>
+        <div style={isInProgress ? styles.stepActiveTeal : isPassed ? styles.stepActiveGreen : styles.stepActiveRed}>
+          <span style={isInProgress ? styles.stepNumActiveTeal : isPassed ? styles.stepNumActiveGreen : styles.stepNumActiveRed}>3</span>
           <span>Result</span>
         </div>
       </div>
@@ -92,16 +101,28 @@ export const AQLResultPage: React.FC = () => {
       <ScannerStatus compact={true} style={{ marginBottom: '12px' }} />
 
       {/* Result Hero Banner */}
-      {isPassed ? (
+      {isInProgress ? (
+        <div style={styles.heroInProgress}>
+          <div style={styles.iconCircleInProgress}>
+            <CheckCircle2 size={48} color="var(--primary-teal)" />
+          </div>
+          <h2 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '8px' }}>
+            {stageTitle} PARTIAL SESSION ENDED
+          </h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            Partial inspection saved ({session.samples.length} / {totalRequired} inspected). Remaining items can be inspected later.
+          </p>
+        </div>
+      ) : isPassed ? (
         <div style={styles.heroPassed}>
           <div style={styles.iconCirclePassed}>
             <CheckCircle2 size={48} color="var(--color-green)" />
           </div>
           <h2 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--color-green)', marginTop: '8px' }}>
-            AQL PASSED
+            {stageTitle} PASSED
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Box {session.boxNumber} passed random AQL inspection.
+            Box {session.boxNumber} passed random {stageTitle} inspection.
           </p>
         </div>
       ) : (
@@ -110,7 +131,7 @@ export const AQLResultPage: React.FC = () => {
             <AlertTriangle size={48} color="var(--color-red)" />
           </div>
           <h2 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--color-red)', marginTop: '8px' }}>
-            AQL FAILED
+            {stageTitle} FAILED
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
             Defect found during sample inspection on Box {session.boxNumber}.
@@ -120,7 +141,7 @@ export const AQLResultPage: React.FC = () => {
 
       {/* Summary Card */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)' }}>
-        <span style={styles.cardHeaderTitle}>INSPECTION SUMMARY</span>
+        <span style={styles.cardHeaderTitle}>{stageTitle} INSPECTION SUMMARY</span>
         
         <div style={styles.detailRow}>
           <span style={styles.detailLabel}>Box Number</span>
@@ -129,12 +150,14 @@ export const AQLResultPage: React.FC = () => {
 
         <div style={styles.detailRow}>
           <span style={styles.detailLabel}>Samples Tested</span>
-          <span style={styles.detailValue}>{session.samples.length} / {session.sampleRequired}</span>
+          <span style={styles.detailValue}>{session.samples.length} / {totalRequired}</span>
         </div>
 
         <div style={styles.detailRow}>
           <span style={styles.detailLabel}>Overall Status</span>
-          {isPassed ? (
+          {isInProgress ? (
+            <StatusPill label="In Progress" variant="teal" />
+          ) : isPassed ? (
             <StatusPill label="Passed" variant="green" />
           ) : (
             <StatusPill label="Failed" variant="red" />
@@ -143,7 +166,7 @@ export const AQLResultPage: React.FC = () => {
       </div>
 
       {/* Defect Reason Selector (if failed) */}
-      {!isPassed && (
+      {!isPassed && !isInProgress && (
         <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', borderColor: 'var(--color-red)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
             <ShieldAlert size={20} color="var(--color-red)" />
@@ -202,13 +225,15 @@ export const AQLResultPage: React.FC = () => {
           marginTop: '10px',
           opacity: isSaving ? 0.7 : 1,
           cursor: isSaving ? 'not-allowed' : 'pointer',
-          background: isPassed
+          background: isInProgress
+            ? 'linear-gradient(135deg, var(--primary-teal) 0%, #16B8AE 100%)'
+            : isPassed
             ? 'linear-gradient(135deg, var(--color-green) 0%, #20E094 100%)'
             : 'linear-gradient(135deg, var(--color-red) 0%, #F87171 100%)',
-          color: isPassed ? '#041820' : '#fff'
+          color: (isPassed || isInProgress) ? '#041820' : '#fff'
         }}
       >
-        {isSaving ? 'Saving to Database...' : (isPassed ? 'Complete Inspection & Return Home' : 'Save Failure Log & Return Home')}
+        {isSaving ? 'Saving to Database...' : (isInProgress ? `Save Partial ${stageTitle} & Return Home` : isPassed ? `Complete ${stageTitle} & Return Home` : `Save Failure Log & Return Home`)}
       </button>
     </div>
   );
@@ -239,6 +264,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     fontWeight: 700,
     color: 'var(--color-green)'
+  },
+  stepActiveTeal: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '12px',
+    fontWeight: 700,
+    color: 'var(--primary-teal)'
   },
   stepActiveRed: {
     display: 'flex',
@@ -272,6 +305,18 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center'
   },
+  stepNumActiveTeal: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--primary-teal)',
+    color: '#041820',
+    fontSize: '11px',
+    fontWeight: 800,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   stepNumActiveRed: {
     width: '20px',
     height: '20px',
@@ -288,6 +333,25 @@ const styles: Record<string, React.CSSProperties> = {
     width: '12px',
     height: '1px',
     backgroundColor: 'var(--border-color)'
+  },
+  heroInProgress: {
+    backgroundColor: 'rgba(22, 184, 174, 0.08)',
+    border: '1px solid rgba(22, 184, 174, 0.3)',
+    borderRadius: '20px',
+    padding: '24px 16px',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center'
+  },
+  iconCircleInProgress: {
+    width: '64px',
+    height: '64px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   heroPassed: {
     backgroundColor: 'rgba(24, 184, 121, 0.08)',

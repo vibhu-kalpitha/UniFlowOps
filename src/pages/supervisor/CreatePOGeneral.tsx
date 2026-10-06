@@ -481,7 +481,7 @@ export const CreatePOGeneral: React.FC = () => {
         <div>
           <label style={styles.label}>Required Operations for this PO</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-            {(['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'] as OperationType[]).map(op => {
+            {(['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'FINAL AQL', 'Box Transfer'] as OperationType[]).map(op => {
               const isChecked = selectedOps.includes(op);
               return (
                 <React.Fragment key={op}>

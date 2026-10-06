@@ -10,7 +10,7 @@ export interface User {
   avatarInitials: string;
 }
 
-export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'Box Transfer';
+export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
 
 export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only';
 
@@ -143,7 +143,8 @@ export interface AQLSession {
   currentSampleIndex: number;
   samples: AQLSampleResult[];
   status: 'BOX_SCAN' | 'SAMPLE_SCAN' | 'RESULT';
-  overallResult?: 'PASSED' | 'FAILED';
+  overallResult?: 'PASSED' | 'FAILED' | 'IN_PROGRESS';
+  stage?: 'AQL' | 'FINAL_AQL';
   inspectionId?: string;
   boxItems?: string[];
 }

@@ -4,17 +4,21 @@ import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
-import { CheckCircle2, XCircle, ArrowRight, Check, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, Check, AlertTriangle, ShieldAlert, LogOut } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
-export const AQLSamplesPage: React.FC = () => {
+interface AQLSamplesPageProps {
+  isFinalAql?: boolean;
+}
+
+export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: propIsFinalAql }) => {
   const navigate = useNavigate();
   const { aqlSession, saveAQLSession, showToast, incrementAQLPassed, incrementAQLFailed } = useApp();
 
   useEffect(() => {
     if (!aqlSession) {
-      navigate('/operator/aql');
+      navigate('/operator/aql/box');
     }
   }, [aqlSession, navigate]);
 
@@ -23,13 +27,17 @@ export const AQLSamplesPage: React.FC = () => {
   }
 
   const session: any = aqlSession;
+  const isFinalAql = propIsFinalAql ?? (session.isFinalAql || session.stage === 'FINAL_AQL');
+  const stageTitle = isFinalAql ? 'FINAL AQL' : 'AQL';
+  const stageCode = isFinalAql ? 'FINAL_AQL' : 'AQL';
+
   const boxItemsList: string[] = session.boxItems?.length > 0 ? session.boxItems : [];
   const totalRequiredSamples = boxItemsList.length > 0 ? boxItemsList.length : (session.sampleRequired || 12);
 
-  // Restore previous completed samples
+  // Restore previous completed samples for this session
   const dbPassedSamples = Array.isArray(session.previousPassedSamples)
     ? session.previousPassedSamples.map((ps: any, i: number) => ({
-        sampleIndex: i + 1,
+        sampleIndex: ps.sampleNumber || i + 1,
         itemQr: ps.itemQr,
         size: 'L',
         result: ps.result || 'PASS',
@@ -40,7 +48,7 @@ export const AQLSamplesPage: React.FC = () => {
   const initialCompletedSamples = session.samples?.length > 0 ? session.samples : dbPassedSamples;
   const [completedSamples, setCompletedSamples] = useState<any[]>(initialCompletedSamples);
 
-  // Determine initial active index
+  // Determine initial active index based on completed samples
   const getInitialIndex = () => {
     if (session.currentSampleIndex && session.currentSampleIndex > 1 && session.currentSampleIndex <= totalRequiredSamples) {
       return session.currentSampleIndex;
@@ -49,12 +57,12 @@ export const AQLSamplesPage: React.FC = () => {
     for (let i = 1; i <= totalRequiredSamples; i++) {
       if (!completedIdxs.has(i)) return i;
     }
-    return 1;
+    return totalRequiredSamples > 0 ? totalRequiredSamples : 1;
   };
 
   const [currentIdx, setCurrentIdx] = useState<number>(getInitialIndex());
   
-  // State Machine for current item: 'WAITING' -> 'SCANNED_RESULT_REQUIRED' -> 'PASS_FAIL_RECORDED'
+  // State Machine for current item: 'WAITING' -> 'SCANNED_RESULT_REQUIRED'
   const [itemState, setItemState] = useState<'WAITING' | 'SCANNED_RESULT_REQUIRED'>('WAITING');
   const [scannedQr, setScannedQr] = useState<string>('');
   const [deleteSuccessBanner, setDeleteSuccessBanner] = useState<{ qr: string; boxNumber: string } | null>(null);
@@ -74,21 +82,18 @@ export const AQLSamplesPage: React.FC = () => {
       return { status: 'rejected' as const, message: 'Please enter or scan a sample QR barcode', code };
     }
 
-    // Rule: If current item is in SCANNED_RESULT_REQUIRED, block scanning next item!
     if (itemState === 'SCANNED_RESULT_REQUIRED') {
       const msg = `Please select PASS or FAIL for current item (${scannedQr || expectedQr}) before scanning the next item.`;
       showToast(msg, 'warning');
       return { status: 'rejected' as const, message: msg, code: trimmed };
     }
 
-    // Rule: Scanned QR must match current expected QR sequence
     if (expectedQr && trimmed !== expectedQr) {
       const msg = `Wrong product. Please scan ${expectedQr}.`;
       showToast(msg, 'error');
       return { status: 'rejected' as const, message: msg, code: trimmed };
     }
 
-    // State transition: WAITING -> SCANNED_RESULT_REQUIRED
     setScannedQr(trimmed);
     setItemState('SCANNED_RESULT_REQUIRED');
     showToast(`✅ ${trimmed} scanned. Please select PASS or FAIL below.`, 'info');
@@ -150,8 +155,7 @@ export const AQLSamplesPage: React.FC = () => {
 
       showToast(`✓ Sample ${currentIdx} (${activeQr}) PASSED. Moved to Sample ${nextIdx}.`, 'success');
     } else {
-      // Completed all box samples!
-      await finalizeInspection(updatedSamples);
+      await finalizeInspection(updatedSamples, false);
     }
   };
 
@@ -196,12 +200,11 @@ export const AQLSamplesPage: React.FC = () => {
           return;
         }
 
-        // Re-fetch current box data from backend to ensure active item list is accurate from DB
         let freshActiveQrs: string[] = [];
         try {
           const refreshedBoxRes = await apiFetch('/api/aql/boxes/scan', {
             method: 'POST',
-            body: JSON.stringify({ boxNumber: session.boxNumber })
+            body: JSON.stringify({ boxNumber: session.boxNumber, stage: stageCode })
           });
           if (refreshedBoxRes?.box?.items) {
             freshActiveQrs = refreshedBoxRes.box.items.map((i: any) => i.qr_code);
@@ -231,7 +234,6 @@ export const AQLSamplesPage: React.FC = () => {
           samples: updatedSamples
         });
 
-        // Set visible success banner on page
         const targetBoxNum = res?.boxNumber || session.boxNumber || 'box';
         setDeleteSuccessBanner({
           qr: activeQr,
@@ -246,10 +248,9 @@ export const AQLSamplesPage: React.FC = () => {
           setItemState('WAITING');
           setScannedQr('');
         } else {
-          await finalizeInspection(updatedSamples);
+          await finalizeInspection(updatedSamples, false);
         }
       } else {
-        // REUSE: Record AQL FAIL result, product stays in box for rework
         if (session.inspectionId) {
           await apiFetch(`/api/aql/inspections/${session.inspectionId}/samples`, {
             method: 'POST',
@@ -291,7 +292,7 @@ export const AQLSamplesPage: React.FC = () => {
             samples: updatedSamples
           });
         } else {
-          await finalizeInspection(updatedSamples);
+          await finalizeInspection(updatedSamples, false);
         }
       }
     } catch (err: any) {
@@ -300,14 +301,23 @@ export const AQLSamplesPage: React.FC = () => {
     }
   };
 
-  // ── Finalize Inspection when all items processed ────────────────────────
-  const finalizeInspection = async (finalSamples: any[]) => {
+  // ── Finalize / Save Session (Supports Full or Partial Inspection) ─────────
+  const finalizeInspection = async (finalSamples: any[], isExplicitFinish: boolean = false) => {
     const hasAnyFail = finalSamples.some(s => s.result === 'FAIL');
-    const finalResult: 'PASSED' | 'FAILED' = hasAnyFail ? 'FAILED' : 'PASSED';
+    const isAllInspected = finalSamples.length >= totalRequiredSamples;
+
+    let finalResult: 'PASSED' | 'FAILED' | 'IN_PROGRESS' = 'IN_PROGRESS';
+    if (hasAnyFail) {
+      finalResult = 'FAILED';
+    } else if (isAllInspected) {
+      finalResult = 'PASSED';
+    } else {
+      finalResult = 'IN_PROGRESS';
+    }
 
     if (finalResult === 'PASSED') {
       incrementAQLPassed();
-    } else {
+    } else if (finalResult === 'FAILED') {
       incrementAQLFailed();
     }
 
@@ -315,7 +325,8 @@ export const AQLSamplesPage: React.FC = () => {
       const payload = {
         result: finalResult,
         boxNumber: session.boxNumber,
-        samples: finalSamples
+        samples: finalSamples,
+        stage: stageCode
       };
       if (session.inspectionId) {
         await apiFetch(`/api/aql/inspections/${session.inspectionId}/complete`, {
@@ -327,6 +338,8 @@ export const AQLSamplesPage: React.FC = () => {
       console.error('Failed to post AQL complete:', err);
     }
 
+    const resultRoute = isFinalAql ? '/operator/final-aql/result' : '/operator/aql/result';
+
     const finalSession = {
       ...session,
       samples: finalSamples,
@@ -335,14 +348,26 @@ export const AQLSamplesPage: React.FC = () => {
     };
 
     saveAQLSession(finalSession);
-    showToast(`All box items inspected! AQL Result: ${finalResult}`, 'success');
-    navigate('/operator/aql/result');
+    const statusMsg = finalResult === 'IN_PROGRESS'
+      ? `${stageTitle} Session Saved: ${finalSamples.length}/${totalRequiredSamples} items inspected.`
+      : `${stageTitle} Inspection Complete: ${finalResult}`;
+    showToast(statusMsg, 'success');
+    navigate(resultRoute);
+  };
+
+  const handleFinishEarly = async () => {
+    if (completedSamples.length === 0) {
+      showToast(`Please inspect at least 1 item before finishing the ${stageTitle} session.`, 'warning');
+      return;
+    }
+    await finalizeInspection(completedSamples, true);
   };
 
   // Accurate AQL Counts
   const passCount = completedSamples.filter(s => s.result === 'PASS').length;
   const failCount = completedSamples.filter(s => s.result === 'FAIL').length;
   const inspectedCount = completedSamples.length;
+  const remainingCount = Math.max(0, totalRequiredSamples - inspectedCount);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -355,7 +380,7 @@ export const AQLSamplesPage: React.FC = () => {
         <div style={styles.stepDivider} />
         <div style={styles.stepActive}>
           <span style={styles.stepNumActive}>2</span>
-          <span>Item Inspection ({currentIdx}/{totalRequiredSamples})</span>
+          <span>{stageTitle} ({inspectedCount}/{totalRequiredSamples})</span>
         </div>
         <div style={styles.stepDivider} />
         <div style={styles.stepInactive}>
@@ -388,9 +413,6 @@ export const AQLSamplesPage: React.FC = () => {
               <h4 style={{ margin: '2px 0 0 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
                 {deleteSuccessBanner.qr} has been permanently removed from {deleteSuccessBanner.boxNumber}.
               </h4>
-              <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                The product has been removed from the active box contents and recorded in the permanent removal history.
-              </p>
             </div>
           </div>
           <button
@@ -402,101 +424,32 @@ export const AQLSamplesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Box Header Banner */}
-      <div style={styles.banner}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>INSPECTING BOX CONTENTS</span>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-purple)' }}>
-              {session.boxNumber}
-            </h3>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.15)', padding: '4px 10px', borderRadius: '8px' }}>
-              PASS: {passCount}
-            </span>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: '#EF4444', backgroundColor: 'rgba(239, 68, 68, 0.15)', padding: '4px 10px', borderRadius: '8px' }}>
-              FAIL: {failCount}
-            </span>
-          </div>
+      {/* Live Metrics Header Bar */}
+      <div className="card" style={{ padding: '14px', backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', textAlign: 'center' }}>
+        <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px', borderRadius: '10px' }}>
+          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>Total Items</span>
+          <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>{totalRequiredSamples}</span>
         </div>
-
-        {/* Packed Items Preview & State Tracker */}
-        <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed var(--border-color)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Box Items Sequence ({inspectedCount}/{totalRequiredSamples} inspected):
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {boxItemsList.map((qr: string, idx: number) => {
-              const itemNum = idx + 1;
-              const sampled = completedSamples.find((s: any) => s.sampleIndex === itemNum || s.itemQr === qr);
-              const isCurrent = currentIdx === itemNum;
-              
-              let bg = 'var(--bg-surface-2)';
-              let border = '1px solid var(--border-color)';
-              let color = 'var(--text-secondary)';
-              let label = `${itemNum}. ${qr}`;
-              let badge = 'LOCKED';
-
-              if (sampled) {
-                if (sampled.result === 'PASS') {
-                  bg = 'rgba(16, 185, 129, 0.15)';
-                  border = '1px solid #10B981';
-                  color = '#10B981';
-                  badge = '✓ PASS';
-                } else {
-                  bg = 'rgba(239, 68, 68, 0.15)';
-                  border = '1px solid #EF4444';
-                  color = '#EF4444';
-                  badge = sampled.actionType === 'PERMANENTLY_REMOVE' ? '🗑️ SCRAPPED' : '✗ FAIL (REWORK)';
-                }
-              } else if (isCurrent) {
-                if (itemState === 'SCANNED_RESULT_REQUIRED') {
-                  bg = 'rgba(245, 158, 11, 0.2)';
-                  border = '2px solid #F59E0B';
-                  color = '#F59E0B';
-                  badge = '● RESULT REQUIRED';
-                } else {
-                  bg = 'rgba(139, 92, 246, 0.2)';
-                  border = '2px solid var(--color-purple)';
-                  color = 'var(--color-purple)';
-                  badge = '⏳ WAITING SCAN';
-                }
-              }
-
-              return (
-                <div
-                  key={qr}
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '6px 10px',
-                    borderRadius: '8px',
-                    backgroundColor: bg,
-                    color,
-                    border,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <span>{label}</span>
-                  <span style={{ fontSize: '10px', opacity: 0.85 }}>[{badge}]</span>
-                </div>
-              );
-            })}
-          </div>
+        <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px', borderRadius: '10px' }}>
+          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>Inspected</span>
+          <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)' }}>{inspectedCount}</span>
+        </div>
+        <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px', borderRadius: '10px' }}>
+          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>Pass Count</span>
+          <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{passCount}</span>
+        </div>
+        <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px', borderRadius: '10px' }}>
+          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>Fail Count</span>
+          <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{failCount}</span>
         </div>
       </div>
 
-      {/* Progress & Current Item Card */}
-      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+      {/* Main Inspection Card */}
+      <div className="card" style={{ padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-purple)', letterSpacing: '0.05em' }}>
-              STEP SEQUENCE: WAITING → SCANNED → RESULT REQUIRED → PASS/FAIL
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.08em' }}>
+              {stageTitle} • BOX {session.boxNumber}
             </span>
             <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
               Active Item #{currentIdx}: {expectedQr}
@@ -517,7 +470,7 @@ export const AQLSamplesPage: React.FC = () => {
               ⚠️ Barcode {scannedQr} Scanned — Mandatory Result Selection
             </span>
             <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
-              Please select <strong>PASS</strong> or <strong>FAIL</strong> below before scanning the next item. Scanning next product is currently blocked.
+              Please select <strong>PASS</strong> or <strong>FAIL</strong> below before scanning the next item.
             </p>
           </div>
         ) : (
@@ -584,9 +537,37 @@ export const AQLSamplesPage: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Explicit Finish Session Control */}
+        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Inspected: <strong>{inspectedCount} / {totalRequiredSamples}</strong> ({remainingCount} remaining)
+          </span>
+          <button
+            type="button"
+            onClick={handleFinishEarly}
+            disabled={inspectedCount === 0}
+            style={{
+              padding: '10px 18px',
+              fontSize: '13px',
+              fontWeight: 800,
+              backgroundColor: inspectedCount > 0 ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-2)',
+              border: '1.5px solid var(--primary-teal)',
+              color: 'var(--primary-teal)',
+              borderRadius: '12px',
+              cursor: inspectedCount > 0 ? 'pointer' : 'not-allowed',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              opacity: inspectedCount > 0 ? 1 : 0.6
+            }}
+          >
+            <CheckCircle2 size={16} /> Finish {stageTitle}
+          </button>
+        </div>
       </div>
 
-      {/* ── Defect Action Modal (REUSE vs PERMANENTLY DELETE) ────────── */}
+      {/* ── Defect Action Modal ──────────────────────────────────────── */}
       {showFailModal && (
         <div style={{
           position: 'fixed',
@@ -615,7 +596,7 @@ export const AQLSamplesPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                 <ShieldAlert size={24} color="#EF4444" />
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  AQL Defect Action Required
+                  {stageTitle} Defect Action Required
                 </h3>
               </div>
               <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -623,9 +604,7 @@ export const AQLSamplesPage: React.FC = () => {
               </p>
             </div>
 
-            {/* Action Options */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {/* Option 1: REUSE */}
               <div
                 onClick={() => setFailAction('REUSED')}
                 style={{
@@ -641,16 +620,12 @@ export const AQLSamplesPage: React.FC = () => {
                   <span style={{ fontSize: '14px', fontWeight: 800, color: failAction === 'REUSED' ? '#A78BFA' : 'var(--text-primary)' }}>
                     🔄 REUSE (Send to Rework)
                   </span>
-                  <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.2)', color: '#A78BFA', fontWeight: 700 }}>
-                    REUSED
-                  </span>
                 </div>
                 <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  Product remains in box and database. Operators can repair the garment for re-inspection later. No record is removed.
+                  Product remains in box and database. Operators can repair the garment for re-inspection later.
                 </p>
               </div>
 
-              {/* Option 2: PERMANENTLY DELETE */}
               <div
                 onClick={() => setFailAction('PERMANENTLY_REMOVE')}
                 style={{
@@ -664,67 +639,58 @@ export const AQLSamplesPage: React.FC = () => {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '14px', fontWeight: 800, color: failAction === 'PERMANENTLY_REMOVE' ? '#F87171' : 'var(--text-primary)' }}>
-                    🗑️ PERMANENTLY DELETE (Scrap Item)
-                  </span>
-                  <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#F87171', fontWeight: 700 }}>
-                    DELETE DATA
+                    🗑️ PERMANENTLY REMOVE (Scrap Item)
                   </span>
                 </div>
                 <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  Product is removed from active box contents (active capacity decreases). Archived in permanently removed items table.
+                  Item is permanently removed from active box.
                 </p>
               </div>
             </div>
 
-            {/* Removal Reason if PERMANENTLY DELETE */}
             {failAction === 'PERMANENTLY_REMOVE' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: '#F87171' }}>
-                  Scrap Removal Reason:
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Reason for Permanent Removal:
                 </label>
                 <input
                   type="text"
                   value={removeReason}
                   onChange={(e) => setRemoveReason(e.target.value)}
-                  placeholder="e.g. Irreparable fabric tear..."
+                  placeholder="e.g. Unrepairable fabric tear, severe oil stain..."
                   style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
                     backgroundColor: 'var(--bg-surface-2)',
-                    border: '1px solid rgba(239, 68, 68, 0.4)',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
+                    border: '1px solid var(--border-color)',
                     color: 'var(--text-primary)',
-                    fontSize: '12px'
+                    fontSize: '13px'
                   }}
                 />
               </div>
             )}
 
-            {/* Modal Actions */}
-            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
               <button
+                type="button"
                 onClick={() => setShowFailModal(false)}
-                disabled={isProcessingAction}
                 className="btn btn-secondary"
-                style={{ flex: 1 }}
+                disabled={isProcessingAction}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleConfirmFailAction}
                 disabled={isProcessingAction}
+                className="btn btn-primary"
                 style={{
-                  flex: 2,
-                  padding: '10px',
-                  borderRadius: '10px',
-                  backgroundColor: failAction === 'PERMANENTLY_REMOVE' ? '#DC2626' : '#7C3AED',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  fontWeight: 800,
-                  fontSize: '13px',
-                  cursor: 'pointer'
+                  backgroundColor: failAction === 'PERMANENTLY_REMOVE' ? '#EF4444' : '#8B5CF6',
+                  color: '#FFFFFF'
                 }}
               >
-                {isProcessingAction ? 'Processing...' : failAction === 'PERMANENTLY_REMOVE' ? 'Confirm Permanent Removal' : 'Confirm Fail (Rework)'}
+                {isProcessingAction ? 'Processing...' : 'Confirm Defect Action'}
               </button>
             </div>
           </div>
@@ -740,79 +706,75 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: 'var(--bg-surface-1)',
+    border: '1px solid var(--border-color)',
     borderRadius: '14px',
-    padding: '10px 14px',
-    border: '1px solid var(--border-color)'
-  },
-  stepCompleted: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '12px',
-    fontWeight: 700,
-    color: 'var(--color-green)'
+    padding: '12px 20px',
   },
   stepActive: {
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
-    fontSize: '12px',
+    gap: '8px',
+    fontSize: '13px',
+    fontWeight: 800,
+    color: 'var(--primary-teal)',
+  },
+  stepCompleted: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
     fontWeight: 700,
-    color: 'var(--color-purple)'
+    color: '#10B981',
   },
   stepInactive: {
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
-    fontSize: '12px',
-    color: 'var(--text-muted)'
-  },
-  stepNumCompleted: {
-    width: '20px',
-    height: '20px',
-    borderRadius: '50%',
-    backgroundColor: 'var(--color-green)',
-    color: '#041820',
-    fontSize: '11px',
-    fontWeight: 800,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
+    gap: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
   },
   stepNumActive: {
-    width: '20px',
-    height: '20px',
+    width: '24px',
+    height: '24px',
     borderRadius: '50%',
-    backgroundColor: 'var(--color-purple)',
-    color: '#FFFFFF',
-    fontSize: '11px',
-    fontWeight: 800,
+    backgroundColor: 'var(--primary-teal)',
+    color: '#000',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    fontSize: '12px',
+    fontWeight: 800,
+  },
+  stepNumCompleted: {
+    width: '24px',
+    height: '24px',
+    borderRadius: '50%',
+    backgroundColor: '#10B981',
+    color: '#000',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
+    fontWeight: 800,
   },
   stepNumInactive: {
-    width: '20px',
-    height: '20px',
+    width: '24px',
+    height: '24px',
     borderRadius: '50%',
     backgroundColor: 'var(--bg-surface-2)',
     color: 'var(--text-muted)',
-    fontSize: '11px',
-    fontWeight: 700,
+    border: '1px solid var(--border-color)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    fontSize: '12px',
+    fontWeight: 700,
   },
   stepDivider: {
     flex: 1,
     height: '1px',
     backgroundColor: 'var(--border-color)',
-    margin: '0 8px'
+    margin: '0 12px',
   },
-  banner: {
-    backgroundColor: 'var(--bg-surface-1)',
-    border: '1.5px solid var(--border-color)',
-    borderRadius: '16px',
-    padding: '16px'
-  }
 };
