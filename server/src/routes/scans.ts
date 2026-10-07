@@ -545,9 +545,10 @@ router.get('/pre-qc/links/:poId/:poProductQr', authenticateToken, async (req: Au
     const cleanQr = poProductQr.trim().toUpperCase();
     const rows = await db.prepare(`
       SELECT pre_qc_qr, assigned_at FROM pre_qc_item_links 
-      WHERE production_order_id = ? AND UPPER(TRIM(po_product_qr)) = ?
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?) 
+        AND UPPER(TRIM(po_product_qr)) = ?
       ORDER BY assigned_at ASC
-    `).all(po.id, cleanQr) as any[];
+    `).all(po.id, po.po_number || po.id, po.map_po || po.id, cleanQr) as any[];
 
     return res.json({
       poProductQr: cleanQr,
@@ -595,9 +596,10 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
 
     const preQcRows = await db.prepare(`
       SELECT pre_qc_qr FROM pre_qc_item_links 
-      WHERE production_order_id = ? AND UPPER(TRIM(po_product_qr)) = ?
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?) 
+        AND UPPER(TRIM(po_product_qr)) = ?
       ORDER BY assigned_at ASC
-    `).all(po.id, code) as any[];
+    `).all(po.id, po.po_number || po.id, po.map_po || po.id, code) as any[];
     const preQcItems = preQcRows.map((r: any) => r.pre_qc_qr);
 
     const item = po ? await db.prepare(`

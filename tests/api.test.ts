@@ -1313,6 +1313,47 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poIdWithPreQc, poIdNoPreQc]);
     }
   }, 20000);
+
+  it('UniFlow Ops Pre-QC Full Matrix (A-F) — Operations & QC Mode Combinations', async () => {
+    const { checkOperationEnabledForPO } = await import('../server/src/routes/scans');
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+
+    const isConnected = await ensureDbConnected();
+    if (!isConnected) return;
+
+    const ts = Date.now();
+    const modes = ['QC_AND_TEST', 'QC_ONLY', 'TEST_ONLY'];
+
+    for (let i = 0; i < modes.length; i++) {
+      const mode = modes[i];
+      const poIdOn = `po-mat-on-${i}-${ts}`;
+      const poIdOff = `po-mat-off-${i}-${ts}`;
+
+      try {
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_operations, qc_test_mode, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'CURRENT', NOW(3), NOW(3))`,
+          [poIdOn, `PO-MAT-ON-${i}-${ts}`, JSON.stringify(['Pre QC', 'QC Test']), mode]
+        );
+
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_operations, qc_test_mode, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'CURRENT', NOW(3), NOW(3))`,
+          [poIdOff, `PO-MAT-OFF-${i}-${ts}`, JSON.stringify(['QC Test']), mode]
+        );
+
+        // Pre-QC ON combinations (A, B, C)
+        const enabledOn = await checkOperationEnabledForPO(poIdOn, 'Pre QC');
+        expect(enabledOn).toBe(true);
+
+        // Pre-QC OFF combinations (D, E, F)
+        const enabledOff = await checkOperationEnabledForPO(poIdOff, 'Pre QC');
+        expect(enabledOff).toBe(false);
+      } finally {
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poIdOn, poIdOff]);
+      }
+    }
+  });
 });
 
 

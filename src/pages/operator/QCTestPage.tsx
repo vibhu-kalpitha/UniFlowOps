@@ -78,7 +78,11 @@ export const QCTestPage: React.FC = () => {
   const [savedStage, setSavedStage] = useState<'STATION1' | 'QC' | 'TEST' | 'ALL' | null>(null);
 
   // Pre-QC feature state
-  const hasPreQc = Boolean(po?.selectedOperations?.includes('Pre QC'));
+  const rawOps = po?.selectedOperations || (po as any)?.operations || (po as any)?.po_operations || [];
+  const opsList = Array.isArray(rawOps) ? rawOps : (typeof rawOps === 'string' ? (JSON.parse(rawOps || '[]')) : []);
+  const hasPreQc = opsList.some((op: string) => op === 'Pre QC' || op === 'PRE_QC' || op === 'Pre-QC');
+
+  const [scannerTarget, setScannerTarget] = useState<'PRE_QC' | 'NORMAL_QC'>('NORMAL_QC');
   const [preQcInput, setPreQcInput] = useState<string>('');
   const [collectedPreQcQrs, setCollectedPreQcQrs] = useState<string[]>([]);
   const [poProductInput, setPoProductInput] = useState<string>('');
@@ -93,7 +97,7 @@ export const QCTestPage: React.FC = () => {
       return;
     }
     if (collectedPreQcQrs.includes(codeToSave)) {
-      showToast(`Pre-QC QR ${codeToSave} is already in the list`, 'warning');
+      showToast(`Pre-QC QR ${codeToSave} is already in the captured list`, 'warning');
       setPreQcInput('');
       return;
     }
@@ -121,6 +125,12 @@ export const QCTestPage: React.FC = () => {
     setCollectedPreQcQrs(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleClearPreQcQrs = () => {
+    setCollectedPreQcQrs([]);
+    setPreQcInput('');
+    showToast('Cleared captured Pre-QC QRs', 'info');
+  };
+
   const handleAssignPreQcToPoProduct = async () => {
     const targetProductQr = poProductInput.trim().toUpperCase();
     if (collectedPreQcQrs.length === 0) {
@@ -144,9 +154,11 @@ export const QCTestPage: React.FC = () => {
       });
 
       showToast(`✅ Assigned ${collectedPreQcQrs.length} Pre-QC QRs to PO Product ${targetProductQr}`, 'success');
-      setScannedPreQcItems([...collectedPreQcQrs]);
       setCollectedPreQcQrs([]);
       setPoProductInput('');
+      setScannerTarget('NORMAL_QC');
+      // Automatically load the PO Product QR into normal inspection!
+      await handleScanCode(targetProductQr);
     } catch (err: any) {
       const msg = err?.message || err?.error || 'Failed to assign Pre-QC QRs';
       showToast(`Assign Error: ${msg}`, 'error');
@@ -352,6 +364,20 @@ export const QCTestPage: React.FC = () => {
         message: `Error: ${errMsg}`,
         code,
       };
+    }
+  };
+
+  const handleMasterScan = async (rawCode: string) => {
+    const code = rawCode.trim().toUpperCase();
+    if (hasPreQc && scannerTarget === 'PRE_QC') {
+      await handleAddPreQcQr(code);
+      return {
+        status: 'accepted' as const,
+        message: `✅ Captured Pre-QC QR: ${code}`,
+        code,
+      };
+    } else {
+      return await handleScanCode(code);
     }
   };
 
@@ -674,11 +700,22 @@ export const QCTestPage: React.FC = () => {
           {/* PRE-QC SECTION (Conditional: Only when PO has Pre QC enabled) */}
           {hasPreQc && (
             <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px dashed var(--primary-teal)', margin: 0, padding: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <QrCode size={18} color="var(--primary-teal)" />
-                <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0 }}>
-                  PRE QC CAPTURE &amp; LINKING
-                </h4>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <QrCode size={18} color="var(--primary-teal)" />
+                  <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0 }}>
+                    PRE QC CAPTURE &amp; LINKING
+                  </h4>
+                </div>
+                {collectedPreQcQrs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearPreQcQrs}
+                    style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    [ CLEAR ALL ]
+                  </button>
+                )}
               </div>
 
               {/* 1. Scan Pre-QC QR */}
@@ -691,6 +728,7 @@ export const QCTestPage: React.FC = () => {
                     type="text"
                     value={preQcInput}
                     onChange={(e) => setPreQcInput(e.target.value)}
+                    onFocus={() => setScannerTarget('PRE_QC')}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddPreQcQr(); }}
                     placeholder="Enter/scan Pre-QC QR..."
                     style={{ ...styles.textInput, flex: 1 }}
@@ -702,16 +740,16 @@ export const QCTestPage: React.FC = () => {
                     disabled={savingPreQc}
                     style={{ padding: '8px 12px', fontWeight: 700, fontSize: '12px', backgroundColor: 'var(--primary-teal)', color: '#fff' }}
                   >
-                    {savingPreQc ? 'Saving...' : '[ SAVE PRE QC ]'}
+                    {savingPreQc ? 'Saving...' : '[ ADD / SAVE PRE QC ]'}
                   </button>
                 </div>
               </div>
 
-              {/* Saved Pre-QC Products */}
+              {/* Captured Pre-QC QRs */}
               {collectedPreQcQrs.length > 0 && (
                 <div style={{ marginBottom: '14px', backgroundColor: 'var(--bg-surface-2)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                    Saved Pre-QC Products ({collectedPreQcQrs.length}):
+                    Captured Pre-QC QRs ({collectedPreQcQrs.length}):
                   </span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
                     {collectedPreQcQrs.map((qr, idx) => (
@@ -736,6 +774,7 @@ export const QCTestPage: React.FC = () => {
                     type="text"
                     value={poProductInput}
                     onChange={(e) => setPoProductInput(e.target.value)}
+                    onFocus={() => setScannerTarget('NORMAL_QC')}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAssignPreQcToPoProduct(); }}
                     placeholder="Scan PO Product QR..."
                     style={{ ...styles.textInput, flex: 1 }}
@@ -754,8 +793,63 @@ export const QCTestPage: React.FC = () => {
             </div>
           )}
 
+          {/* Hardware Scanner Target Mode Switch (Only when Pre QC is enabled) */}
+          {hasPreQc && (
+            <div style={{ display: 'flex', gap: '8px', margin: '4px 0 8px 0' }}>
+              <button
+                type="button"
+                onClick={() => setScannerTarget('PRE_QC')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: scannerTarget === 'PRE_QC' ? '2px solid var(--primary-teal)' : '1px solid var(--border-color)',
+                  backgroundColor: scannerTarget === 'PRE_QC' ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
+                  color: scannerTarget === 'PRE_QC' ? 'var(--primary-teal)' : 'var(--text-secondary)',
+                  fontWeight: 700,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <QrCode size={15} /> Mode: Scan Pre-QC QRs ({collectedPreQcQrs.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setScannerTarget('NORMAL_QC')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: scannerTarget === 'NORMAL_QC' ? '2px solid var(--primary-teal)' : '1px solid var(--border-color)',
+                  backgroundColor: scannerTarget === 'NORMAL_QC' ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
+                  color: scannerTarget === 'NORMAL_QC' ? 'var(--primary-teal)' : 'var(--text-secondary)',
+                  fontWeight: 700,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <ScanLine size={15} /> Mode: Normal Inspection
+              </button>
+            </div>
+          )}
+
           <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
-          <ScannerInput onScan={handleScanCode} placeholder={`Scan barcode for Station ${activeStation} inspection...`} />
+          <ScannerInput
+            onScan={handleMasterScan}
+            placeholder={
+              hasPreQc && scannerTarget === 'PRE_QC'
+                ? "Scan raw Pre-QC QR (e.g. OMP/34567, EVT/34545)..."
+                : `Scan barcode for Station ${activeStation} inspection...`
+            }
+          />
 
           {!scannedItem ? (
             <div style={styles.emptyCard}>

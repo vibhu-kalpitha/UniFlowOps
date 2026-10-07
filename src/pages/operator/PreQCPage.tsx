@@ -5,7 +5,7 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, QrCode, Trash2, Link2, ArrowRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
@@ -94,165 +94,86 @@ export const PreQCPage: React.FC = () => {
   const preQcPassedQty = poProgress.passedUnique;
   const remainingQcQty = poProgress.remainingToPass;
 
+  const [collectedPreQcQrs, setCollectedPreQcQrs] = useState<string[]>([]);
+  const [poProductInput, setPoProductInput] = useState<string>('');
+  const [isAssigning, setIsAssigning] = useState<boolean>(false);
+
   /* ── Pre QC barcode scan handler ─────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
-    setSaved(false);
-    setFailureReason('');
+    if (!code) return;
+
+    if (collectedPreQcQrs.includes(code)) {
+      showToast(`Pre-QC QR ${code} is already captured`, 'warning');
+      return { status: 'duplicate' as const, message: `Pre-QC QR ${code} is already captured`, code };
+    }
 
     try {
-      const res = await apiFetch<any>('/api/pre-qc/scan', {
+      await apiFetch('/api/pre-qc/record', {
         method: 'POST',
-        body: JSON.stringify({ code, productionOrderId: po?.dbId || po?.id, productionOrderNumber: po?.id }),
+        body: JSON.stringify({
+          productionOrderId: po?.dbId || po?.id,
+          preQcQr: code
+        })
       });
 
-      if (res?.progress) {
-        setPoProgress(prev => ({
-          ...prev,
-          loading: false,
-          targetQuantity: res.progress.targetQuantity,
-          inspectedUnique: res.progress.inspectedUnique,
-          passedUnique: res.progress.passedUnique,
-          failedUnique: res.progress.failedUnique || 0,
-          remainingToInspect: res.progress.remainingToInspect,
-          remainingToPass: res.progress.remainingToPass,
-        }));
-      }
-
-      if (res?.status === 'DUPLICATE') {
-        const dupItem: ScannedItem = {
-          qr: res.item?.qr_code || code,
-          product: po?.styleName || po?.styleCode || 'Garment',
-          size: res.item?.size || 'L',
-          status: 'DUPLICATE',
-          scannedAt: new Date().toLocaleTimeString()
-        };
-        setScannedItem(dupItem);
-        setPreQcResult('FAIL');
-        showToast(`⚠️ Item ${code} is ALREADY Pre QC Passed! (Duplicate scan)`, 'warning');
-        return {
-          status: 'duplicate' as const,
-          message: `⚠️ Item ${code} is ALREADY Pre QC Passed! (Duplicate scan)`,
-          code: res.item?.qr_code || code,
-        };
-      }
-
-      const validItem: ScannedItem = {
-        qr: res.item?.qr_code || code,
-        product: po?.styleName || po?.styleCode || 'Garment',
-        size: res.item?.size || 'L',
-        status: 'VALID',
-        scannedAt: new Date().toLocaleTimeString()
-      };
-
-      setScannedItem(validItem);
-      setPreQcResult('PASS');
-      showToast(`✅ ${code} validated — Select PASS or FAIL result below`, 'info');
+      setCollectedPreQcQrs(prev => [...prev, code]);
+      showToast(`✅ Saved Pre-QC QR: ${code}`, 'success');
 
       return {
         status: 'accepted' as const,
-        message: `✅ ${code} validated for ${po?.id || 'PO'}`,
-        code: res.item?.qr_code || code,
+        message: `✅ Saved Pre-QC QR: ${code}`,
+        code
       };
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      const invalidItem: ScannedItem = {
-        qr: code,
-        product: po?.styleName || 'Garment',
-        size: '—',
-        status: 'INVALID',
-        scannedAt: new Date().toLocaleTimeString()
-      };
-      setScannedItem(invalidItem);
-
-      if (err?.error === 'CONFIG_NOT_SELECTED' || err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('not selected') || errMsg.includes('does not belong')) {
-        const redMsg = `Unselected Configuration — '${code}' does not belong to Production Order ${po?.id || ''}.`;
-        showToast(redMsg, 'error');
-        return {
-          status: 'rejected' as const,
-          message: redMsg,
-          code,
-        };
-      }
-
-      const defaultErr = errMsg || `Failed to process scan for ${code}`;
-      showToast(defaultErr, 'error');
+      showToast(`Scan Error: ${errMsg}`, 'error');
       return {
         status: 'rejected' as const,
-        message: defaultErr,
-        code,
+        message: errMsg,
+        code
       };
     }
   };
 
-  /* ── Save Pre QC result to database ───────────────────────────── */
-  const handleSave = async () => {
-    if (!scannedItem) {
-      showToast('Please scan a garment QR barcode first.', 'warning');
-      return;
-    }
-    if (scannedItem.status === 'INVALID') {
-      showToast('Cannot save result for invalid barcode configuration.', 'error');
-      return;
-    }
-    if (scannedItem.status === 'DUPLICATE') {
-      showToast('Item has already passed Pre QC (Duplicate scan).', 'warning');
-      return;
-    }
-    if (isSaving) return;
+  const handleRemovePreQcQr = (index: number) => {
+    setCollectedPreQcQrs(prev => prev.filter((_, i) => i !== index));
+  };
 
-    setIsSaving(true);
+  const handleClearAll = () => {
+    setCollectedPreQcQrs([]);
+    showToast('Cleared captured Pre-QC QRs', 'info');
+  };
+
+  const handleAssignToPoProduct = async () => {
+    const targetProductQr = poProductInput.trim().toUpperCase();
+    if (collectedPreQcQrs.length === 0) {
+      showToast('Please capture at least one Pre-QC QR first', 'warning');
+      return;
+    }
+    if (!targetProductQr) {
+      showToast('Please enter or scan a PO Product QR', 'warning');
+      return;
+    }
+
+    setIsAssigning(true);
     try {
-      const recRes = await apiFetch<any>('/api/pre-qc/record', {
+      await apiFetch('/api/pre-qc/assign', {
         method: 'POST',
         body: JSON.stringify({
-          code: scannedItem.qr,
           productionOrderId: po?.dbId || po?.id,
-          preQcResult,
-          failureReason: preQcResult === 'FAIL' ? failureReason : undefined
-        }),
+          poProductQr: targetProductQr,
+          preQcQrs: collectedPreQcQrs
+        })
       });
 
-      if (recRes?.progress) {
-        setPoProgress(prev => ({
-          ...prev,
-          loading: false,
-          targetQuantity: recRes.progress.targetQuantity,
-          inspectedUnique: recRes.progress.inspectedUnique,
-          passedUnique: recRes.progress.passedUnique,
-          failedUnique: recRes.progress.failedUnique || 0,
-          remainingToInspect: recRes.progress.remainingToInspect,
-          remainingToPass: recRes.progress.remainingToPass,
-        }));
-      }
-
-      const savedRecord: ScannedItem = {
-        ...scannedItem,
-        status: preQcResult === 'PASS' ? 'VALID' : 'INVALID',
-        scannedAt: new Date().toLocaleTimeString()
-      };
-
-      setRecentScans(prev => [savedRecord, ...prev.slice(0, 9)]);
-
-      if (preQcResult === 'PASS') {
-        showToast(`✅ Pre QC PASSED recorded for ${scannedItem.qr}!`, 'success');
-      } else {
-        showToast(`❌ Pre QC FAIL recorded for ${scannedItem.qr}`, 'warning');
-      }
-
-      setSaved(true);
-      setIsSaving(false);
-
-      setTimeout(() => {
-        setScannedItem(null);
-        setPreQcResult('PASS');
-        setFailureReason('');
-        setSaved(false);
-      }, 1000);
+      showToast(`✅ Assigned ${collectedPreQcQrs.length} Pre-QC QRs to PO Product ${targetProductQr}`, 'success');
+      setCollectedPreQcQrs([]);
+      setPoProductInput('');
     } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      showToast(`Save failed: ${errMsg}`, 'error');
-      setIsSaving(false);
+      showToast(`Assign Error: ${err?.message || err?.error || err}`, 'error');
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -325,118 +246,88 @@ export const PreQCPage: React.FC = () => {
         <ScannerStatus showConnectButton={true} style={{ marginBottom: '10px' }} />
         <ScannerInput
           onScan={handleScanCode}
-          placeholder="Scan barcode for Pre QC (e.g. PNFLSS0926001)..."
+          placeholder="Scan raw Pre-QC QR (e.g. OMP/34567, EVT/34545)..."
         />
       </div>
 
-      {/* Item Inspection & Result Control Card */}
-      {!scannedItem ? (
-        <div style={styles.emptyCard}>
-          <ScanLine size={36} color="var(--text-muted)" />
-          <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
-            Waiting for barcode scan…
-          </span>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Scan a garment barcode to validate configuration range and record result
-          </span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* Item Details Card */}
-          <div
-            className="card"
-            style={{
-              margin: 0,
-              backgroundColor: 'var(--bg-surface-1)',
-              borderColor:
-                scannedItem.status === 'INVALID'
-                  ? 'rgba(239, 68, 68, 0.5)'
-                  : scannedItem.status === 'DUPLICATE'
-                  ? 'rgba(245, 158, 11, 0.5)'
-                  : 'rgba(16, 185, 129, 0.4)',
-              borderWidth: '1.5px',
-            }}
-          >
-            <span style={styles.cardHeaderTitle}>ITEM DETAILS</span>
-
-            <div style={styles.detailRow}>
-              <span style={styles.detailLabel}>Barcode / QR Code</span>
-              <span style={{ ...styles.detailValue, color: 'var(--primary-teal)', fontSize: '16px' }}>
-                {scannedItem.qr}
-              </span>
-            </div>
-            <div style={styles.detailRow}>
-              <span style={styles.detailLabel}>Garment Style</span>
-              <span style={styles.detailValue}>{scannedItem.product}</span>
-            </div>
-            <div style={styles.detailRow}>
-              <span style={styles.detailLabel}>Size</span>
-              <span style={styles.detailValue}>{scannedItem.size}</span>
-            </div>
-            <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
-              <span style={styles.detailLabel}>Configuration Check</span>
-              {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid Configuration — In Range" variant="green" />}
-              {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Already Scanned (Duplicate)" variant="amber" />}
-              {scannedItem.status === 'INVALID' && <StatusPill label="❌ Unselected Configuration" variant="red" />}
-            </div>
-          </div>
-
-          {/* Result Selection Control */}
-          {scannedItem.status === 'VALID' && (
-            <div className="card" style={{ margin: 0, backgroundColor: 'var(--bg-surface-1)' }}>
-              <span style={styles.controlLabel}>Select Pre QC Result</span>
-              <div style={styles.segmentRow}>
-                <button
-                  type="button"
-                  style={preQcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                  onClick={() => setPreQcResult('PASS')}
-                >
-                  <Check size={18} /> PASS
-                </button>
-                <button
-                  type="button"
-                  style={preQcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                  onClick={() => setPreQcResult('FAIL')}
-                >
-                  <XCircle size={18} /> FAIL
-                </button>
-              </div>
-
-              {/* Optional Failure Reason input when FAIL selected */}
-              {preQcResult === 'FAIL' && (
-                <div style={{ marginTop: '12px' }}>
-                  <span style={styles.controlLabel}>Failure Reason (Optional)</span>
-                  <input
-                    type="text"
-                    value={failureReason}
-                    onChange={(e) => setFailureReason(e.target.value)}
-                    placeholder="e.g. Label error, wrong size, fabric defect..."
-                    style={styles.reasonInput}
-                  />
-                </div>
-              )}
-
-              <button
-                className="btn-primary"
-                onClick={handleSave}
-                disabled={saved || isSaving}
-                style={{
-                  marginTop: '16px',
-                  width: '100%',
-                  background: saved
-                    ? 'var(--color-green)'
-                    : preQcResult === 'FAIL'
-                    ? 'var(--color-red)'
-                    : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-dark) 100%)',
-                  opacity: saved ? 0.7 : 1,
-                }}
-              >
-                {saved ? '✅ Saved to Database!' : `Save Pre QC ${preQcResult} Result`}
-              </button>
-            </div>
+      {/* Captured Pre-QC QRs List & Assignment Card */}
+      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--primary-teal)', margin: 0, padding: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h4 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <QrCode size={18} /> CAPTURED PRE-QC QRs ({collectedPreQcQrs.length})
+          </h4>
+          {collectedPreQcQrs.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAll}
+              style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+            >
+              [ CLEAR ALL ]
+            </button>
           )}
         </div>
-      )}
+
+        {collectedPreQcQrs.length === 0 ? (
+          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', fontSize: '13px' }}>
+            Scan raw component barcodes (e.g. <code>OMP/34567</code>, <code>EVT/34545</code>) above to build a list.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', maxHeight: '160px', overflowY: 'auto', backgroundColor: 'var(--bg-surface-2)', padding: '10px', borderRadius: '10px' }}>
+            {collectedPreQcQrs.map((qr, idx) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-surface-1)', padding: '6px 10px', borderRadius: '6px', fontSize: '13px' }}>
+                <code style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{idx + 1}. {qr}</code>
+                <button type="button" onClick={() => handleRemovePreQcQr(idx)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '2px' }}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '12px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+            Assign Captured Pre-QC QRs to PO Product QR (e.g. PNFLSS01)
+          </label>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            <input
+              type="text"
+              value={poProductInput}
+              onChange={(e) => setPoProductInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAssignToPoProduct(); }}
+              placeholder="Scan/type target PO Product QR..."
+              style={{ ...styles.reasonInput, flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleAssignToPoProduct}
+              disabled={isAssigning || collectedPreQcQrs.length === 0}
+              style={{ padding: '8px 16px', fontWeight: 800, fontSize: '13px' }}
+            >
+              {isAssigning ? 'Assigning...' : '[ SAVE / ASSIGN ]'}
+            </button>
+          </div>
+
+          <a
+            href="/operator/qc"
+            className="btn btn-secondary"
+            style={{
+              width: '100%',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '10px',
+              fontSize: '13px',
+              fontWeight: 700,
+              textDecoration: 'none',
+              borderRadius: '8px'
+            }}
+          >
+            Continue to Normal QC Inspection <ArrowRight size={16} />
+          </a>
+        </div>
+      </div>
 
       {/* Recent Scans History Table */}
       {recentScans.length > 0 && (
