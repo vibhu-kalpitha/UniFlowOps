@@ -60,6 +60,7 @@ export const CreatePOReview: React.FC = () => {
       status: makeCurrent ? 'Current' : 'Draft',
       selectedOperations: draftPoGeneral.selectedOperations,
       qcTestMode: draftPoGeneral.qcTestMode,
+      qcStationCount: draftPoGeneral.qcStationCount || 2,
       productConfigurations: draftConfigs,
       shifts: draftShifts
     };
@@ -236,6 +237,12 @@ export const CreatePOReview: React.FC = () => {
               <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.qcTestMode}</span>
             </div>
           )}
+          <div>
+            <span style={styles.sumLabel}>QC Station Configuration</span>
+            <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>
+              {draftPoGeneral.qcStationCount === 1 ? '1 Station (Combined Save)' : '2 Stations (Independent Saves)'}
+            </span>
+          </div>
         </div>
 
         {draftPoGeneral.remarks && (

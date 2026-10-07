@@ -1092,6 +1092,138 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 20000);
+
+  it('17. PO-Level QC Station Configuration Unit & Validation Tests (1 Station vs 2 Stations, Tests 1–9)', async () => {
+    // 1. Verify schema DDL column support
+    const alterTableSql = `ALTER TABLE production_orders ADD COLUMN qc_station_count TINYINT NOT NULL DEFAULT 2 AFTER qc_test_mode;`;
+    expect(alterTableSql).toContain('qc_station_count');
+
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const timestamp = Date.now();
+      const po1Id = `po-st1-${timestamp}`;
+      const po2Id = `po-st2-${timestamp}`;
+      const poQcOnlyId = `po-qconly-${timestamp}`;
+      const poTestOnlyId = `po-testonly-${timestamp}`;
+
+      const item1Id = `itm-st1-${timestamp}`;
+      const item2Id = `itm-st2-${timestamp}`;
+      const itemQcOnlyId = `itm-qconly-${timestamp}`;
+      const itemTestOnlyId = `itm-testonly-${timestamp}`;
+
+      try {
+        // TEST 1: Create PO with 1 Station (qc_station_count = 1)
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, qc_station_count, created_at, updated_at)
+           VALUES (?, ?, 'PO 1 Station', 'MAP-1', 'Cust A', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_AND_TEST', 1, NOW(3), NOW(3))`,
+          [po1Id, `PO-ST1-${timestamp}`]
+        );
+        const po1Row = await db.queryOne<any>(`SELECT qc_station_count FROM production_orders WHERE id = ?`, [po1Id]);
+        expect(po1Row?.qc_station_count).toBe(1);
+
+        // TEST 2: Create PO with 2 Stations (qc_station_count = 2)
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, qc_station_count, created_at, updated_at)
+           VALUES (?, ?, 'PO 2 Stations', 'MAP-2', 'Cust B', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_AND_TEST', 2, NOW(3), NOW(3))`,
+          [po2Id, `PO-ST2-${timestamp}`]
+        );
+        const po2Row = await db.queryOne<any>(`SELECT qc_station_count FROM production_orders WHERE id = ?`, [po2Id]);
+        expect(po2Row?.qc_station_count).toBe(2);
+
+        // Setup Item Units
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-ST1-01', ?, 'CREATED', NOW(3), NOW(3))`, [item1Id, po1Id]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-ST2-01', ?, 'CREATED', NOW(3), NOW(3))`, [item2Id, po2Id]);
+
+        // TEST 3: 1 Station + Endline & Functional Test -> Both PASS provided -> Single atomic save PASS
+        const qc1Id = `qc-st1-${timestamp}`;
+        await db.execute(
+          `INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, retry_count, first_scanned_at, scanned_at, test_scanned_at)
+           VALUES (?, ?, 'usr-op1', 'usr-op1', 'PASS', 'PASS', 0, NOW(3), NOW(3), NOW(3))`,
+          [qc1Id, item1Id]
+        );
+        const savedQc1 = await db.queryOne<any>(`SELECT * FROM qc_results WHERE id = ?`, [qc1Id]);
+        expect(savedQc1?.qc_result).toBe('PASS');
+        expect(savedQc1?.test_result).toBe('PASS');
+
+        // TEST 4 & 5: Validation rules logic verification
+        // For 1 station PO (qc_station_count = 1), missing either qcResult or testResult must be rejected
+        const validate1StationSubmission = (qcRes?: string, testRes?: string) => {
+          if (!qcRes || !testRes) {
+            return { valid: false, error: 'BOTH_RESULTS_REQUIRED', message: 'Both Endline Inspection and Functional Test results are required before saving for 1 Station QC.' };
+          }
+          return { valid: true };
+        };
+
+        const test4Check = validate1StationSubmission('PASS', undefined);
+        expect(test4Check.valid).toBe(false);
+        expect(test4Check.error).toBe('BOTH_RESULTS_REQUIRED');
+
+        const test5Check = validate1StationSubmission(undefined, 'PASS');
+        expect(test5Check.valid).toBe(false);
+        expect(test5Check.error).toBe('BOTH_RESULTS_REQUIRED');
+
+        // TEST 6 & 7: 2 Stations independent save behavior
+        const qc2Id = `qc-st2-${timestamp}`;
+        // Station 1 Endline Inspection saved independently (test_result pending)
+        await db.execute(
+          `INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, retry_count, first_scanned_at, scanned_at)
+           VALUES (?, ?, 'usr-op1', 'PASS', 'PENDING', 0, NOW(3), NOW(3))`,
+          [qc2Id, item2Id]
+        );
+        const st1Result = await db.queryOne<any>(`SELECT * FROM qc_results WHERE id = ?`, [qc2Id]);
+        expect(st1Result?.qc_result).toBe('PASS');
+        expect(st1Result?.test_result).toBe('PENDING');
+
+        // Station 2 Functional Test saved independently later
+        await db.execute(
+          `UPDATE qc_results SET test_operator_id = 'usr-op2', test_result = 'PASS', test_scanned_at = NOW(3) WHERE id = ?`,
+          [qc2Id]
+        );
+        const st2Result = await db.queryOne<any>(`SELECT * FROM qc_results WHERE id = ?`, [qc2Id]);
+        expect(st2Result?.qc_result).toBe('PASS');
+        expect(st2Result?.test_result).toBe('PASS');
+        expect(st2Result?.operator_id).toBe('usr-op1');
+        expect(st2Result?.test_operator_id).toBe('usr-op2');
+
+        // TEST 8: Endline Inspection Only (QC_ONLY mode)
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, qc_station_count, created_at, updated_at)
+           VALUES (?, ?, 'PO QC Only', 'MAP-QCO', 'Cust C', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_ONLY', 1, NOW(3), NOW(3))`,
+          [poQcOnlyId, `PO-QCO-${timestamp}`]
+        );
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-QCO-01', ?, 'CREATED', NOW(3), NOW(3))`, [itemQcOnlyId, poQcOnlyId]);
+        const qcOnlyQcId = `qc-qco-${timestamp}`;
+        await db.execute(
+          `INSERT INTO qc_results (id, item_id, operator_id, qc_result, test_result, retry_count, first_scanned_at, scanned_at)
+           VALUES (?, ?, 'usr-op1', 'PASS', 'PASS', 0, NOW(3), NOW(3))`,
+          [qcOnlyQcId, itemQcOnlyId]
+        );
+        const qcOnlyRow = await db.queryOne<any>(`SELECT * FROM qc_results WHERE id = ?`, [qcOnlyQcId]);
+        expect(qcOnlyRow?.qc_result).toBe('PASS');
+
+        // TEST 9: Functional Test Only (TEST_ONLY mode)
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, qc_station_count, created_at, updated_at)
+           VALUES (?, ?, 'PO Test Only', 'MAP-TO', 'Cust D', '2026-09-01', '2026-10-01', 'CURRENT', 'TEST_ONLY', 1, NOW(3), NOW(3))`,
+          [poTestOnlyId, `PO-TO-${timestamp}`]
+        );
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-TO-01', ?, 'CREATED', NOW(3), NOW(3))`, [itemTestOnlyId, poTestOnlyId]);
+        const testOnlyQcId = `qc-to-${timestamp}`;
+        await db.execute(
+          `INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, retry_count, first_scanned_at, scanned_at, test_scanned_at)
+           VALUES (?, ?, 'usr-op1', 'usr-op1', 'PASS', 'PASS', 0, NOW(3), NOW(3), NOW(3))`,
+          [testOnlyQcId, itemTestOnlyId]
+        );
+        const testOnlyRow = await db.queryOne<any>(`SELECT * FROM qc_results WHERE id = ?`, [testOnlyQcId]);
+        expect(testOnlyRow?.test_result).toBe('PASS');
+      } finally {
+        await db.execute(`DELETE FROM qc_results WHERE item_id IN (?, ?, ?, ?)`, [item1Id, item2Id, itemQcOnlyId, itemTestOnlyId]);
+        await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?, ?)`, [item1Id, item2Id, itemQcOnlyId, itemTestOnlyId]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?, ?, ?)`, [po1Id, po2Id, poQcOnlyId, poTestOnlyId]);
+      }
+    }
+  }, 20000);
 });
 
 

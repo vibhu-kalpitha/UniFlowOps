@@ -65,6 +65,7 @@ export const CreatePOGeneral: React.FC = () => {
     'Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
   ]);
   const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
+  const [qcStationCount, setQcStationCount] = useState<1 | 2>(2);
 
   // Roster state — loaded from /api/shifts/all-members
   const [rosterRows, setRosterRows] = useState<ShiftRosterRow[]>([]);
@@ -200,6 +201,7 @@ export const CreatePOGeneral: React.FC = () => {
       remarks,
       selectedOperations: selectedOps,
       qcTestMode: selectedOps.includes('QC Test') ? qcTestMode : undefined,
+      qcStationCount: selectedOps.includes('QC Test') ? qcStationCount : 2,
       // All operator+shift allocations to persist in operator_work_assignments
       allocations: poAllocations.map(a => ({
         workerId: a.operatorId,
@@ -520,6 +522,37 @@ export const CreatePOGeneral: React.FC = () => {
                             {mode}
                           </label>
                         ))}
+                      </div>
+
+                      {/* QC Station Selection */}
+                      <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
+                        <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>QC STATION</label>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          Select <strong>1 Station</strong> (combined single Save for Endline &amp; Functional Test) or <strong>2 Stations</strong> (independent saves).
+                        </p>
+                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                          {([1, 2] as const).map(count => (
+                            <label
+                              key={count}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px',
+                                border: `2px solid ${qcStationCount === count ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                                backgroundColor: qcStationCount === count ? 'rgba(22,184,174,0.12)' : 'var(--bg-surface-1)',
+                                cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="qcStationCount"
+                                value={count}
+                                checked={qcStationCount === count}
+                                onChange={() => setQcStationCount(count)}
+                                style={{ accentColor: 'var(--primary-teal)' }}
+                              />
+                              {count === 1 ? '1 Station' : '2 Stations'}
+                            </label>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}

@@ -51,16 +51,19 @@ export const QCTestPage: React.FC = () => {
 
   const po = activeJob?.productionOrder;
   const qcMode = po?.qcTestMode || 'QC & Test';
+  const stationCount = po?.qcStationCount || (po as any)?.qc_station_count || (po as any)?.stationCount || 2;
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
+  const [qcSelected, setQcSelected] = useState<boolean>(false);
+  const [testSelected, setTestSelected] = useState<boolean>(false);
   const [qcFailureReason, setQcFailureReason] = useState<string>('');
   const [testFailureReason, setTestFailureReason] = useState<string>('');
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
-  const [savingStage, setSavingStage] = useState<'QC' | 'TEST' | null>(null);
+  const [savingStage, setSavingStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
   const [savedStage, setSavedStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
 
   // Authoritative backend progress state
@@ -205,6 +208,8 @@ export const QCTestPage: React.FC = () => {
 
       setQcResult('PASS');
       setTestResult('PASS');
+      setQcSelected(false);
+      setTestSelected(false);
 
       if (stStatus.qcCompleted && !stStatus.testCompleted) {
         showToast(`ℹ️ QC already completed for ${code}. Test stage is pending.`, 'info');
@@ -357,11 +362,123 @@ export const QCTestPage: React.FC = () => {
         setStageStatus(null);
         setQcResult('PASS');
         setTestResult('PASS');
+        setQcSelected(false);
+        setTestSelected(false);
         setQcFailureReason('');
         setTestFailureReason('');
         setHistoryData(null);
         setSavedStage(null);
       }, 1500);
+    }
+  };
+
+  /* ── combined 1-station save handler ────────────────────────────── */
+  const handleSaveCombined = async () => {
+    if (!scannedItem) {
+      showToast('Please scan a garment QR first.', 'warning');
+      return;
+    }
+    if (scannedItem.status === 'INVALID') {
+      showToast('Cannot save result for invalid item.', 'error');
+      return;
+    }
+    if (stageStatus?.isFullyCompleted) {
+      showToast('Item is already fully completed.', 'warning');
+      return;
+    }
+    if (savingStage) return;
+
+    if (!qcSelected || !testSelected) {
+      showToast('Both Endline Inspection and Functional Test results must be selected before saving.', 'error');
+      return;
+    }
+
+    setSavingStage('ALL');
+    const key = `qc-combined-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
+    let saveRes: any = null;
+
+    const combinedFailureReason = [
+      qcResult === 'FAIL' ? `Endline: ${qcFailureReason || 'Defect'}` : null,
+      testResult === 'FAIL' ? `Test: ${testFailureReason || 'Defect'}` : null,
+    ].filter(Boolean).join(' | ');
+
+    try {
+      const payload: any = {
+        idempotencyKey: key,
+        itemQr: scannedItem.qr,
+        productionOrderId: po?.dbId || po?.id,
+        productionOrderNumber: po?.id || 'PO-2026-0184',
+        stage: 'ALL',
+        qcResult,
+        testResult,
+        failureReason: (qcResult === 'FAIL' || testResult === 'FAIL') ? combinedFailureReason : undefined,
+      };
+
+      saveRes = await apiFetch('/api/qc/results', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (err?.error === 'UNAUTHORIZED_STAGE') {
+        showToast(`⛔ ${errMsg}`, 'error');
+      } else if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
+        const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
+        showToast(`Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`, 'error');
+      } else {
+        showToast(`Save failed: ${errMsg}`, 'error');
+      }
+      setSavingStage(null);
+      return;
+    }
+
+    if (saveRes?.progress) {
+      setPoProgress(prev => ({
+        ...prev,
+        loading: false,
+        targetQuantity: saveRes.progress.targetQuantity,
+        inspectedUnique: saveRes.progress.inspectedUnique,
+        passedUnique: saveRes.progress.passedUnique,
+        failedUnique: saveRes.progress.failedUnique,
+        remainingToInspect: saveRes.progress.remainingToInspect,
+        remainingToPass: saveRes.progress.remainingToPass,
+      }));
+    }
+    await fetchProgress();
+
+    const isFullyCompleteNow = (qcResult === 'PASS' && testResult === 'PASS');
+
+    const newStageStatus: StageStatus = saveRes?.stageStatus || {
+      qcCompleted: qcResult === 'PASS',
+      testCompleted: testResult === 'PASS',
+      qcResult,
+      testResult,
+      isFullyCompleted: isFullyCompleteNow,
+    };
+
+    newStageStatus.isFullyCompleted = isFullyCompleteNow;
+    setStageStatus(newStageStatus);
+
+    setSavingStage(null);
+    setSavedStage('ALL');
+
+    if (isFullyCompleteNow) {
+      incrementQCPassed();
+      showToast(`🎉 BOTH QC & TEST PASSED for ${scannedItem.qr}!`, 'success');
+      setTimeout(() => {
+        setScannedItem(null);
+        setStageStatus(null);
+        setQcResult('PASS');
+        setTestResult('PASS');
+        setQcSelected(false);
+        setTestSelected(false);
+        setQcFailureReason('');
+        setTestFailureReason('');
+        setHistoryData(null);
+        setSavedStage(null);
+      }, 1500);
+    } else {
+      showToast(`❌ QC Test FAILED for ${scannedItem.qr}`, 'warning');
     }
   };
 
@@ -555,136 +672,244 @@ export const QCTestPage: React.FC = () => {
                 </div>
               )}
 
-              {/* INDEPENDENT QC STAGE SECTION */}
-              {(qcMode === 'QC & Test' || qcMode === 'QC Only') && (
+              {/* 1 STATION COMBINED STAGE SECTION */}
+              {stationCount === 1 && qcMode === 'QC & Test' ? (
                 <div style={styles.stageCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={styles.controlLabel}>
-                      <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> QC Result
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--primary-teal)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <ShieldCheck size={18} /> Station 1 — Endline Inspection &amp; Functional Test
                     </span>
-                    {stageStatus?.qcCompleted && (
+                    {stageStatus?.isFullyCompleted && (
                       <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle2 size={14} /> ✓ PASS Completed
+                        <CheckCircle2 size={14} /> ✓ Completed
                       </span>
                     )}
                   </div>
 
-                  {stageStatus?.qcCompleted ? (
-                    <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
-                      QC Stage Completed {stageStatus.qcOperatorName ? `by ${stageStatus.qcOperatorName}` : ''}
+                  {stageStatus?.isFullyCompleted ? (
+                    <div style={{ padding: '12px 14px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
+                      ✅ Both Endline Inspection and Functional Test Completed
                     </div>
                   ) : (
                     <>
-                      <div style={styles.segmentRow}>
-                        <button
-                          type="button"
-                          style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                          onClick={() => setQcResult('PASS')}
-                        >
-                          <Check size={18} /> PASS
-                        </button>
-                        <button
-                          type="button"
-                          style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                          onClick={() => setQcResult('FAIL')}
-                        >
-                          <XCircle size={18} /> FAIL
-                        </button>
+                      {/* Endline Inspection Section */}
+                      <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)' }}>
+                        <span style={{ ...styles.controlLabel, marginBottom: '8px', display: 'block' }}>
+                          <ShieldCheck size={15} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Endline Inspection
+                        </span>
+                        <div style={styles.segmentRow}>
+                          <button
+                            type="button"
+                            style={qcSelected && qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                            onClick={() => { setQcResult('PASS'); setQcSelected(true); }}
+                          >
+                            <Check size={18} /> PASS
+                          </button>
+                          <button
+                            type="button"
+                            style={qcSelected && qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                            onClick={() => { setQcResult('FAIL'); setQcSelected(true); }}
+                          >
+                            <XCircle size={18} /> FAIL
+                          </button>
+                        </div>
+                        {qcSelected && qcResult === 'FAIL' && (
+                          <div style={{ marginTop: '8px' }}>
+                            <input
+                              type="text"
+                              value={qcFailureReason}
+                              onChange={(e) => setQcFailureReason(e.target.value)}
+                              placeholder="Endline Failure Reason (e.g. Stitching error, fabric defect)..."
+                              style={styles.textInput}
+                            />
+                          </div>
+                        )}
                       </div>
 
-                      {qcResult === 'FAIL' && (
-                        <div style={{ marginTop: '8px' }}>
-                          <input
-                            type="text"
-                            value={qcFailureReason}
-                            onChange={(e) => setQcFailureReason(e.target.value)}
-                            placeholder="QC Failure Reason (e.g. Stitching error, fabric defect)..."
-                            style={styles.textInput}
-                          />
+                      {/* Functional Test Section */}
+                      <div style={{ marginBottom: '14px', padding: '12px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)' }}>
+                        <span style={{ ...styles.controlLabel, marginBottom: '8px', display: 'block' }}>
+                          <TestTube size={15} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Functional Test
+                        </span>
+                        <div style={styles.segmentRow}>
+                          <button
+                            type="button"
+                            style={testSelected && testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                            onClick={() => { setTestResult('PASS'); setTestSelected(true); }}
+                          >
+                            <Check size={18} /> PASS
+                          </button>
+                          <button
+                            type="button"
+                            style={testSelected && testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                            onClick={() => { setTestResult('FAIL'); setTestSelected(true); }}
+                          >
+                            <XCircle size={18} /> FAIL
+                          </button>
                         </div>
-                      )}
+                        {testSelected && testResult === 'FAIL' && (
+                          <div style={{ marginTop: '8px' }}>
+                            <input
+                              type="text"
+                              value={testFailureReason}
+                              onChange={(e) => setTestFailureReason(e.target.value)}
+                              placeholder="Functional Test Failure Reason (e.g. Wash test fail, measurement out of spec)..."
+                              style={styles.textInput}
+                            />
+                          </div>
+                        )}
+                      </div>
 
+                      {/* SINGLE ATOMIC SAVE BUTTON */}
                       <button
                         className="btn-primary"
-                        onClick={() => handleSaveStage('QC')}
+                        onClick={handleSaveCombined}
                         disabled={savingStage !== null}
                         style={{
-                          marginTop: '10px',
+                          marginTop: '6px',
                           width: '100%',
-                          background: savedStage === 'QC' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                          background: savedStage === 'ALL' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
                         }}
                       >
-                        {savingStage === 'QC' ? 'Saving QC...' : savedStage === 'QC' ? '✅ QC Saved!' : 'Save QC Result'}
+                        {savingStage !== null ? 'Saving QC & Test Result...' : savedStage === 'ALL' ? '✅ QC & Test Result Saved!' : 'SAVE QC & TEST RESULT'}
                       </button>
                     </>
                   )}
                 </div>
-              )}
-
-              {/* INDEPENDENT TEST STAGE SECTION */}
-              {(qcMode === 'QC & Test' || qcMode === 'Test Only') && (
-                <div style={styles.stageCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={styles.controlLabel}>
-                      <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Test Result
-                    </span>
-                    {stageStatus?.testCompleted && (
-                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle2 size={14} /> ✓ PASS Completed
-                      </span>
-                    )}
-                  </div>
-
-                  {stageStatus?.testCompleted ? (
-                    <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
-                      Test Stage Completed {stageStatus.testOperatorName ? `by ${stageStatus.testOperatorName}` : ''}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={styles.segmentRow}>
-                        <button
-                          type="button"
-                          style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                          onClick={() => setTestResult('PASS')}
-                        >
-                          <Check size={18} /> PASS
-                        </button>
-                        <button
-                          type="button"
-                          style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                          onClick={() => setTestResult('FAIL')}
-                        >
-                          <XCircle size={18} /> FAIL
-                        </button>
+              ) : (
+                <>
+                  {/* INDEPENDENT QC STAGE SECTION */}
+                  {(qcMode === 'QC & Test' || qcMode === 'QC Only') && (
+                    <div style={styles.stageCard}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={styles.controlLabel}>
+                          <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> QC Result
+                        </span>
+                        {stageStatus?.qcCompleted && (
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={14} /> ✓ PASS Completed
+                          </span>
+                        )}
                       </div>
 
-                      {testResult === 'FAIL' && (
-                        <div style={{ marginTop: '8px' }}>
-                          <input
-                            type="text"
-                            value={testFailureReason}
-                            onChange={(e) => setTestFailureReason(e.target.value)}
-                            placeholder="Test Failure Reason (e.g. Wash test fail, measurement out of spec)..."
-                            style={styles.textInput}
-                          />
+                      {stageStatus?.qcCompleted ? (
+                        <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
+                          QC Stage Completed {stageStatus.qcOperatorName ? `by ${stageStatus.qcOperatorName}` : ''}
                         </div>
-                      )}
+                      ) : (
+                        <>
+                          <div style={styles.segmentRow}>
+                            <button
+                              type="button"
+                              style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                              onClick={() => { setQcResult('PASS'); setQcSelected(true); }}
+                            >
+                              <Check size={18} /> PASS
+                            </button>
+                            <button
+                              type="button"
+                              style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                              onClick={() => { setQcResult('FAIL'); setQcSelected(true); }}
+                            >
+                              <XCircle size={18} /> FAIL
+                            </button>
+                          </div>
 
-                      <button
-                        className="btn-primary"
-                        onClick={() => handleSaveStage('TEST')}
-                        disabled={savingStage !== null}
-                        style={{
-                          marginTop: '10px',
-                          width: '100%',
-                          background: savedStage === 'TEST' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-                        }}
-                      >
-                        {savingStage === 'TEST' ? 'Saving Test...' : savedStage === 'TEST' ? '✅ Test Saved!' : 'Save Test Result'}
-                      </button>
-                    </>
+                          {qcResult === 'FAIL' && (
+                            <div style={{ marginTop: '8px' }}>
+                              <input
+                                type="text"
+                                value={qcFailureReason}
+                                onChange={(e) => setQcFailureReason(e.target.value)}
+                                placeholder="QC Failure Reason (e.g. Stitching error, fabric defect)..."
+                                style={styles.textInput}
+                              />
+                            </div>
+                          )}
+
+                          <button
+                            className="btn-primary"
+                            onClick={() => handleSaveStage('QC')}
+                            disabled={savingStage !== null}
+                            style={{
+                              marginTop: '10px',
+                              width: '100%',
+                              background: savedStage === 'QC' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                            }}
+                          >
+                            {savingStage === 'QC' ? 'Saving QC...' : savedStage === 'QC' ? '✅ QC Saved!' : 'Save QC Result'}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
+
+                  {/* INDEPENDENT TEST STAGE SECTION */}
+                  {(qcMode === 'QC & Test' || qcMode === 'Test Only') && (
+                    <div style={styles.stageCard}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={styles.controlLabel}>
+                          <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Test Result
+                        </span>
+                        {stageStatus?.testCompleted && (
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={14} /> ✓ PASS Completed
+                          </span>
+                        )}
+                      </div>
+
+                      {stageStatus?.testCompleted ? (
+                        <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
+                          Test Stage Completed {stageStatus.testOperatorName ? `by ${stageStatus.testOperatorName}` : ''}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={styles.segmentRow}>
+                            <button
+                              type="button"
+                              style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                              onClick={() => { setTestResult('PASS'); setTestSelected(true); }}
+                            >
+                              <Check size={18} /> PASS
+                            </button>
+                            <button
+                              type="button"
+                              style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                              onClick={() => { setTestResult('FAIL'); setTestSelected(true); }}
+                            >
+                              <XCircle size={18} /> FAIL
+                            </button>
+                          </div>
+
+                          {testResult === 'FAIL' && (
+                            <div style={{ marginTop: '8px' }}>
+                              <input
+                                type="text"
+                                value={testFailureReason}
+                                onChange={(e) => setTestFailureReason(e.target.value)}
+                                placeholder="Test Failure Reason (e.g. Wash test fail, measurement out of spec)..."
+                                style={styles.textInput}
+                              />
+                            </div>
+                          )}
+
+                          <button
+                            className="btn-primary"
+                            onClick={() => handleSaveStage('TEST')}
+                            disabled={savingStage !== null}
+                            style={{
+                              marginTop: '10px',
+                              width: '100%',
+                              background: savedStage === 'TEST' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                            }}
+                          >
+                            {savingStage === 'TEST' ? 'Saving Test...' : savedStage === 'TEST' ? '✅ Test Saved!' : 'Save Test Result'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

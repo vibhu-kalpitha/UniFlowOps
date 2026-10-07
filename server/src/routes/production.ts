@@ -157,6 +157,8 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
   else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
 
+  const qcStationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
+
   // Load PO-level allocations
   const poAllocations = await db.prepare(`
     SELECT owa.id, owa.production_order_id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
@@ -284,6 +286,9 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     status: po.status === 'CURRENT' ? 'Current' : po.status === 'COMPLETED' ? 'Completed' : 'Draft',
     selectedOperations,
     qcTestMode,
+    qcStationCount,
+    qc_station_count: qcStationCount,
+    stationCount: qcStationCount,
     productConfigurations,
     totalQuantity: calcTotalQty,
     allocations: poAllocations,
@@ -489,6 +494,9 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
     else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
+    const rawStationCount = (body as any).qcStationCount || (body as any).qc_station_count || (body as any).stationCount;
+    const dbQcStationCount = Number(rawStationCount) === 1 ? 1 : 2;
+
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;
     if (rawShiftId) {
@@ -500,9 +508,9 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, shift_id, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, poShiftId, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, qc_station_count, shift_id, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, dbQcStationCount, poShiftId, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = opStr;

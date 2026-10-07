@@ -116,6 +116,8 @@ export interface ProductionOrder {
   status: 'Current' | 'Completed' | 'Draft';
   selectedOperations: OperationType[];
   qcTestMode?: QcTestMode;
+  qcStationCount?: 1 | 2;
+  qc_station_count?: number;
   productConfigurations?: ProductConfiguration[];
   totalQuantity?: number;
   shifts?: ShiftAssignment[];

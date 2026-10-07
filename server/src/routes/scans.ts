@@ -912,6 +912,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     }
 
     const mode = po.qc_test_mode || 'QC_AND_TEST';
+    const stationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
 
     // Infer target stage
     let targetStage: 'QC' | 'TEST' = 'QC';
@@ -921,6 +922,17 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       targetStage = 'QC';
     } else {
       targetStage = parsed.qcResult ? 'QC' : 'TEST';
+    }
+
+    // 1 Station + QC_AND_TEST validation rule:
+    // Operator must submit BOTH qcResult and testResult together.
+    if (stationCount === 1 && mode === 'QC_AND_TEST') {
+      if (!parsed.qcResult || !parsed.testResult) {
+        return res.status(400).json({
+          error: 'BOTH_RESULTS_REQUIRED',
+          message: 'Both Endline Inspection and Functional Test results are required before saving for 1 Station QC.'
+        });
+      }
     }
 
     // Stage-specific Operator Allocation Check
@@ -975,8 +987,10 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
 
     const existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
 
-    // Stage-specific duplicate check
-    if (targetStage === 'QC' && existingQc && existingQc.qc_result === 'PASS') {
+    const isCombinedSave = parsed.stage === 'ALL' || (parsed.qcResult && parsed.testResult);
+
+    // Stage-specific duplicate check (only if not combined re-save or if already fully completed)
+    if (!isCombinedSave && targetStage === 'QC' && existingQc && existingQc.qc_result === 'PASS') {
       const progress = await calculatePOProgress(po.id);
       return res.status(200).json({
         message: `QC stage already completed for item ${itemQr}.`,
@@ -994,7 +1008,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       });
     }
 
-    if (targetStage === 'TEST' && existingQc && existingQc.test_result === 'PASS') {
+    if (!isCombinedSave && targetStage === 'TEST' && existingQc && existingQc.test_result === 'PASS') {
       const progress = await calculatePOProgress(po.id);
       return res.status(200).json({
         message: `Test stage already completed for item ${itemQr}.`,
@@ -1019,7 +1033,14 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     let qcScannedAt = existingQc?.scanned_at || new Date();
     let testScannedAt = existingQc?.test_scanned_at || (targetStage === 'TEST' ? new Date() : null);
 
-    if (targetStage === 'QC') {
+    if (isCombinedSave || (stationCount === 1 && mode === 'QC_AND_TEST')) {
+      nextQcResult = parsed.qcResult!;
+      nextTestResult = parsed.testResult!;
+      qcOpId = operatorId;
+      testOpId = operatorId;
+      qcScannedAt = new Date();
+      testScannedAt = new Date();
+    } else if (targetStage === 'QC') {
       if (!parsed.qcResult) {
         return res.status(400).json({ error: 'QC_RESULT_REQUIRED', message: 'QC Result (PASS/FAIL) is required.' });
       }
