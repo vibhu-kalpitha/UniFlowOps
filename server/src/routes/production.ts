@@ -157,7 +157,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
   else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
 
-  const qcStationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
+  const qcStationCount = Number(po.qc_station_count) === 2 ? 2 : 1;
 
   // Load PO-level allocations
   const poAllocations = await db.prepare(`
@@ -495,7 +495,7 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
     const rawStationCount = (body as any).qcStationCount || (body as any).qc_station_count || (body as any).stationCount;
-    const dbQcStationCount = Number(rawStationCount) === 1 ? 1 : 2;
+    const dbQcStationCount = Number(rawStationCount) === 2 ? 2 : 1;
 
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;

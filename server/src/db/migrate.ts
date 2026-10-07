@@ -299,7 +299,7 @@ async function runStartupColumnChecks(): Promise<void> {
       // qc_station_count — PO-level QC station configuration (1 Station vs 2 Stations)
       if (!(await columnExists('production_orders', 'qc_station_count'))) {
         try {
-          await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_station_count TINYINT NOT NULL DEFAULT 2 AFTER qc_test_mode`);
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_station_count TINYINT NOT NULL DEFAULT 1 AFTER qc_test_mode`);
           console.log('  ✅ Added production_orders.qc_station_count');
         } catch (e: any) { console.warn('  ⚠️ qc_station_count:', e.message); }
       }

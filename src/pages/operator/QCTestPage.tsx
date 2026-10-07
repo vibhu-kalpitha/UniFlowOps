@@ -51,15 +51,16 @@ export const QCTestPage: React.FC = () => {
 
   const po = activeJob?.productionOrder;
   const qcMode = po?.qcTestMode || 'QC & Test';
-  const stationCount = po?.qcStationCount || (po as any)?.qc_station_count || (po as any)?.stationCount || 2;
+  const rawStationCount = po?.qcStationCount ?? (po as any)?.qc_station_count ?? (po as any)?.stationCount;
+  const stationCount = Number(rawStationCount) === 2 ? 2 : 1;
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
-  const [qcSelected, setQcSelected] = useState<boolean>(false);
-  const [testSelected, setTestSelected] = useState<boolean>(false);
+  const [qcSelected, setQcSelected] = useState<boolean>(true);
+  const [testSelected, setTestSelected] = useState<boolean>(true);
   const [qcFailureReason, setQcFailureReason] = useState<string>('');
   const [testFailureReason, setTestFailureReason] = useState<string>('');
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
@@ -208,8 +209,8 @@ export const QCTestPage: React.FC = () => {
 
       setQcResult('PASS');
       setTestResult('PASS');
-      setQcSelected(false);
-      setTestSelected(false);
+      setQcSelected(true);
+      setTestSelected(true);
 
       if (stStatus.qcCompleted && !stStatus.testCompleted) {
         showToast(`ℹ️ QC already completed for ${code}. Test stage is pending.`, 'info');

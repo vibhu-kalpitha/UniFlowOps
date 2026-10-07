@@ -60,7 +60,7 @@ export const CreatePOReview: React.FC = () => {
       status: makeCurrent ? 'Current' : 'Draft',
       selectedOperations: draftPoGeneral.selectedOperations,
       qcTestMode: draftPoGeneral.qcTestMode,
-      qcStationCount: draftPoGeneral.qcStationCount || 2,
+      qcStationCount: draftPoGeneral.qcStationCount || 1,
       productConfigurations: draftConfigs,
       shifts: draftShifts
     };

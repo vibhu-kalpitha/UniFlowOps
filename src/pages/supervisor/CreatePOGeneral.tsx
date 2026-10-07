@@ -65,7 +65,7 @@ export const CreatePOGeneral: React.FC = () => {
     'Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
   ]);
   const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
-  const [qcStationCount, setQcStationCount] = useState<1 | 2>(2);
+  const [qcStationCount, setQcStationCount] = useState<1 | 2>(1);
 
   // Roster state — loaded from /api/shifts/all-members
   const [rosterRows, setRosterRows] = useState<ShiftRosterRow[]>([]);
@@ -201,7 +201,7 @@ export const CreatePOGeneral: React.FC = () => {
       remarks,
       selectedOperations: selectedOps,
       qcTestMode: selectedOps.includes('QC Test') ? qcTestMode : undefined,
-      qcStationCount: selectedOps.includes('QC Test') ? qcStationCount : 2,
+      qcStationCount: selectedOps.includes('QC Test') ? qcStationCount : 1,
       // All operator+shift allocations to persist in operator_work_assignments
       allocations: poAllocations.map(a => ({
         workerId: a.operatorId,
