@@ -52,7 +52,7 @@ export const QCTestPage: React.FC = () => {
   const po = activeJob?.productionOrder;
   const qcMode = po?.qcTestMode || 'QC & Test';
   const rawStationCount = po?.qcStationCount ?? (po as any)?.qc_station_count ?? (po as any)?.stationCount;
-  const stationCount = Number(rawStationCount) === 2 ? 2 : 1;
+  const stationCount = Number(rawStationCount) === 1 ? 1 : 2;
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);

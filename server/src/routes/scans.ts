@@ -912,7 +912,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     }
 
     const mode = po.qc_test_mode || 'QC_AND_TEST';
-    const stationCount = Number(po.qc_station_count) === 2 ? 2 : 1;
+    const stationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
 
     // Infer target stage
     let targetStage: 'QC' | 'TEST' = 'QC';

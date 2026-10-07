@@ -157,7 +157,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
   else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
 
-  const qcStationCount = Number(po.qc_station_count) === 2 ? 2 : 1;
+  const qcStationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
 
   // Load PO-level allocations
   const poAllocations = await db.prepare(`
@@ -381,6 +381,9 @@ const createPoSchema = z.object({
   status: z.enum(['Current', 'Completed', 'Draft']).optional(),
   selectedOperations: z.array(z.string()),
   qcTestMode: z.string().optional(),
+  qcStationCount: z.union([z.number(), z.string()]).optional(),
+  qc_station_count: z.union([z.number(), z.string()]).optional(),
+  stationCount: z.union([z.number(), z.string()]).optional(),
   shiftId: z.string().optional(),
   shift_id: z.string().optional(),
   productConfigurations: z.array(createPoProductConfigSchema).optional(),
@@ -494,8 +497,8 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
     else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
-    const rawStationCount = (body as any).qcStationCount || (body as any).qc_station_count || (body as any).stationCount;
-    const dbQcStationCount = Number(rawStationCount) === 2 ? 2 : 1;
+    const rawStationCount = (req.body as any)?.qcStationCount ?? (req.body as any)?.qc_station_count ?? (req.body as any)?.stationCount ?? body.qcStationCount ?? body.qc_station_count ?? body.stationCount;
+    const dbQcStationCount = Number(rawStationCount) === 1 ? 1 : 2;
 
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;
