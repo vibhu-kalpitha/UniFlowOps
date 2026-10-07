@@ -91,9 +91,10 @@ export const QCTestPage: React.FC = () => {
   const [scannedPreQcItems, setScannedPreQcItems] = useState<string[]>([]);
 
   const handleAddPreQcQr = async (overrideQr?: string) => {
-    const codeToSave = (overrideQr || preQcInput).trim().toUpperCase();
+    const raw = overrideQr !== undefined ? overrideQr : preQcInput;
+    const codeToSave = (raw || '').trim().toUpperCase();
     if (!codeToSave) {
-      showToast('Please enter or scan a Pre-QC QR', 'warning');
+      showToast('Barcode required', 'warning');
       return;
     }
     if (collectedPreQcQrs.includes(codeToSave)) {
@@ -108,14 +109,15 @@ export const QCTestPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({
           productionOrderId: po?.dbId || po?.id,
-          preQcQr: codeToSave
+          preQcQr: codeToSave,
+          code: codeToSave
         })
       });
       setCollectedPreQcQrs(prev => [...prev, codeToSave]);
       showToast(`✅ Saved Pre-QC QR: ${codeToSave}`, 'success');
       setPreQcInput('');
     } catch (err: any) {
-      showToast(`Failed to record Pre-QC QR: ${err?.message || err}`, 'error');
+      showToast(`Failed to record Pre-QC QR: ${err?.message || err?.error || err}`, 'error');
     } finally {
       setSavingPreQc(false);
     }

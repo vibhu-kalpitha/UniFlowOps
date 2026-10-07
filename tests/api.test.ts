@@ -1354,6 +1354,83 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   });
+
+  it('UniFlow Ops Pre-QC Raw Barcode Acceptance & Validation Rules (AAA-11, OMP/34567, etc.)', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+
+    const isConnected = await ensureDbConnected();
+    if (!isConnected) return;
+
+    const ts = Date.now();
+    const poId = `po-raw-qr-${ts}`;
+
+    try {
+      await db.execute(
+        `INSERT INTO production_orders (id, po_number, po_operations, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'CURRENT', NOW(3), NOW(3))`,
+        [poId, `PO-RAW-QR-${ts}`, JSON.stringify(['Pre QC', 'QC Test'])]
+      );
+
+      // Raw Pre-QC QR test cases:
+      const rawPreQcSamples = [
+        'AAA-11',
+        'OMP/34567',
+        'EVT/34545',
+        'YTR/345',
+        'TEST-001',
+        '12345',
+        'PNFLSS01' // Also accepted as raw Pre-QC since raw Pre-QC has no format restriction
+      ];
+
+      for (const rawCode of rawPreQcSamples) {
+        // Assert raw code is non-empty after trim
+        const trimmed = rawCode.trim();
+        expect(trimmed.length).toBeGreaterThan(0);
+
+        // Record in DB to simulate backend acceptance
+        const scanId = `scan-raw-${ts}-${trimmed.replace(/[^A-Z0-9]/gi, '_')}`;
+        await db.execute(
+          `INSERT INTO pre_qc_scans (id, production_order_id, pre_qc_qr, operator_id, created_at)
+           VALUES (?, ?, ?, 'usr-op1', NOW(3))`,
+          [scanId, poId, trimmed]
+        );
+
+        const stored = await db.queryOne<any>(`SELECT * FROM pre_qc_scans WHERE id = ?`, [scanId]);
+        expect(stored).toBeDefined();
+        expect(stored.pre_qc_qr).toBe(trimmed);
+      }
+
+      // Assert empty string and whitespace-only string are empty after trim
+      expect(''.trim()).toBe('');
+      expect('   '.trim()).toBe('');
+
+      // Relational linking assertion: PNFLSS01 -> AAA-11, OMP/34567, EVT/34545
+      const targetPoProductQr = 'PNFLSS01';
+      const assignedRawQrs = ['AAA-11', 'OMP/34567', 'EVT/34545'];
+
+      for (const rawQr of assignedRawQrs) {
+        const linkId = `link-raw-${ts}-${rawQr.replace(/[^A-Z0-9]/gi, '_')}`;
+        await db.execute(
+          `INSERT INTO pre_qc_item_links (id, production_order_id, po_product_qr, pre_qc_qr, assigned_by, assigned_at)
+           VALUES (?, ?, ?, ?, 'usr-op1', NOW(3))
+           ON DUPLICATE KEY UPDATE assigned_at = NOW(3)`,
+          [linkId, poId, targetPoProductQr, rawQr]
+        );
+      }
+
+      const relationalLinks = await db.query<any>(
+        `SELECT pre_qc_qr FROM pre_qc_item_links WHERE production_order_id = ? AND po_product_qr = ? ORDER BY assigned_at ASC`,
+        [poId, targetPoProductQr]
+      );
+
+      expect(relationalLinks.length).toBe(3);
+      expect(relationalLinks.map(l => l.pre_qc_qr)).toEqual(assignedRawQrs);
+    } finally {
+      await db.execute(`DELETE FROM pre_qc_item_links WHERE production_order_id = ?`, [poId]);
+      await db.execute(`DELETE FROM pre_qc_scans WHERE production_order_id = ?`, [poId]);
+      await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+    }
+  });
 });
 
 

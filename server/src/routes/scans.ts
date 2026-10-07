@@ -309,9 +309,9 @@ export async function calculateSOProgress(soId: string) {
 // POST /api/pre-qc/scan
 router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const rawCode = req.body.code || req.body.itemQr;
+    const rawCode = req.body.preQcQr || req.body.pre_qc_qr || req.body.code || req.body.itemQr || req.body.qr;
     const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
-    if (!rawCode || typeof rawCode !== 'string') {
+    if (!rawCode || typeof rawCode !== 'string' || !rawCode.trim()) {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
     }
     const code = rawCode.trim().toUpperCase();
@@ -330,36 +330,13 @@ router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, nex
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
-    // NOTE: Pre-QC QRs (e.g. OMP/34567, EVT/34545) are raw barcodes and exempt from PO Product QR prefix validation!
-
-    const item = await db.prepare(`
-      SELECT * FROM item_units 
-      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
-        AND UPPER(TRIM(qr_code)) = ?
-    `).get(po.id, po.po_number, po.map_po, code) as any;
-
-    if (item) {
-      const existingPreQc = await db.prepare(`
-        SELECT * FROM pre_qc_results WHERE item_id = ? AND pre_qc_result = 'PASS'
-      `).get(item.id) as any;
-
-      if (existingPreQc || item.status === 'PRE_QC_PASSED') {
-        return res.json({
-          status: 'DUPLICATE',
-          message: 'Already processed Pre QC',
-          item: { qr_code: item.qr_code, size: item.size || 'L' }
-        });
-      }
-    }
-
-    const progress = await calculatePreQCProgress(po.id);
+    // NOTE: Pre-QC QRs (e.g. AAA-11, OMP/34567, EVT/34545, TEST-001) are raw barcodes and exempt from PO Product QR prefix validation!
     return res.json({
       status: 'VALID',
       valid: true,
       message: 'Barcode valid for Pre QC',
       preQcQr: code,
-      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
-      progress
+      item: { qr_code: code, size: 'L' }
     });
   } catch (err) {
     next(err);
@@ -369,12 +346,10 @@ router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, nex
 // POST /api/pre-qc/record
 router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const rawCode = req.body.code || req.body.itemQr;
+    const rawCode = req.body.preQcQr || req.body.pre_qc_qr || req.body.code || req.body.itemQr || req.body.qr;
     const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
-    const result = (req.body.preQcResult || req.body.result || 'PASS').toUpperCase();
-    const failureReason = req.body.failureReason ? String(req.body.failureReason).trim() : null;
 
-    if (!rawCode || typeof rawCode !== 'string') {
+    if (!rawCode || typeof rawCode !== 'string' || !rawCode.trim()) {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
     }
     const code = rawCode.trim().toUpperCase();
@@ -383,37 +358,30 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
-    let item = await db.prepare(`
-      SELECT * FROM item_units 
-      WHERE (production_order_id = ? OR production_order_id = ?) AND UPPER(TRIM(qr_code)) = ?
-    `).get(po.id, po.po_number, code) as any;
-
-    const newStatus = result === 'PASS' ? 'PRE_QC_PASSED' : 'PRE_QC_FAILED';
-
-    if (!item) {
-      const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-      await db.prepare(`
-        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(itemId, code, po.id, null, 'L', newStatus);
-
-      item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
-    } else {
-      await db.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
+    const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, po.id);
+    if (!isAllocated) {
+      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
     }
 
-    const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    await db.prepare(`
-      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, failure_reason, scanned_at)
-      VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-    `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason);
+    const isOpEnabled = await checkOperationEnabledForPO(po.id, 'Pre QC');
+    if (!isOpEnabled) {
+      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
+    }
 
-    const progress = await calculatePreQCProgress(po.id);
+    // Insert scan log into pre_qc_scans
+    const scanId = `scan-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    try {
+      await db.prepare(`
+        INSERT INTO pre_qc_scans (id, production_order_id, pre_qc_qr, operator_id, created_at)
+        VALUES (?, ?, ?, ?, NOW(3))
+      `).run(scanId, po.id, code, req.user!.id);
+    } catch (_) {}
+
     return res.json({
       status: 'SUCCESS',
-      message: `Pre QC ${result} recorded for ${code}`,
-      item: { qr_code: item.qr_code, size: item.size || 'L' },
-      progress
+      message: `Saved Pre-QC QR: ${code}`,
+      preQcQr: code,
+      item: { qr_code: code, size: 'L' }
     });
   } catch (err) {
     next(err);

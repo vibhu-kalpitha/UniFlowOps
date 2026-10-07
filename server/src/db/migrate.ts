@@ -429,6 +429,24 @@ async function runStartupColumnChecks(): Promise<void> {
       }
     } catch (e: any) { console.warn('  ⚠️ pre_qc_results:', e.message); }
 
+    // ── pre_qc_scans table for raw Pre-QC scan logs ────────────────────
+    try {
+      if (!(await tableExists('pre_qc_scans'))) {
+        await db.exec(`
+          CREATE TABLE pre_qc_scans (
+            id VARCHAR(191) PRIMARY KEY,
+            production_order_id VARCHAR(191) NOT NULL,
+            pre_qc_qr VARCHAR(191) NOT NULL,
+            operator_id VARCHAR(191) NOT NULL,
+            created_at DATETIME(3) NOT NULL,
+            INDEX idx_preqc_scans_po (production_order_id),
+            INDEX idx_preqc_scans_qr (pre_qc_qr)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created pre_qc_scans table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ pre_qc_scans:', e.message); }
+
     // ── pre_qc_item_links table for Pre-QC-to-PO-Product linking ───────
     try {
       if (!(await tableExists('pre_qc_item_links'))) {

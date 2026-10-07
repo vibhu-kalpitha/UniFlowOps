@@ -100,8 +100,11 @@ export const PreQCPage: React.FC = () => {
 
   /* ── Pre QC barcode scan handler ─────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
-    const code = rawCode.trim().toUpperCase();
-    if (!code) return;
+    const code = (rawCode || '').trim().toUpperCase();
+    if (!code) {
+      showToast('Barcode required', 'warning');
+      return { status: 'rejected' as const, message: 'Barcode required', code: '' };
+    }
 
     if (collectedPreQcQrs.includes(code)) {
       showToast(`Pre-QC QR ${code} is already captured`, 'warning');
@@ -113,7 +116,8 @@ export const PreQCPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({
           productionOrderId: po?.dbId || po?.id,
-          preQcQr: code
+          preQcQr: code,
+          code
         })
       });
 
@@ -126,7 +130,7 @@ export const PreQCPage: React.FC = () => {
         code
       };
     } catch (err: any) {
-      const errMsg = err?.message || String(err);
+      const errMsg = err?.message || err?.error || String(err);
       showToast(`Scan Error: ${errMsg}`, 'error');
       return {
         status: 'rejected' as const,
