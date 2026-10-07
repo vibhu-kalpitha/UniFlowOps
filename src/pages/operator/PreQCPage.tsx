@@ -34,28 +34,20 @@ export const PreQCPage: React.FC = () => {
   // Live Pre QC progress state from server
   const [poProgress, setPoProgress] = useState<{
     loading: boolean;
-    targetQuantity: number;
-    inspectedUnique: number;
-    passedUnique: number;
-    failedUnique: number;
-    remainingToInspect: number;
-    remainingToPass: number;
-    operatorStats: {
-      operatorName: string;
-      passedCount: number;
-    };
+    completed: number;
+    failed: number;
+    totalProcessed: number;
+    hasTarget: boolean;
+    target: number | null;
+    operatorName: string;
   }>({
     loading: true,
-    targetQuantity: po?.totalQuantity || 10,
-    inspectedUnique: 0,
-    passedUnique: 0,
-    failedUnique: 0,
-    remainingToInspect: po?.totalQuantity || 10,
-    remainingToPass: po?.totalQuantity || 10,
-    operatorStats: {
-      operatorName: 'Operator',
-      passedCount: 0
-    }
+    completed: 0,
+    failed: 0,
+    totalProcessed: 0,
+    hasTarget: false,
+    target: null,
+    operatorName: 'Operator'
   });
 
   const fetchProgress = async () => {
@@ -64,19 +56,25 @@ export const PreQCPage: React.FC = () => {
     setPoProgress(prev => ({ ...prev, loading: true }));
     try {
       const res = await apiFetch<any>(`/api/pre-qc/progress/${encodeURIComponent(targetPoKey)}`);
-      if (res && typeof res.passedUnique === 'number') {
+      if (res && typeof res.completed === 'number') {
         setPoProgress({
           loading: false,
-          targetQuantity: res.targetQuantity || po?.totalQuantity || 10,
-          inspectedUnique: res.inspectedUnique || 0,
-          passedUnique: res.passedUnique || 0,
-          failedUnique: res.failedUnique || 0,
-          remainingToInspect: res.remainingToInspect || 0,
-          remainingToPass: res.remainingToPass || 0,
-          operatorStats: res.operatorStats || {
-            operatorName: 'Operator',
-            passedCount: 0
-          }
+          completed: res.completed || 0,
+          failed: res.failed || 0,
+          totalProcessed: res.totalProcessed || (res.completed || 0) + (res.failed || 0),
+          hasTarget: Boolean(res.hasTarget),
+          target: res.target ?? null,
+          operatorName: res.operatorStats?.operatorName || 'Operator'
+        });
+      } else if (res && typeof res.passedUnique === 'number') {
+        setPoProgress({
+          loading: false,
+          completed: res.passedUnique || 0,
+          failed: res.failedUnique || 0,
+          totalProcessed: (res.passedUnique || 0) + (res.failedUnique || 0),
+          hasTarget: false,
+          target: null,
+          operatorName: res.operatorStats?.operatorName || 'Operator'
         });
       } else {
         setPoProgress(prev => ({ ...prev, loading: false }));
@@ -89,10 +87,6 @@ export const PreQCPage: React.FC = () => {
   useEffect(() => {
     fetchProgress();
   }, [po?.dbId, po?.id]);
-
-  const targetPoQty = poProgress.targetQuantity || po?.totalQuantity || 10;
-  const preQcPassedQty = poProgress.passedUnique;
-  const remainingQcQty = poProgress.remainingToPass;
 
   /* ── Pre QC barcode scan handler ─────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
@@ -115,16 +109,16 @@ export const PreQCPage: React.FC = () => {
       });
 
       if (res?.progress) {
-        setPoProgress(prev => ({
-          ...prev,
+        const prog = res.progress;
+        setPoProgress({
           loading: false,
-          targetQuantity: res.progress.targetQuantity,
-          inspectedUnique: res.progress.inspectedUnique,
-          passedUnique: res.progress.passedUnique,
-          failedUnique: res.progress.failedUnique || 0,
-          remainingToInspect: res.progress.remainingToInspect,
-          remainingToPass: res.progress.remainingToPass,
-        }));
+          completed: prog.completed ?? prog.passedUnique ?? 0,
+          failed: prog.failed ?? prog.failedUnique ?? 0,
+          totalProcessed: prog.totalProcessed ?? ((prog.completed ?? prog.passedUnique ?? 0) + (prog.failed ?? prog.failedUnique ?? 0)),
+          hasTarget: Boolean(prog.hasTarget),
+          target: prog.target ?? null,
+          operatorName: prog.operatorStats?.operatorName || 'Operator'
+        });
       }
 
       if (res?.status === 'DUPLICATE') {
@@ -222,16 +216,16 @@ export const PreQCPage: React.FC = () => {
       });
 
       if (recRes?.progress) {
-        setPoProgress(prev => ({
-          ...prev,
+        const prog = recRes.progress;
+        setPoProgress({
           loading: false,
-          targetQuantity: recRes.progress.targetQuantity,
-          inspectedUnique: recRes.progress.inspectedUnique,
-          passedUnique: recRes.progress.passedUnique,
-          failedUnique: recRes.progress.failedUnique || 0,
-          remainingToInspect: recRes.progress.remainingToInspect,
-          remainingToPass: recRes.progress.remainingToPass,
-        }));
+          completed: prog.completed ?? prog.passedUnique ?? 0,
+          failed: prog.failed ?? prog.failedUnique ?? 0,
+          totalProcessed: prog.totalProcessed ?? ((prog.completed ?? prog.passedUnique ?? 0) + (prog.failed ?? prog.failedUnique ?? 0)),
+          hasTarget: Boolean(prog.hasTarget),
+          target: prog.target ?? null,
+          operatorName: prog.operatorStats?.operatorName || 'Operator'
+        });
       }
 
       const savedRecord: ScannedItem = {
@@ -306,25 +300,42 @@ export const PreQCPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Progress Bar */}
-        <div style={{ marginTop: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px', color: 'var(--text-secondary)' }}>
-            <span>Pre QC Progress: {preQcPassedQty} / {targetPoQty} pcs</span>
-            <span style={{ color: 'var(--primary-teal)', fontWeight: 800 }}>
-              {Math.round((preQcPassedQty / Math.max(1, targetPoQty)) * 100)}%
+        {/* Summary Stats Grid (Operator Scoped) */}
+        <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Completed</span>
+            <span style={{ fontSize: '24px', fontWeight: 800, color: '#10B981', marginTop: '2px', display: 'block' }}>
+              {poProgress.completed}
             </span>
           </div>
-          <ProgressBar current={preQcPassedQty} total={targetPoQty} showText={false} />
+
+          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Failed</span>
+            <span style={{ fontSize: '24px', fontWeight: 800, color: '#EF4444', marginTop: '2px', display: 'block' }}>
+              {poProgress.failed}
+            </span>
+          </div>
+
+          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Processed</span>
+            <span style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'block' }}>
+              {poProgress.totalProcessed}
+            </span>
+          </div>
         </div>
 
-        {/* Summary Stats Row */}
-        <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
-          <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO SUMMARY</span>
-          <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600 }}>
-            <span>Target: <strong>{targetPoQty}</strong></span>
-            <span>Passed: <strong style={{ color: '#10B981' }}>{preQcPassedQty}</strong></span>
-            <span>Remaining: <strong style={{ color: 'var(--primary-teal)' }}>{remainingQcQty}</strong></span>
-          </div>
+        {/* Target Status / Information Line */}
+        <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
+          <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PRE-QC TARGET STATUS</span>
+          {poProgress.hasTarget && poProgress.target != null ? (
+            <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
+              Target: <strong>{poProgress.target}</strong> • Progress: <strong style={{ color: 'var(--primary-teal)' }}>{poProgress.completed} / {poProgress.target}</strong>
+            </span>
+          ) : (
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600, fontStyle: 'italic' }}>
+              No Pre-QC target configured
+            </span>
+          )}
         </div>
       </div>
 

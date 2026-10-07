@@ -1283,6 +1283,60 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   });
+
+  it('19. Pre-QC Operator Progress & Independent Target Handling Validation', async () => {
+    const timestamp = Date.now();
+    const poId = `po-pqc-prog-${timestamp}`;
+    const opA = `usr-op-a-${timestamp}`;
+    const opB = `usr-op-b-${timestamp}`;
+
+    if (process.env.TEST_DB === 'true' && db) {
+      try {
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, created_at, updated_at)
+           VALUES (?, ?, 'PreQC Progress PO', 'MAP-PROG', 'Cust Prog', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_AND_TEST', NOW(3), NOW(3))`,
+          [poId, `PO-PROG-${timestamp}`]
+        );
+
+        const item1Id = `item-opA-pass-${timestamp}`;
+        const item2Id = `item-opA-fail-${timestamp}`;
+        const item3Id = `item-opB-pass-${timestamp}`;
+
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-A-PASS', ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item1Id, poId]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-A-FAIL', ?, 'PRE_QC_FAILED', NOW(3), NOW(3))`, [item2Id, poId]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'QR-B-PASS', ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item3Id, poId]);
+
+        // Operator A records 1 PASS, 1 FAIL
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, ?, ?, 'PASS', NOW(3))`, [`pq-res1-${timestamp}`, item1Id, opA, poId]);
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, ?, ?, 'FAIL', NOW(3))`, [`pq-res2-${timestamp}`, item2Id, opA, poId]);
+
+        // Operator B records 1 PASS
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, ?, ?, 'PASS', NOW(3))`, [`pq-res3-${timestamp}`, item3Id, opB, poId]);
+
+        const { calculatePreQCProgress } = require('../server/src/routes/scans');
+
+        // Test Operator A progress
+        const progA = await calculatePreQCProgress(poId, { id: opA, username: opA });
+        expect(progA.completed).toBe(1);
+        expect(progA.failed).toBe(1);
+        expect(progA.totalProcessed).toBe(2);
+        expect(progA.hasTarget).toBe(false);
+        expect(progA.target).toBeNull();
+
+        // Test Operator B progress (isolated from Operator A)
+        const progB = await calculatePreQCProgress(poId, { id: opB, username: opB });
+        expect(progB.completed).toBe(1);
+        expect(progB.failed).toBe(0);
+        expect(progB.totalProcessed).toBe(1);
+        expect(progB.hasTarget).toBe(false);
+        expect(progB.target).toBeNull();
+      } finally {
+        await db.execute(`DELETE FROM pre_qc_results WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM item_units WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  });
 });
 
 

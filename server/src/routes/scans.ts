@@ -152,51 +152,90 @@ export function validateProductQrRange(targetObj: any, rawCode: string) {
   return { valid: false, error: 'CONFIG_NOT_SELECTED', message: `Product configuration mismatch for '${code}'.` };
 }
 
-export async function calculatePreQCProgress(poId: string) {
+export async function calculatePreQCProgress(poId: string, reqUser?: any) {
   const po = await resolvePO(poId);
   if (!po) {
     return {
-      targetQuantity: 0,
-      inspectedUnique: 0,
-      passedUnique: 0,
-      failedUnique: 0,
-      remainingToInspect: 0,
-      remainingToPass: 0,
-      isComplete: false,
+      poId,
+      completed: 0,
+      failed: 0,
+      totalProcessed: 0,
+      hasTarget: false,
+      target: null,
+      operatorStats: {
+        operatorName: reqUser?.full_name || reqUser?.username || 'Operator',
+        completed: 0,
+        failed: 0,
+        totalProcessed: 0,
+        passedCount: 0,
+        failedCount: 0
+      }
     };
   }
 
-  const configTotal = await db.prepare(`SELECT SUM(quantity) as sumQty FROM production_order_configs WHERE production_order_id = ?`).get(po.id) as any;
-  let targetQuantity = configTotal?.sumQty ? Number(configTotal.sumQty) : 0;
-  if (!targetQuantity) {
-    const soTotal = await db.prepare(`SELECT SUM(order_quantity) as sumQty FROM sales_orders WHERE production_order_id = ?`).get(po.id) as any;
-    targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 1000;
+  const targetPoId = po.id;
+  const operatorId = reqUser?.id || null;
+  const operatorUsername = reqUser?.username || null;
+  const operatorName = reqUser?.full_name || reqUser?.fullName || operatorUsername || 'Operator';
+
+  let completed = 0;
+  let failed = 0;
+
+  if (operatorId) {
+    const passRow = await db.prepare(`
+      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+      JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND (pq.operator_id = ? OR pq.operator_id = ?)
+        AND pq.pre_qc_result = 'PASS'
+    `).get(targetPoId, targetPoId, targetPoId, operatorId, operatorUsername) as any;
+    completed = passRow?.cnt || 0;
+
+    const failRow = await db.prepare(`
+      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+      JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND (pq.operator_id = ? OR pq.operator_id = ?)
+        AND pq.pre_qc_result = 'FAIL'
+    `).get(targetPoId, targetPoId, targetPoId, operatorId, operatorUsername) as any;
+    failed = failRow?.cnt || 0;
+  } else {
+    const passRow = await db.prepare(`
+      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+      JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND pq.pre_qc_result = 'PASS'
+    `).get(targetPoId, targetPoId, targetPoId) as any;
+    completed = passRow?.cnt || 0;
+
+    const failRow = await db.prepare(`
+      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+      JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND pq.pre_qc_result = 'FAIL'
+    `).get(targetPoId, targetPoId, targetPoId) as any;
+    failed = failRow?.cnt || 0;
   }
 
-  const passRow = await db.prepare(`
-    SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
-    JOIN item_units iu ON iu.id = pq.item_id
-    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-      AND pq.pre_qc_result = 'PASS'
-  `).get(po.id, po.id) as any;
-
-  const passedUnique = passRow?.cnt || 0;
-  const inspectedUnique = passedUnique;
-  const failedUnique = 0;
-  const remainingToInspect = Math.max(0, targetQuantity - inspectedUnique);
-  const remainingToPass = Math.max(0, targetQuantity - passedUnique);
-  const isComplete = passedUnique >= targetQuantity;
+  const totalProcessed = completed + failed;
 
   return {
     poId: po.id,
-    poNumber: po.po_number,
-    targetQuantity,
-    inspectedUnique,
-    passedUnique,
-    failedUnique,
-    remainingToInspect,
-    remainingToPass,
-    isComplete,
+    poNumber: po.po_number || po.id,
+    completed,
+    failed,
+    totalProcessed,
+    hasTarget: false,
+    target: null,
+    operatorStats: {
+      operatorId,
+      operatorName,
+      completed,
+      failed,
+      totalProcessed,
+      passedCount: completed,
+      failedCount: failed
+    }
   };
 }
 
@@ -351,7 +390,7 @@ router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, nex
       }
     }
 
-    const progress = await calculatePreQCProgress(po.id);
+    const progress = await calculatePreQCProgress(po.id, req.user);
     return res.json({
       status: 'VALID',
       message: 'Barcode valid for Pre QC',
@@ -406,7 +445,7 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       VALUES (?, ?, ?, ?, ?, ?, NOW(3))
     `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason);
 
-    const progress = await calculatePreQCProgress(po.id);
+    const progress = await calculatePreQCProgress(po.id, req.user);
     return res.json({
       status: 'SUCCESS',
       message: `Pre QC ${result} recorded for ${code}`,
@@ -522,33 +561,8 @@ router.get('/pre-qc/captured-items', authenticateToken, async (req: AuthRequest,
 router.get('/pre-qc/progress/:poId', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const poId = req.params.poId;
-    const operatorId = req.user!.id;
-    const operatorUsername = req.user!.username;
-    const operatorName = (req.user as any).full_name || operatorUsername || 'Operator';
-
-    const po = await resolvePO(poId);
-    const targetPoId = po?.id || poId;
-
-    const progress = await calculatePreQCProgress(targetPoId);
-
-    const opPassedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
-      JOIN item_units iu ON iu.id = pq.item_id
-      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND (pq.operator_id = ? OR pq.operator_id = ?)
-        AND pq.pre_qc_result = 'PASS'
-    `).get(targetPoId, targetPoId, operatorId, operatorUsername) as any;
-    const operatorPassedCount = opPassedRow?.cnt || 0;
-
-    return res.json({
-      ...progress,
-      operatorStats: {
-        operatorId,
-        operatorName,
-        passedCount: operatorPassedCount,
-        failedCount: 0
-      }
-    });
+    const progress = await calculatePreQCProgress(poId, req.user);
+    return res.json(progress);
   } catch (err) {
     next(err);
   }
