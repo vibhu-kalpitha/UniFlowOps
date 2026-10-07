@@ -504,11 +504,12 @@ router.get('/pre-qc/captured-items', authenticateToken, async (req: AuthRequest,
     const targetPoId = po?.id || productionOrderId;
 
     const rows = await db.prepare(`
-      SELECT DISTINCT iu.qr_code as pre_qc_qr FROM pre_qc_results pqr
+      SELECT iu.qr_code as pre_qc_qr FROM pre_qc_results pqr
       JOIN item_units iu ON iu.id = pqr.item_id
       WHERE (pqr.production_order_id = ? OR iu.production_order_id = ?)
         AND pqr.pre_qc_result = 'PASS'
-      ORDER BY pqr.scanned_at DESC
+      GROUP BY iu.qr_code
+      ORDER BY MAX(pqr.scanned_at) DESC
     `).all(targetPoId, targetPoId) as any[];
 
     return res.json(rows.map((r: any) => r.pre_qc_qr));
@@ -612,11 +613,12 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
       assignedPreQcItems = assignedRows.map(r => r.pre_qc_qr);
 
       const availableRows = await db.prepare(`
-        SELECT DISTINCT iu.qr_code as pre_qc_qr FROM pre_qc_results pqr
+        SELECT iu.qr_code as pre_qc_qr FROM pre_qc_results pqr
         JOIN item_units iu ON iu.id = pqr.item_id
         WHERE (pqr.production_order_id = ? OR iu.production_order_id = ?)
           AND pqr.pre_qc_result = 'PASS'
-        ORDER BY pqr.scanned_at DESC
+        GROUP BY iu.qr_code
+        ORDER BY MAX(pqr.scanned_at) DESC
       `).all(po.id, po.id) as any[];
       availablePreQcItems = availableRows.map(r => r.pre_qc_qr);
     }
