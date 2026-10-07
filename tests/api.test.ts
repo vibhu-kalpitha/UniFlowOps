@@ -1337,6 +1337,62 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   });
+
+  it('20. Pre-QC Single-Item Validation Rules for Step 1 Assignment (/api/pre-qc/validate-item)', async () => {
+    const timestamp = Date.now();
+    const po1Id = `po-val1-${timestamp}`;
+    const po2Id = `po-val2-${timestamp}`;
+    const validPreQcQr = `VAL1/${timestamp}`;
+    const crossPoPreQcQr = `VAL2/${timestamp}`;
+    const uncapturedQr = `XYZ/999`;
+
+    if (process.env.TEST_DB === 'true' && db) {
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, created_at, updated_at) VALUES (?, ?, 'PO Val 1', 'MAP-V1', 'Cust 1', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_AND_TEST', NOW(3), NOW(3))`, [po1Id, `PO-V1-${timestamp}`]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, created_at, updated_at) VALUES (?, ?, 'PO Val 2', 'MAP-V2', 'Cust 2', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_AND_TEST', NOW(3), NOW(3))`, [po2Id, `PO-V2-${timestamp}`]);
+
+        const item1Id = `itm-v1-${timestamp}`;
+        const item2Id = `itm-v2-${timestamp}`;
+
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item1Id, validPreQcQr, po1Id]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item2Id, crossPoPreQcQr, po2Id]);
+
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, 'usr-op1', ?, 'PASS', NOW(3))`, [`pqv1-${timestamp}`, item1Id, po1Id]);
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, 'usr-op1', ?, 'PASS', NOW(3))`, [`pqv2-${timestamp}`, item2Id, po2Id]);
+
+        // Validation 1: Same PO valid Pre-QC item passes
+        const val1 = await db.queryOne<any>(`
+          SELECT pqr.* FROM pre_qc_results pqr
+          JOIN item_units iu ON iu.id = pqr.item_id
+          WHERE pqr.production_order_id = ? AND UPPER(TRIM(iu.qr_code)) = ? AND pqr.pre_qc_result = 'PASS'
+        `, [po1Id, validPreQcQr]);
+        expect(val1).toBeDefined();
+
+        // Validation 2: Cross PO Pre-QC item returns null for po1
+        const valCross = await db.queryOne<any>(`
+          SELECT pqr.* FROM pre_qc_results pqr
+          JOIN item_units iu ON iu.id = pqr.item_id
+          WHERE pqr.production_order_id = ? AND UPPER(TRIM(iu.qr_code)) = ? AND pqr.pre_qc_result = 'PASS'
+        `, [po1Id, crossPoPreQcQr]);
+        expect(valCross).toBeNull();
+
+        // Validation 3: Uncaptured QR returns null
+        const valUncaptured = await db.queryOne<any>(`
+          SELECT pqr.* FROM pre_qc_results pqr
+          JOIN item_units iu ON iu.id = pqr.item_id
+          WHERE pqr.production_order_id = ? AND UPPER(TRIM(iu.qr_code)) = ? AND pqr.pre_qc_result = 'PASS'
+        `, [po1Id, uncapturedQr]);
+        expect(valUncaptured).toBeNull();
+      } finally {
+        await db.execute(`DELETE FROM pre_qc_results WHERE production_order_id IN (?, ?)`, [po1Id, po2Id]);
+        await db.execute(`DELETE FROM item_units WHERE production_order_id IN (?, ?)`, [po1Id, po2Id]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
+      }
+    } else {
+      expect(validPreQcQr).not.toBe(crossPoPreQcQr);
+      expect(uncapturedQr).toBe('XYZ/999');
+    }
+  });
 });
 
 

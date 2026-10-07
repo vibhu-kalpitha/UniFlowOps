@@ -568,6 +568,66 @@ router.get('/pre-qc/progress/:poId', authenticateToken, async (req: AuthRequest,
   }
 });
 
+// POST /api/pre-qc/validate-item — Validate if a single Pre-QC QR is valid for PO
+router.post('/pre-qc/validate-item', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const { productionOrderId, productionOrderNumber, productQr, preQcQr } = req.body;
+    if (!preQcQr || typeof preQcQr !== 'string' || !preQcQr.trim()) {
+      return res.status(400).json({ valid: false, error: 'INVALID_QR', message: 'Pre-QC QR code is required' });
+    }
+    const cleanPreQcQr = preQcQr.trim().toUpperCase();
+    const cleanProductQr = productQr ? String(productQr).trim().toUpperCase() : null;
+
+    const po = await resolvePO(productionOrderId || productionOrderNumber);
+    if (!po) {
+      return res.status(404).json({ valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const record = await db.prepare(`
+      SELECT pqr.*, iu.qr_code as pre_qc_qr
+      FROM pre_qc_results pqr
+      JOIN item_units iu ON iu.id = pqr.item_id
+      WHERE (pqr.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND UPPER(TRIM(iu.qr_code)) = ?
+        AND pqr.pre_qc_result = 'PASS'
+      LIMIT 1
+    `).get(po.id, po.id, po.id, cleanPreQcQr) as any;
+
+    if (!record) {
+      return res.status(400).json({
+        valid: false,
+        error: 'INVALID_PRE_QC_QR',
+        message: `Pre-QC QR ${cleanPreQcQr} is not valid for this PO.`
+      });
+    }
+
+    if (cleanProductQr) {
+      const existingAssignment = await db.prepare(`
+        SELECT * FROM pre_qc_assignments
+        WHERE (production_order_id = ? OR production_order_id IS NULL)
+          AND UPPER(TRIM(product_qr)) = ?
+          AND UPPER(TRIM(pre_qc_qr)) = ?
+      `).get(po.id, cleanProductQr, cleanPreQcQr) as any;
+
+      if (existingAssignment) {
+        return res.status(400).json({
+          valid: false,
+          error: 'ALREADY_ASSIGNED',
+          message: `${cleanPreQcQr} is already assigned to ${cleanProductQr}.`
+        });
+      }
+    }
+
+    return res.json({
+      valid: true,
+      preQcQr: cleanPreQcQr,
+      message: `Pre-QC QR ${cleanPreQcQr} is valid for this PO.`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 0. POST /api/qc/scan
 router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
@@ -617,7 +677,9 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
     // Fetch assigned and available Pre-QC items if Pre-QC operation is enabled for this PO
     let assignedPreQcItems: string[] = [];
     let availablePreQcItems: string[] = [];
-    if (po && (await checkOperationEnabledForPO(po.id, 'Pre QC'))) {
+    const preQcEnabled = po ? await checkOperationEnabledForPO(po.id, 'Pre QC') : false;
+
+    if (po && preQcEnabled) {
       const assignedRows = await db.prepare(`
         SELECT pre_qc_qr FROM pre_qc_assignments
         WHERE (production_order_id = ? OR production_order_id = ?)
@@ -664,6 +726,9 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
             testCompleted,
             isFullyCompleted: true
           },
+          preQcEnabled,
+          productionOrderId: po?.id,
+          productionOrderNumber: po?.po_number || po?.id,
           assignedPreQcItems,
           availablePreQcItems,
           progress
@@ -689,6 +754,9 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
         testCompleted,
         isFullyCompleted: false
       },
+      preQcEnabled,
+      productionOrderId: po?.id,
+      productionOrderNumber: po?.po_number || po?.id,
       assignedPreQcItems,
       availablePreQcItems,
       progress
