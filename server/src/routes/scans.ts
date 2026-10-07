@@ -309,9 +309,9 @@ export async function calculateSOProgress(soId: string) {
 // POST /api/pre-qc/scan
 router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const rawCode = req.body.preQcQr || req.body.pre_qc_qr || req.body.code || req.body.itemQr || req.body.qr;
+    const rawCode = req.body.code || req.body.itemQr;
     const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
-    if (!rawCode || typeof rawCode !== 'string' || !rawCode.trim()) {
+    if (!rawCode || typeof rawCode !== 'string') {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
     }
     const code = rawCode.trim().toUpperCase();
@@ -330,13 +330,41 @@ router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, nex
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
-    // NOTE: Pre-QC QRs (e.g. AAA-11, OMP/34567, EVT/34545, TEST-001) are raw barcodes and exempt from PO Product QR prefix validation!
+    const rangeCheck = await validateProductQrRangeForPO(po, code);
+    if (!rangeCheck.valid) {
+      return res.status(400).json({
+        error: rangeCheck.error,
+        message: rangeCheck.message,
+        expectedRange: (rangeCheck as any).expectedRange
+      });
+    }
+
+    const item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
+        AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, po.map_po, code) as any;
+
+    if (item) {
+      const existingPreQc = await db.prepare(`
+        SELECT * FROM pre_qc_results WHERE item_id = ? AND pre_qc_result = 'PASS'
+      `).get(item.id) as any;
+
+      if (existingPreQc || item.status === 'PRE_QC_PASSED') {
+        return res.json({
+          status: 'DUPLICATE',
+          message: 'Already processed Pre QC',
+          item: { qr_code: item.qr_code, size: item.size || 'L' }
+        });
+      }
+    }
+
+    const progress = await calculatePreQCProgress(po.id);
     return res.json({
       status: 'VALID',
-      valid: true,
       message: 'Barcode valid for Pre QC',
-      preQcQr: code,
-      item: { qr_code: code, size: 'L' }
+      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
+      progress
     });
   } catch (err) {
     next(err);
@@ -346,10 +374,12 @@ router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, nex
 // POST /api/pre-qc/record
 router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const rawCode = req.body.preQcQr || req.body.pre_qc_qr || req.body.code || req.body.itemQr || req.body.qr;
+    const rawCode = req.body.code || req.body.itemQr;
     const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || null;
+    const result = (req.body.preQcResult || req.body.result || 'PASS').toUpperCase();
+    const failureReason = req.body.failureReason ? String(req.body.failureReason).trim() : null;
 
-    if (!rawCode || typeof rawCode !== 'string' || !rawCode.trim()) {
+    if (!rawCode || typeof rawCode !== 'string') {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
     }
     const code = rawCode.trim().toUpperCase();
@@ -358,30 +388,44 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
-    const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, po.id);
-    if (!isAllocated) {
-      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
+    const rangeCheck = await validateProductQrRangeForPO(po, code);
+    if (!rangeCheck.valid) {
+      return res.status(400).json({ error: rangeCheck.error, message: rangeCheck.message });
     }
 
-    const isOpEnabled = await checkOperationEnabledForPO(po.id, 'Pre QC');
-    if (!isOpEnabled) {
-      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
-    }
+    let item = await db.prepare(`
+      SELECT * FROM item_units 
+      WHERE (production_order_id = ? OR production_order_id = ?) AND UPPER(TRIM(qr_code)) = ?
+    `).get(po.id, po.po_number, code) as any;
 
-    // Insert scan log into pre_qc_scans
-    const scanId = `scan-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    try {
+    const newStatus = result === 'PASS' ? 'PRE_QC_PASSED' : 'PRE_QC_FAILED';
+
+    if (!item) {
+      const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      const config = rangeCheck.config || {};
+      const sizeVal = config.size || 'L';
       await db.prepare(`
-        INSERT INTO pre_qc_scans (id, production_order_id, pre_qc_qr, operator_id, created_at)
-        VALUES (?, ?, ?, ?, NOW(3))
-      `).run(scanId, po.id, code, req.user!.id);
-    } catch (_) {}
+        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(itemId, code, po.id, config.id || null, sizeVal, newStatus);
 
+      item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
+    } else {
+      await db.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
+    }
+
+    const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await db.prepare(`
+      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, failure_reason, scanned_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW(3))
+    `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason);
+
+    const progress = await calculatePreQCProgress(po.id);
     return res.json({
       status: 'SUCCESS',
-      message: `Saved Pre-QC QR: ${code}`,
-      preQcQr: code,
-      item: { qr_code: code, size: 'L' }
+      message: `Pre QC ${result} recorded for ${code}`,
+      item: { qr_code: item.qr_code, size: item.size || 'L' },
+      progress
     });
   } catch (err) {
     next(err);
@@ -424,116 +468,11 @@ router.get('/pre-qc/progress/:poId', authenticateToken, async (req: AuthRequest,
   }
 });
 
-// POST /api/pre-qc/assign — Assign multiple Pre-QC QRs to ONE PO Product QR
-const preQcAssignSchema = z.object({
-  productionOrderId: z.string().min(1),
-  poProductQr: z.string().min(1),
-  preQcQrs: z.array(z.string().min(1)).min(1)
-});
-
-router.post('/pre-qc/assign', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
-    const parsed = preQcAssignSchema.parse(req.body);
-    const poProductQr = parsed.poProductQr.trim().toUpperCase();
-    const preQcQrs = parsed.preQcQrs.map(q => q.trim().toUpperCase());
-    const targetPoKey = parsed.productionOrderId;
-
-    const po = await resolvePO(targetPoKey);
-    if (!po) {
-      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
-    }
-
-    const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, po.id);
-    if (!isAllocated) {
-      return res.status(403).json({ error: 'UNAUTHORIZED_PO', message: `Operator is not authorized for Production Order ${po.po_number || po.id}.` });
-    }
-
-    const isOpEnabled = await checkOperationEnabledForPO(po.id, 'Pre QC');
-    if (!isOpEnabled) {
-      return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
-    }
-
-    // Validate PO Product QR using PO Product Configuration Rules
-    const rangeCheck = await validateProductQrRangeForPO(po, poProductQr);
-    if (!rangeCheck.valid) {
-      return res.status(400).json({ error: rangeCheck.error, message: rangeCheck.message, expectedRange: (rangeCheck as any).expectedRange });
-    }
-
-    let item = await db.prepare(`
-      SELECT * FROM item_units 
-      WHERE (production_order_id = ? OR production_order_id = ?) AND UPPER(TRIM(qr_code)) = ?
-    `).get(po.id, po.po_number, poProductQr) as any;
-
-    if (!item) {
-      const itemId = `itm-${po.id}-${poProductQr}`;
-      await db.prepare(`
-        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
-      `).run(itemId, poProductQr, po.id, rangeCheck.config?.id || null, rangeCheck.config?.size || 'L');
-      item = { id: itemId, qr_code: poProductQr, production_order_id: po.id, status: 'CREATED' };
-    }
-
-    const createdLinks: string[] = [];
-
-    await db.transaction(async (tx) => {
-      for (const preQr of preQcQrs) {
-        const linkId = `link-${po.id}-${poProductQr}-${preQr}`;
-        try {
-          await tx.prepare(`
-            INSERT INTO pre_qc_item_links (id, production_order_id, po_product_qr, item_id, pre_qc_qr, assigned_by, assigned_at)
-            VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-          `).run(linkId, po.id, poProductQr, item.id, preQr, req.user!.id);
-          createdLinks.push(preQr);
-        } catch (_) {
-          createdLinks.push(preQr);
-        }
-      }
-    });
-
-    return res.json({
-      status: 'SUCCESS',
-      message: `Assigned ${createdLinks.length} Pre-QC QRs to PO Product QR ${poProductQr}`,
-      poProductQr,
-      linkedQrs: createdLinks
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/pre-qc/links/:poId/:poProductQr
-router.get('/pre-qc/links/:poId/:poProductQr', authenticateToken, async (req: AuthRequest, res, next) => {
-  try {
-    const { poId, poProductQr } = req.params;
-    const po = await resolvePO(poId);
-    if (!po) {
-      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
-    }
-
-    const cleanQr = poProductQr.trim().toUpperCase();
-    const rows = await db.prepare(`
-      SELECT pre_qc_qr, assigned_at FROM pre_qc_item_links 
-      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?) 
-        AND UPPER(TRIM(po_product_qr)) = ?
-      ORDER BY assigned_at ASC
-    `).all(po.id, po.po_number || po.id, po.map_po || po.id, cleanQr) as any[];
-
-    return res.json({
-      poProductQr: cleanQr,
-      preQcQrs: rows.map(r => r.pre_qc_qr)
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // 0. POST /api/qc/scan
 router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const rawCode = req.body.code || req.body.itemQr;
     const targetPoKey = req.body.productionOrderId || req.body.productionOrderNumber || req.body.poNumber || req.body.salesOrderId || req.body.salesOrderNumber || null;
-    const targetStation = Number(req.body.station) === 2 ? 2 : 1;
-
     if (!rawCode || typeof rawCode !== 'string') {
       return res.status(400).json({ error: 'INVALID_QR', message: 'Barcode is required' });
     }
@@ -562,14 +501,6 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
       });
     }
 
-    const preQcRows = await db.prepare(`
-      SELECT pre_qc_qr FROM pre_qc_item_links 
-      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?) 
-        AND UPPER(TRIM(po_product_qr)) = ?
-      ORDER BY assigned_at ASC
-    `).all(po.id, po.po_number || po.id, po.map_po || po.id, code) as any[];
-    const preQcItems = preQcRows.map((r: any) => r.pre_qc_qr);
-
     const item = po ? await db.prepare(`
       SELECT * FROM item_units 
       WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
@@ -577,26 +508,14 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
     `).get(po.id, po.po_number, po.map_po, code) as any
     : await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(code) as any;
 
-    const rawMode = po.qc_test_mode || 'QC_AND_TEST';
-    const mode = (rawMode === 'QC_ONLY' || rawMode === 'QC Only' || rawMode === 'Endline Inspection')
-      ? 'QC_ONLY'
-      : (rawMode === 'TEST_ONLY' || rawMode === 'Test Only' || rawMode === 'Functional Test')
-      ? 'TEST_ONLY'
-      : 'QC_AND_TEST';
-
-    let existingQcStation1: any = null;
-    let existingQcStation2: any = null;
+    const mode = po.qc_test_mode || 'QC_AND_TEST';
     let existingQc: any = null;
     let qcCompleted = false;
     let testCompleted = false;
     let isFullyCompleted = false;
 
     if (item) {
-      const qcRows = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).all(item.id) as any[];
-      existingQcStation1 = qcRows.find(r => Number(r.station) === 1);
-      existingQcStation2 = qcRows.find(r => Number(r.station) === 2);
-      existingQc = targetStation === 2 ? existingQcStation2 : existingQcStation1;
-
+      existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
       if (existingQc) {
         qcCompleted = existingQc.qc_result === 'PASS';
         testCompleted = existingQc.test_result === 'PASS';
@@ -609,35 +528,19 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
         isFullyCompleted = qcCompleted && testCompleted;
       }
 
-      if (isFullyCompleted) {
+      if (isFullyCompleted || item.status === 'QC_PASSED' || item.status === 'PACKED') {
         const progress = po ? await calculatePOProgress(po.id) : undefined;
         return res.json({
           status: 'FULLY_COMPLETED',
-          message: `Inspection already completed for this garment at Station ${targetStation}.`,
+          message: 'QC & Test already completed for this garment.',
           item: { qr_code: item.qr_code, size: item.size || 'L' },
-          preQcItems,
           stageStatus: {
             qcResult: existingQc?.qc_result || 'PENDING',
             testResult: existingQc?.test_result || 'PENDING',
             qcCompleted,
             testCompleted,
-            isFullyCompleted: true,
-            station: targetStation
+            isFullyCompleted: true
           },
-          station1: existingQcStation1 ? {
-            qcResult: existingQcStation1.qc_result,
-            testResult: existingQcStation1.test_result,
-            qcCompleted: existingQcStation1.qc_result === 'PASS',
-            testCompleted: existingQcStation1.test_result === 'PASS',
-            isFullyCompleted: mode === 'QC_ONLY' ? existingQcStation1.qc_result === 'PASS' : mode === 'TEST_ONLY' ? existingQcStation1.test_result === 'PASS' : (existingQcStation1.qc_result === 'PASS' && existingQcStation1.test_result === 'PASS')
-          } : null,
-          station2: existingQcStation2 ? {
-            qcResult: existingQcStation2.qc_result,
-            testResult: existingQcStation2.test_result,
-            qcCompleted: existingQcStation2.qc_result === 'PASS',
-            testCompleted: existingQcStation2.test_result === 'PASS',
-            isFullyCompleted: mode === 'QC_ONLY' ? existingQcStation2.qc_result === 'PASS' : mode === 'TEST_ONLY' ? existingQcStation2.test_result === 'PASS' : (existingQcStation2.qc_result === 'PASS' && existingQcStation2.test_result === 'PASS')
-          } : null,
           progress
         });
       }
@@ -645,38 +548,22 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
 
     const progress = po ? await calculatePOProgress(po.id) : undefined;
     const msg = qcCompleted 
-      ? 'Endline Inspection completed. Functional Test is pending.' 
+      ? 'QC already completed. Test result is pending.' 
       : testCompleted 
-      ? 'Functional Test completed. Endline Inspection is pending.' 
+      ? 'Test already completed. QC result is pending.' 
       : 'Barcode valid for inspection';
 
     return res.json({
       status: 'VALID',
       message: msg,
       item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
-      preQcItems,
       stageStatus: {
         qcResult: existingQc?.qc_result || 'PENDING',
         testResult: existingQc?.test_result || 'PENDING',
         qcCompleted,
         testCompleted,
-        isFullyCompleted: false,
-        station: targetStation
+        isFullyCompleted: false
       },
-      station1: existingQcStation1 ? {
-        qcResult: existingQcStation1.qc_result,
-        testResult: existingQcStation1.test_result,
-        qcCompleted: existingQcStation1.qc_result === 'PASS',
-        testCompleted: existingQcStation1.test_result === 'PASS',
-        isFullyCompleted: mode === 'QC_ONLY' ? existingQcStation1.qc_result === 'PASS' : mode === 'TEST_ONLY' ? existingQcStation1.test_result === 'PASS' : (existingQcStation1.qc_result === 'PASS' && existingQcStation1.test_result === 'PASS')
-      } : null,
-      station2: existingQcStation2 ? {
-        qcResult: existingQcStation2.qc_result,
-        testResult: existingQcStation2.test_result,
-        qcCompleted: existingQcStation2.qc_result === 'PASS',
-        testCompleted: existingQcStation2.test_result === 'PASS',
-        isFullyCompleted: mode === 'QC_ONLY' ? existingQcStation2.qc_result === 'PASS' : mode === 'TEST_ONLY' ? existingQcStation2.test_result === 'PASS' : (existingQcStation2.qc_result === 'PASS' && existingQcStation2.test_result === 'PASS')
-      } : null,
       progress
     });
   } catch (err) {
@@ -1002,12 +889,10 @@ const qcResultSchema = z.object({
   productionOrderId: z.string().optional(),
   salesOrderNumber: z.string().optional(),
   salesOrderId: z.string().optional(),
-  station: z.number().int().min(1).max(2).optional().default(1),
-  stage: z.enum(['QC', 'TEST', 'ALL', 'ENDLINE', 'FUNCTIONAL']).optional(),
+  stage: z.enum(['QC', 'TEST', 'ALL']).optional(),
   qcResult: z.enum(['PASS', 'FAIL']).optional(),
   testResult: z.enum(['PASS', 'FAIL']).optional(),
-  failureReason: z.string().optional(),
-  testFailureReason: z.string().optional()
+  failureReason: z.string().optional()
 });
 
 router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next) => {
@@ -1016,9 +901,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     const idempotencyKey = parsed.idempotencyKey;
     const itemQr = parsed.itemQr.trim().toUpperCase();
     const targetPoKey = parsed.productionOrderId || parsed.productionOrderNumber || parsed.salesOrderId || parsed.salesOrderNumber || null;
-    const targetStation = parsed.station || 1;
     const failureReason = parsed.failureReason;
-    const testFailureReason = parsed.testFailureReason || failureReason;
 
     const operatorId = req.user!.id;
     const userRole = req.user!.role;
@@ -1028,18 +911,13 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
-    const rawMode = po.qc_test_mode || 'QC_AND_TEST';
-    const mode = (rawMode === 'QC_ONLY' || rawMode === 'QC Only' || rawMode === 'Endline Inspection')
-      ? 'QC_ONLY'
-      : (rawMode === 'TEST_ONLY' || rawMode === 'Test Only' || rawMode === 'Functional Test')
-      ? 'TEST_ONLY'
-      : 'QC_AND_TEST';
+    const mode = po.qc_test_mode || 'QC_AND_TEST';
 
     // Infer target stage
     let targetStage: 'QC' | 'TEST' = 'QC';
-    if (parsed.stage === 'TEST' || parsed.stage === 'FUNCTIONAL' || mode === 'TEST_ONLY' || (!parsed.qcResult && parsed.testResult)) {
+    if (parsed.stage === 'TEST' || mode === 'TEST_ONLY' || (!parsed.qcResult && parsed.testResult)) {
       targetStage = 'TEST';
-    } else if (parsed.stage === 'QC' || parsed.stage === 'ENDLINE' || mode === 'QC_ONLY' || (parsed.qcResult && !parsed.testResult)) {
+    } else if (parsed.stage === 'QC' || mode === 'QC_ONLY' || (parsed.qcResult && !parsed.testResult)) {
       targetStage = 'QC';
     } else {
       targetStage = parsed.qcResult ? 'QC' : 'TEST';
@@ -1095,86 +973,43 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       item.production_order_id = po.id;
     }
 
-    const existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ? AND station = ?`).get(item.id, targetStation) as any;
+    const existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
 
-    // Station 1 combined save validation
-    if (targetStation === 1 && mode === 'QC_AND_TEST') {
-      if (!parsed.qcResult || !parsed.testResult) {
-        return res.status(400).json({
-          error: 'BOTH_RESULTS_REQUIRED',
-          message: 'Please select both Endline Inspection and Functional Test results before saving.'
-        });
-      }
-    }
-
-    // Stage & Station Duplicate Checks
-    if (targetStation === 1 && existingQc && existingQc.qc_result === 'PASS' && existingQc.test_result === 'PASS') {
+    // Stage-specific duplicate check
+    if (targetStage === 'QC' && existingQc && existingQc.qc_result === 'PASS') {
       const progress = await calculatePOProgress(po.id);
       return res.status(200).json({
-        message: `Endline Inspection & Functional Test already completed for item ${itemQr} at Station 1.`,
+        message: `QC stage already completed for item ${itemQr}.`,
         itemQr,
         isDuplicate: true,
-        station: 1,
         targetStage,
         stageStatus: {
           qcResult: existingQc.qc_result,
-          testResult: existingQc.test_result,
+          testResult: existingQc.test_result || 'PENDING',
           qcCompleted: true,
-          testCompleted: true,
-          isFullyCompleted: true,
-          station: 1
+          testCompleted: existingQc.test_result === 'PASS',
+          isFullyCompleted: mode === 'QC_ONLY' || existingQc.test_result === 'PASS'
         },
         progress
       });
     }
 
-    if (targetStation === 2) {
-      if (targetStage === 'QC' && (!parsed.qcResult || parsed.qcResult === undefined)) {
-        return res.status(400).json({ error: 'QC_RESULT_REQUIRED', message: 'Endline Inspection Result (PASS/FAIL) is required.' });
-      }
-      if (targetStage === 'TEST' && (!parsed.testResult || parsed.testResult === undefined)) {
-        return res.status(400).json({ error: 'TEST_RESULT_REQUIRED', message: 'Functional Test Result (PASS/FAIL) is required.' });
-      }
-
-      if (targetStage === 'QC' && existingQc && existingQc.qc_result === 'PASS') {
-        const progress = await calculatePOProgress(po.id);
-        return res.status(200).json({
-          message: `Endline Inspection has already been completed for this item at Station 2.`,
-          itemQr,
-          isDuplicate: true,
-          station: 2,
-          targetStage: 'QC',
-          stageStatus: {
-            qcResult: existingQc.qc_result,
-            testResult: existingQc.test_result || 'PENDING',
-            qcCompleted: true,
-            testCompleted: existingQc.test_result === 'PASS',
-            isFullyCompleted: existingQc.test_result === 'PASS',
-            station: 2
-          },
-          progress
-        });
-      }
-
-      if (targetStage === 'TEST' && existingQc && existingQc.test_result === 'PASS') {
-        const progress = await calculatePOProgress(po.id);
-        return res.status(200).json({
-          message: `Functional Test has already been completed for this item at Station 2.`,
-          itemQr,
-          isDuplicate: true,
-          station: 2,
-          targetStage: 'TEST',
-          stageStatus: {
-            qcResult: existingQc?.qc_result || 'PENDING',
-            testResult: existingQc.test_result,
-            qcCompleted: existingQc?.qc_result === 'PASS',
-            testCompleted: true,
-            isFullyCompleted: existingQc?.qc_result === 'PASS',
-            station: 2
-          },
-          progress
-        });
-      }
+    if (targetStage === 'TEST' && existingQc && existingQc.test_result === 'PASS') {
+      const progress = await calculatePOProgress(po.id);
+      return res.status(200).json({
+        message: `Test stage already completed for item ${itemQr}.`,
+        itemQr,
+        isDuplicate: true,
+        targetStage,
+        stageStatus: {
+          qcResult: existingQc?.qc_result || 'PENDING',
+          testResult: existingQc.test_result,
+          qcCompleted: existingQc?.qc_result === 'PASS',
+          testCompleted: true,
+          isFullyCompleted: mode === 'TEST_ONLY' || existingQc?.qc_result === 'PASS'
+        },
+        progress
+      });
     }
 
     let nextQcResult = existingQc?.qc_result || 'PENDING';
@@ -1184,26 +1019,25 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     let qcScannedAt = existingQc?.scanned_at || new Date();
     let testScannedAt = existingQc?.test_scanned_at || (targetStage === 'TEST' ? new Date() : null);
 
-    if (targetStation === 1) {
-      nextQcResult = parsed.qcResult || 'PASS';
-      nextTestResult = parsed.testResult || 'PASS';
-      if (mode === 'QC_ONLY') nextTestResult = 'PASS';
-      if (mode === 'TEST_ONLY') nextQcResult = 'PASS';
+    if (targetStage === 'QC') {
+      if (!parsed.qcResult) {
+        return res.status(400).json({ error: 'QC_RESULT_REQUIRED', message: 'QC Result (PASS/FAIL) is required.' });
+      }
+      nextQcResult = parsed.qcResult;
       qcOpId = operatorId;
-      testOpId = operatorId;
       qcScannedAt = new Date();
+      if (mode === 'QC_ONLY') {
+        nextTestResult = 'PASS';
+      }
+    } else if (targetStage === 'TEST') {
+      if (!parsed.testResult) {
+        return res.status(400).json({ error: 'TEST_RESULT_REQUIRED', message: 'Test Result (PASS/FAIL) is required.' });
+      }
+      nextTestResult = parsed.testResult;
+      testOpId = operatorId;
       testScannedAt = new Date();
-    } else {
-      if (targetStage === 'QC') {
-        nextQcResult = parsed.qcResult!;
-        qcOpId = operatorId;
-        qcScannedAt = new Date();
-        if (mode === 'QC_ONLY') nextTestResult = 'PASS';
-      } else if (targetStage === 'TEST') {
-        nextTestResult = parsed.testResult!;
-        testOpId = operatorId;
-        testScannedAt = new Date();
-        if (mode === 'TEST_ONLY') nextQcResult = 'PASS';
+      if (mode === 'TEST_ONLY') {
+        nextQcResult = 'PASS';
       }
     }
 
@@ -1216,79 +1050,64 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       isFullyCompleted = nextQcResult === 'PASS' && nextTestResult === 'PASS';
     }
 
-    const finalItemStatus = (isFullyCompleted || nextQcResult === 'PASS' || nextTestResult === 'PASS')
-      ? 'QC_PASSED'
-      : (nextQcResult === 'FAIL' || nextTestResult === 'FAIL' ? 'QC_FAILED' : 'CREATED');
+    const finalItemStatus = isFullyCompleted ? 'QC_PASSED' : (nextQcResult === 'FAIL' || nextTestResult === 'FAIL' ? 'QC_FAILED' : 'CREATED');
 
     const existingFailsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_fail_log WHERE item_id = ?`).get(item.id) as any;
     let failCount = existingFailsRow?.cnt || 0;
     let retryCount = 0;
 
     await db.transaction(async (tx) => {
-      const isQcFail = (targetStation === 1 && nextQcResult === 'FAIL') || (targetStation === 2 && targetStage === 'QC' && nextQcResult === 'FAIL');
-      const isTestFail = (targetStation === 1 && nextTestResult === 'FAIL') || (targetStation === 2 && targetStage === 'TEST' && nextTestResult === 'FAIL');
-
-      if (isQcFail || isTestFail) {
+      const stageResultVal = targetStage === 'QC' ? nextQcResult : nextTestResult;
+      if (stageResultVal === 'FAIL') {
         failCount += 1;
         const failLogId = `qcfail-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-        const failReasonText = isQcFail ? failureReason : testFailureReason;
         await tx.prepare(`
-          INSERT INTO qc_fail_log (id, item_id, station, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, po_id, failure_type)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, ?)
-        `).run(failLogId, item.id, targetStation, operatorId, nextQcResult, nextTestResult, failReasonText || null, failCount, idempotencyKey || null, itemQr, po.id, `STATION_${targetStation}_${targetStage}_FAIL`);
+          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, po_id, failure_type)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, ?)
+        `).run(failLogId, item.id, operatorId, nextQcResult, nextTestResult, failureReason || null, failCount, idempotencyKey || null, itemQr, po.id, `${targetStage}_FAIL`);
 
         const alertId = `alt-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
           INSERT INTO alerts (id, user_id, role_target, category, severity, title, message, reference_type, reference_id, created_at)
-          VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'Inspection Failure Alert', ?, 'qc_fail_log', ?, NOW(3))
-        `).run(alertId, `Station ${targetStation} ${targetStage} failed for item ${itemQr} on PO ${po.po_number} (Reason: ${failReasonText || 'Defect detected'})`, failLogId);
+          VALUES (?, NULL, 'SUPERVISOR', 'QUALITY', 'WARNING', 'QC Test Failure Alert', ?, 'qc_fail_log', ?, NOW(3))
+        `).run(alertId, `${targetStage} failed for item ${itemQr} on PO ${po.po_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId);
       }
 
       if (existingQc) {
         retryCount = (existingQc.retry_count || 0) + 1;
         await tx.prepare(`
           UPDATE qc_results 
-          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, test_failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = ?
-          WHERE item_id = ? AND station = ?
-        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || existingQc.failure_reason || null, testFailureReason || existingQc.test_failure_reason || null, retryCount, qcScannedAt, testScannedAt, item.id, targetStation);
+          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3)
+          WHERE item_id = ?
+        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, item.id);
       } else {
         retryCount = 0;
-        const qcId = `qc-${targetStation}-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+        const qcId = `qc-${Date.now()}`;
         await tx.prepare(`
-          INSERT INTO qc_results (id, item_id, station, operator_id, test_operator_id, qc_result, test_result, failure_reason, test_failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?)
-        `).run(qcId, item.id, targetStation, qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || null, testFailureReason || null, qcScannedAt, testScannedAt);
+          INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?)
+        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || null, qcScannedAt, testScannedAt);
       }
 
       await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalItemStatus, item.id);
     });
 
     await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'ACCEPTED');
-    await auditLog(operatorId, `STATION_${targetStation}_${targetStage}_RESULT_SAVED`, 'item_units', item.id, { station: targetStation, stage: targetStage, qcResult: nextQcResult, testResult: nextTestResult });
+    await auditLog(operatorId, `${targetStage}_RESULT_SAVED`, 'item_units', item.id, { stage: targetStage, qcResult: nextQcResult, testResult: nextTestResult });
 
     const progress = await calculatePOProgress(po.id);
 
-    let successMsg = `Station ${targetStation} inspection result saved successfully.`;
-    if (targetStation === 1) {
-      successMsg = `Endline Inspection & Functional Test saved successfully for Station 1.`;
-    } else if (targetStage === 'QC') {
-      successMsg = `Endline Inspection result saved successfully.`;
-    } else if (targetStage === 'TEST') {
-      successMsg = `Functional Test result saved successfully.`;
-    }
-
     return res.status(200).json({
-      message: successMsg,
+      message: isFullyCompleted ? 'QC & Test Completed!' : `${targetStage} Result Saved!`,
       itemQr,
-      station: targetStation,
+      status: finalItemStatus,
       targetStage,
       stageStatus: {
         qcResult: nextQcResult,
         testResult: nextTestResult,
         qcCompleted: nextQcResult === 'PASS',
         testCompleted: nextTestResult === 'PASS',
-        isFullyCompleted,
-        station: targetStation
+        isFullyCompleted
       },
       retryCount,
       totalFails: failCount,

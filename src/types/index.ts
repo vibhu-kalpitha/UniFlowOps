@@ -12,19 +12,7 @@ export interface User {
 
 export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
 
-export type QcTestMode = 'Endline Inspection & Functional Test' | 'Endline Inspection' | 'Functional Test' | 'QC & Test' | 'QC Only' | 'Test Only';
-
-export function formatQcTestModeDisplay(mode?: string): QcTestMode {
-  if (!mode) return 'Endline Inspection & Functional Test';
-  const u = mode.trim().toUpperCase();
-  if (u === 'QC_ONLY' || u === 'QC ONLY' || u === 'ENDLINE INSPECTION') {
-    return 'Endline Inspection';
-  }
-  if (u === 'TEST_ONLY' || u === 'TEST ONLY' || u === 'FUNCTIONAL TEST') {
-    return 'Functional Test';
-  }
-  return 'Endline Inspection & Functional Test';
-}
+export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only';
 
 export interface ProductConfigSizeMaster {
   id: string;

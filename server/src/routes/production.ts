@@ -153,9 +153,9 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     : 0;
 
   // QC Test Mode
-  let qcTestMode: string = 'Endline Inspection & Functional Test';
-  if (po.qc_test_mode === 'QC_ONLY' || po.qc_test_mode === 'QC Only' || po.qc_test_mode === 'Endline Inspection') qcTestMode = 'Endline Inspection';
-  else if (po.qc_test_mode === 'TEST_ONLY' || po.qc_test_mode === 'Test Only' || po.qc_test_mode === 'Functional Test') qcTestMode = 'Functional Test';
+  let qcTestMode: string = 'QC & Test';
+  if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
+  else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
 
   // Load PO-level allocations
   const poAllocations = await db.prepare(`
@@ -486,8 +486,8 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
     // QC Test Mode format mapping
     let dbQcTestMode = 'QC_AND_TEST';
-    if (body.qcTestMode === 'Endline Inspection' || body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
-    else if (body.qcTestMode === 'Functional Test' || body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
+    if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
+    else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;

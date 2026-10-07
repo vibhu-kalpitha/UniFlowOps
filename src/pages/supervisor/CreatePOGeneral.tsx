@@ -64,7 +64,7 @@ export const CreatePOGeneral: React.FC = () => {
   const [selectedOps, setSelectedOps] = useState<OperationType[]>([
     'Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
   ]);
-  const [qcTestMode, setQcTestMode] = useState<QcTestMode>('Endline Inspection & Functional Test');
+  const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
 
   // Roster state — loaded from /api/shifts/all-members
   const [rosterRows, setRosterRows] = useState<ShiftRosterRow[]>([]);
@@ -503,10 +503,10 @@ export const CreatePOGeneral: React.FC = () => {
                     <div style={{ marginLeft: '12px', padding: '12px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                       <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>Mode</label>
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                        Specify whether operator must perform Endline Inspection &amp; Functional Test, Endline Inspection, or Functional Test.
+                        Specify whether operator must perform both QC &amp; Test, QC Only, or Test Only.
                       </p>
                       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                        {(['Endline Inspection & Functional Test', 'Endline Inspection', 'Functional Test'] as QcTestMode[]).map(mode => (
+                        {(['QC & Test', 'QC Only', 'Test Only'] as QcTestMode[]).map(mode => (
                           <label
                             key={mode}
                             style={{
