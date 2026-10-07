@@ -66,6 +66,34 @@ export const QCTestPage: React.FC = () => {
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
   const [savingStage, setSavingStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
   const [savedStage, setSavedStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
+  const isPreQcEnabled = Array.isArray(po?.selectedOperations) && po.selectedOperations.includes('Pre QC');
+  const [assignedPreQcItems, setAssignedPreQcItems] = useState<string[]>([]);
+  const [availablePreQcItems, setAvailablePreQcItems] = useState<string[]>([]);
+  const [selectedPreQcForAssign, setSelectedPreQcForAssign] = useState<string[]>([]);
+  const [isAssigningPreQc, setIsAssigningPreQc] = useState<boolean>(false);
+
+  const handleAssignPreQc = async () => {
+    if (!scannedItem || selectedPreQcForAssign.length === 0) return;
+    setIsAssigningPreQc(true);
+    try {
+      await apiFetch('/api/pre-qc/assign', {
+        method: 'POST',
+        body: JSON.stringify({
+          productionOrderId: po?.dbId || po?.id,
+          productionOrderNumber: po?.id,
+          productQr: scannedItem.qr,
+          preQcQrs: selectedPreQcForAssign
+        })
+      });
+      showToast(`✅ Assigned ${selectedPreQcForAssign.length} Pre-QC item(s) to ${scannedItem.qr}`, 'success');
+      setAssignedPreQcItems(prev => [...new Set([...prev, ...selectedPreQcForAssign])]);
+      setSelectedPreQcForAssign([]);
+    } catch (err: any) {
+      showToast(`Failed to assign Pre-QC items: ${err.message || err}`, 'error');
+    } finally {
+      setIsAssigningPreQc(false);
+    }
+  };
 
   // Authoritative backend progress state
   const [poProgress, setPoProgress] = useState<{
@@ -184,6 +212,18 @@ export const QCTestPage: React.FC = () => {
       };
 
       setStageStatus(stStatus);
+
+      if (res?.assignedPreQcItems) {
+        setAssignedPreQcItems(res.assignedPreQcItems);
+      } else {
+        setAssignedPreQcItems([]);
+      }
+      if (res?.availablePreQcItems) {
+        setAvailablePreQcItems(res.availablePreQcItems);
+      } else {
+        setAvailablePreQcItems([]);
+      }
+      setSelectedPreQcForAssign([]);
 
       if (res.status === 'FULLY_COMPLETED' || stStatus.isFullyCompleted) {
         setScannedItem({
@@ -663,6 +703,107 @@ export const QCTestPage: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* PRE-QC ITEM ASSIGNMENT CARD (Only shown if Pre QC operation is enabled for PO) */}
+              {isPreQcEnabled && (
+                <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <FileText size={18} color="var(--primary-teal)" />
+                    <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      Pre-QC Item Traceability ({scannedItem.qr})
+                    </span>
+                  </div>
+
+                  {assignedPreQcItems.length > 0 ? (
+                    <div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        Assigned Pre-QC items (Saved historical traceability record — cannot be edited):
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {assignedPreQcItems.map((code, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                              fontSize: '13px',
+                              fontWeight: 700,
+                              color: 'var(--text-primary)'
+                            }}
+                          >
+                            <CheckCircle2 size={16} color="var(--color-green)" />
+                            <span>✓ {code}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        Select captured Pre-QC items to assign to this garment:
+                      </p>
+                      {availablePreQcItems.length === 0 ? (
+                        <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface-2)', fontSize: '12px', color: 'var(--text-muted)' }}>
+                          No unassigned Pre-QC items captured for this PO yet. Scan Pre-QC items in <code>/operator/pre-qc</code> first.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
+                          {availablePreQcItems.map((code, idx) => {
+                            const isChecked = selectedPreQcForAssign.includes(code);
+                            return (
+                              <label
+                                key={idx}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  padding: '8px 12px',
+                                  borderRadius: '8px',
+                                  backgroundColor: isChecked ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-2)',
+                                  border: `1px solid ${isChecked ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                                  cursor: 'pointer',
+                                  fontSize: '13px',
+                                  fontWeight: 700,
+                                  color: 'var(--text-primary)'
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {
+                                    setSelectedPreQcForAssign(prev =>
+                                      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+                                    );
+                                  }}
+                                  style={{ accentColor: 'var(--primary-teal)', width: '16px', height: '16px' }}
+                                />
+                                <span>{code}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {availablePreQcItems.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={selectedPreQcForAssign.length === 0 || isAssigningPreQc}
+                          onClick={handleAssignPreQc}
+                          style={{ width: '100%', padding: '10px', fontSize: '13px', fontWeight: 700, marginTop: '4px' }}
+                        >
+                          {isAssigningPreQc ? 'Saving Assignment...' : `SAVE / ASSIGN PRE-QC (${selectedPreQcForAssign.length})`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* OVERALL STAGE STATUS BANNER IF FULLY COMPLETED */}
               {stageStatus?.isFullyCompleted && (

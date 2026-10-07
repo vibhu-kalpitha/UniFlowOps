@@ -537,6 +537,29 @@ async function runStartupColumnChecks(): Promise<void> {
       }
     } catch (e: any) { console.warn('  ⚠️ product_configuration_types/sizes:', e.message); }
 
+    // ── pre_qc_assignments ───────────────────────────────────────────
+    try {
+      if (!(await tableExists('pre_qc_assignments'))) {
+        await db.exec(`
+          CREATE TABLE pre_qc_assignments (
+            id VARCHAR(191) PRIMARY KEY,
+            production_order_id VARCHAR(191) NOT NULL,
+            product_qr VARCHAR(191) NOT NULL,
+            pre_qc_qr VARCHAR(191) NOT NULL,
+            operator_id VARCHAR(191) NOT NULL,
+            assigned_at DATETIME(3) NOT NULL,
+            created_at DATETIME(3) NOT NULL,
+            UNIQUE KEY idx_po_prod_preqc (production_order_id, product_qr, pre_qc_qr),
+            INDEX idx_pqa_po (production_order_id),
+            INDEX idx_pqa_prod_qr (product_qr),
+            INDEX idx_pqa_preqc_qr (pre_qc_qr),
+            INDEX idx_pqa_op (operator_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created pre_qc_assignments table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ pre_qc_assignments:', e.message); }
+
     console.log('✅ Startup column checks complete.');
   } catch (outerErr: any) {
     // NEVER crash the server — just log and continue

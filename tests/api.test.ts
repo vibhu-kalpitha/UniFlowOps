@@ -1224,6 +1224,65 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 20000);
+
+  it('18. Pre-QC → QC Relational Assignment & Rescan Traceability Validation', async () => {
+    const timestamp = Date.now();
+    const poId = `po-preqc-${timestamp}`;
+    const productQr = `PNFLSS${timestamp.toString().slice(-4)}`;
+    const preQcQr1 = `OMP/${timestamp.toString().slice(-5)}`;
+    const preQcQr2 = `EVT/${timestamp.toString().slice(-5)}`;
+    const preQcQr3 = `AAA-11`;
+
+    if (process.env.TEST_DB === 'true' && db) {
+      try {
+        // Create PO with Pre QC enabled
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, qc_test_mode, qc_station_count, created_at, updated_at)
+           VALUES (?, ?, 'Pre-QC Test PO', 'MAP-PQC', 'Cust PreQC', '2026-09-01', '2026-10-01', 'CURRENT', 'QC_AND_TEST', 1, NOW(3), NOW(3))`,
+          [poId, `PO-PQC-${timestamp}`]
+        );
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'PRE_QC')`, [poId]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'QC_TEST')`, [poId]);
+
+        // 1. Record raw Pre-QC items (accepts arbitrary format AAA-11, OMP/..., EVT/...)
+        const item1Id = `item-pqc1-${timestamp}`;
+        const item2Id = `item-pqc2-${timestamp}`;
+        const item3Id = `item-pqc3-${timestamp}`;
+
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item1Id, preQcQr1, poId]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item2Id, preQcQr2, poId]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'PRE_QC_PASSED', NOW(3), NOW(3))`, [item3Id, preQcQr3, poId]);
+
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, 'usr-op1', ?, 'PASS', NOW(3))`, [`pqr1-${timestamp}`, item1Id, poId]);
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, 'usr-op1', ?, 'PASS', NOW(3))`, [`pqr2-${timestamp}`, item2Id, poId]);
+        await db.execute(`INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, scanned_at) VALUES (?, ?, 'usr-op1', ?, 'PASS', NOW(3))`, [`pqr3-${timestamp}`, item3Id, poId]);
+
+        // 2. Relational Assignment: Assign preQC items to Product QR
+        const assign1 = `pqa1-${timestamp}`;
+        const assign2 = `pqa2-${timestamp}`;
+        const assign3 = `pqa3-${timestamp}`;
+
+        await db.execute(`INSERT INTO pre_qc_assignments (id, production_order_id, product_qr, pre_qc_qr, operator_id, assigned_at, created_at) VALUES (?, ?, ?, ?, 'usr-op1', NOW(3), NOW(3))`, [assign1, poId, productQr, preQcQr1]);
+        await db.execute(`INSERT INTO pre_qc_assignments (id, production_order_id, product_qr, pre_qc_qr, operator_id, assigned_at, created_at) VALUES (?, ?, ?, ?, 'usr-op1', NOW(3), NOW(3))`, [assign2, poId, productQr, preQcQr2]);
+        await db.execute(`INSERT INTO pre_qc_assignments (id, production_order_id, product_qr, pre_qc_qr, operator_id, assigned_at, created_at) VALUES (?, ?, ?, ?, 'usr-op1', NOW(3), NOW(3))`, [assign3, poId, productQr, preQcQr3]);
+
+        // 3. Rescan verification — assigned items exist and are relational
+        const assignedRows = await db.query<any>(`SELECT pre_qc_qr FROM pre_qc_assignments WHERE production_order_id = ? AND product_qr = ? ORDER BY assigned_at ASC`, [poId, productQr]);
+        expect(assignedRows.length).toBe(3);
+        expect(assignedRows.map(r => r.pre_qc_qr)).toEqual([preQcQr1, preQcQr2, preQcQr3]);
+
+        // 4. Pre-QC assignment does NOT auto-pass QC
+        const qcRow = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id IN (SELECT id FROM item_units WHERE qr_code = ?)`, [productQr]);
+        expect(qcRow).toBeNull();
+      } finally {
+        await db.execute(`DELETE FROM pre_qc_assignments WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM pre_qc_results WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM item_units WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM production_order_operations WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  });
 });
 
 

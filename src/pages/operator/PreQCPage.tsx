@@ -97,6 +97,14 @@ export const PreQCPage: React.FC = () => {
   /* ── Pre QC barcode scan handler ─────────────────────────────────── */
   const handleScanCode = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
+    if (!code) {
+      showToast('Barcode is required', 'warning');
+      return {
+        status: 'rejected' as const,
+        message: 'Barcode is required',
+        code: ''
+      };
+    }
     setSaved(false);
     setFailureReason('');
 
