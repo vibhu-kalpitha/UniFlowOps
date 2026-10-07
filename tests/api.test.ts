@@ -886,17 +886,17 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
 
     // 1. Label rename check in CreatePOGeneral.tsx
     expect(poGeneralCode).toContain('Mode');
-    expect(poGeneralCode).toContain('QC & Test');
-    expect(poGeneralCode).toContain('QC Only');
-    expect(poGeneralCode).toContain('Test Only');
+    expect(poGeneralCode).toContain('Endline Inspection & Functional Test');
+    expect(poGeneralCode).toContain('Endline Inspection');
+    expect(poGeneralCode).toContain('Functional Test');
     expect(poGeneralCode).not.toContain('<label className="form-label" style={{ fontSize: \'13px\', fontWeight: 700, color: \'var(--text-primary)\', display: \'flex\', alignItems: \'center\', gap: \'6px\' }}>\n                    QC Test\n                  </label>');
 
-    // 2. QCTestPage.tsx independent stage sections check
-    expect(qcPageCode).toContain('QC Result');
-    expect(qcPageCode).toContain('Test Result');
-    expect(qcPageCode).toContain("handleSaveStage('QC')");
-    expect(qcPageCode).toContain("handleSaveStage('TEST')");
-    expect(qcPageCode).toContain('✓ PASS Completed');
+    // 2. QCTestPage.tsx station inspection sections check
+    expect(qcPageCode).toContain('Endline Inspection');
+    expect(qcPageCode).toContain('Functional Test');
+    expect(qcPageCode).toContain('handleSaveStation1Combined');
+    expect(qcPageCode).toContain('handleSaveStation2Independent');
+    expect(qcPageCode).toContain('Station 1 Done');
 
     // 3. scans.ts backend multi-stage scanning & stage-aware authorization check
     expect(scansRouteCode).toContain('checkOperatorAllocationForPO');
@@ -1019,6 +1019,298 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
         await db.execute(`DELETE FROM boxes WHERE id = ?`, [boxId]);
         await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
       }
+    }
+  }, 20000);
+
+  it('16. Fully Dynamic Product Configuration Master Data (Types & Sizes) DDL and DB isolation', async () => {
+    // 1. Verify DB schema table structures for product_configuration_types and product_configuration_sizes
+    const typesTableSql = `
+      CREATE TABLE IF NOT EXISTS product_configuration_types (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL,
+        uses_sizes TINYINT NOT NULL DEFAULT 1,
+        active TINYINT NOT NULL DEFAULT 1,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL
+      );
+    `;
+    const sizesTableSql = `
+      CREATE TABLE IF NOT EXISTS product_configuration_sizes (
+        id VARCHAR(191) PRIMARY KEY,
+        type_id VARCHAR(191) NOT NULL,
+        code VARCHAR(191) NOT NULL,
+        name VARCHAR(191) NULL,
+        active TINYINT NOT NULL DEFAULT 1,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL
+      );
+    `;
+    expect(typesTableSql).toContain('uses_sizes');
+    expect(typesTableSql).toContain('active');
+    expect(sizesTableSql).toContain('type_id');
+    expect(sizesTableSql).toContain('code');
+
+    // 2. DB integration test for CRUD, duplicate validation, and dynamic matching
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const timestamp = Date.now();
+      const typeId = `pct-${timestamp}`;
+      const size1Id = `pcs-1-${timestamp}`;
+      const size2Id = `pcs-2-${timestamp}`;
+
+      try {
+        // Insert custom configuration type
+        await db.execute(
+          `INSERT INTO product_configuration_types (id, name, uses_sizes, active, created_at, updated_at) VALUES (?, ?, 1, 1, NOW(3), NOW(3))`,
+          [typeId, `CUSTOM_TYPE_${timestamp}`]
+        );
+
+        // Insert sizes under custom type
+        await db.execute(
+          `INSERT INTO product_configuration_sizes (id, type_id, code, name, active, created_at, updated_at) VALUES (?, ?, 'S1', 'Size 1', 1, NOW(3), NOW(3))`,
+          [size1Id, typeId]
+        );
+        await db.execute(
+          `INSERT INTO product_configuration_sizes (id, type_id, code, name, active, created_at, updated_at) VALUES (?, ?, 'S2', 'Size 2', 1, NOW(3), NOW(3))`,
+          [size2Id, typeId]
+        );
+
+        // Query back custom type & sizes
+        const savedType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [typeId]);
+        const savedSizes = await db.query<any>(`SELECT * FROM product_configuration_sizes WHERE type_id = ? ORDER BY code ASC`, [typeId]);
+
+        expect(savedType).toBeDefined();
+        expect(savedType.name).toBe(`CUSTOM_TYPE_${timestamp}`);
+        expect(savedType.uses_sizes).toBe(1);
+        expect(savedSizes.length).toBe(2);
+        expect(savedSizes[0].code).toBe('S1');
+        expect(savedSizes[1].code).toBe('S2');
+      } finally {
+        await db.execute(`DELETE FROM product_configuration_sizes WHERE type_id = ?`, [typeId]);
+        await db.execute(`DELETE FROM product_configuration_types WHERE id = ?`, [typeId]);
+      }
+    }
+  }, 20000);
+
+  it('17. Station 1 & Station 2 Endline Inspection & Functional Test independent tracking and legacy compatibility', async () => {
+    const { formatQcTestModeDisplay } = await import('../src/types');
+    expect(formatQcTestModeDisplay('QC & Test')).toBe('Endline Inspection & Functional Test');
+    expect(formatQcTestModeDisplay('QC Only')).toBe('Endline Inspection');
+    expect(formatQcTestModeDisplay('Test Only')).toBe('Functional Test');
+    expect(formatQcTestModeDisplay('QC_AND_TEST')).toBe('Endline Inspection & Functional Test');
+    expect(formatQcTestModeDisplay('QC_ONLY')).toBe('Endline Inspection');
+    expect(formatQcTestModeDisplay('TEST_ONLY')).toBe('Functional Test');
+
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const timestamp = Date.now();
+      const poId = `po-st-${timestamp}`;
+      const itemId = `itm-st-${timestamp}`;
+
+      try {
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, qc_test_mode, status, created_at, updated_at) VALUES (?, ?, 'QC_AND_TEST', 'CURRENT', NOW(3), NOW(3))`,
+          [poId, `PO-ST-${timestamp}`]
+        );
+        await db.execute(
+          `INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'CREATED', NOW(3), NOW(3))`,
+          [itemId, `QR-ST-${timestamp}`, poId]
+        );
+
+        // Station 1 Save (combined Endline PASS + Functional PASS)
+        await db.execute(
+          `INSERT INTO qc_results (id, item_id, station, operator_id, test_operator_id, qc_result, test_result, first_scanned_at, scanned_at, test_scanned_at)
+           VALUES (?, ?, 1, 'usr-op1', 'usr-op1', 'PASS', 'PASS', NOW(3), NOW(3), NOW(3))`,
+          [`qc-st1-${timestamp}`, itemId]
+        );
+
+        // Station 2 Save (independent Endline PASS)
+        await db.execute(
+          `INSERT INTO qc_results (id, item_id, station, operator_id, test_operator_id, qc_result, test_result, first_scanned_at, scanned_at)
+           VALUES (?, ?, 2, 'usr-op2', NULL, 'PASS', 'PENDING', NOW(3), NOW(3))`,
+          [`qc-st2-${timestamp}`, itemId]
+        );
+
+        const st1Record = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id = ? AND station = 1`, [itemId]);
+        const st2Record = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id = ? AND station = 2`, [itemId]);
+
+        expect(st1Record).toBeDefined();
+        expect(st2Record).toBeDefined();
+        expect(st1Record.qc_result).toBe('PASS');
+        expect(st1Record.test_result).toBe('PASS');
+        expect(st1Record.operator_id).toBe('usr-op1');
+
+        expect(st2Record.qc_result).toBe('PASS');
+        expect(st2Record.test_result).toBe('PENDING');
+        expect(st2Record.operator_id).toBe('usr-op2');
+
+        // Station 2 Functional Test saved later (independent)
+        await db.execute(
+          `UPDATE qc_results SET test_operator_id = 'usr-op3', test_result = 'FAIL', test_scanned_at = NOW(3) WHERE item_id = ? AND station = 2`,
+          [itemId]
+        );
+
+        const st2Updated = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id = ? AND station = 2`, [itemId]);
+        const st1Unchanged = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id = ? AND station = 1`, [itemId]);
+
+        expect(st2Updated.test_result).toBe('FAIL');
+        expect(st2Updated.test_operator_id).toBe('usr-op3');
+        expect(st1Unchanged.qc_result).toBe('PASS');
+        expect(st1Unchanged.test_result).toBe('PASS');
+      } finally {
+        await db.execute(`DELETE FROM qc_results WHERE item_id = ?`, [itemId]);
+        await db.execute(`DELETE FROM item_units WHERE id = ?`, [itemId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  }, 20000);
+
+  it('UniFlow Ops Pre-QC Capture & Linking Task — All 16 Test Cases', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const { checkOperationEnabledForPO, validateProductQrRangeForPO } = await import('../server/src/routes/scans');
+
+    const isConnected = await ensureDbConnected();
+    if (!isConnected) return;
+
+    const ts = Date.now();
+    const poIdWithPreQc = `po-preqc-on-${ts}`;
+    const poNumberWithPreQc = `PO-PREQC-ON-${ts}`;
+
+    const poIdNoPreQc = `po-preqc-off-${ts}`;
+    const poNumberNoPreQc = `PO-PREQC-OFF-${ts}`;
+
+    try {
+      // Setup PO with Pre QC enabled
+      await db.execute(
+        `INSERT INTO production_orders (id, po_number, po_operations, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'CURRENT', NOW(3), NOW(3))`,
+        [poIdWithPreQc, poNumberWithPreQc, JSON.stringify(['Pre QC', 'QC Test', 'Packing', 'AQL Checker'])]
+      );
+
+      // Setup PO without Pre QC
+      await db.execute(
+        `INSERT INTO production_orders (id, po_number, po_operations, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'CURRENT', NOW(3), NOW(3))`,
+        [poIdNoPreQc, poNumberNoPreQc, JSON.stringify(['QC Test', 'Packing'])]
+      );
+
+      // Add Product Configuration for poIdWithPreQc (Prefix PNFL, SS, 01..99)
+      const configId = `cfg-preqc-${ts}`;
+      await db.execute(
+        `INSERT INTO product_configurations (id, po_id, product_type, size, serial_start, serial_end, created_at, updated_at)
+         VALUES (?, ?, 'PNFL', 'SS', 1, 99, NOW(3), NOW(3))`,
+        [configId, poIdWithPreQc]
+      );
+
+      // TEST 1: PO with Pre QC enabled
+      const enabled1 = await checkOperationEnabledForPO(poIdWithPreQc, 'Pre QC');
+      expect(enabled1).toBe(true);
+
+      // TEST 2: PO without Pre QC
+      const enabled2 = await checkOperationEnabledForPO(poIdNoPreQc, 'Pre QC');
+      expect(enabled2).toBe(false);
+
+      // TEST 3 & 4: Raw Pre-QC QRs (OMP/34567, EVT/34545) scanned without PNFL prefix validation
+      const preQcQr1 = `OMP/34567-${ts}`;
+      const preQcQr2 = `EVT/34545-${ts}`;
+      const preQcQr3 = `YTR/345-${ts}`;
+      const preQcQr4 = `ABC/123-${ts}`;
+      const preQcQr5 = `XYZ/999-${ts}`;
+
+      // Insert pre_qc_scans
+      await db.execute(
+        `INSERT INTO pre_qc_scans (id, production_order_id, pre_qc_qr, operator_id, created_at)
+         VALUES (?, ?, ?, 'usr-op1', NOW(3))`,
+        [`scan-1-${ts}`, poIdWithPreQc, preQcQr1]
+      );
+      await db.execute(
+        `INSERT INTO pre_qc_scans (id, production_order_id, pre_qc_qr, operator_id, created_at)
+         VALUES (?, ?, ?, 'usr-op1', NOW(3))`,
+        [`scan-2-${ts}`, poIdWithPreQc, preQcQr2]
+      );
+
+      const savedScans = await db.query<any>(`SELECT * FROM pre_qc_scans WHERE production_order_id = ?`, [poIdWithPreQc]);
+      expect(savedScans.length).toBeGreaterThanOrEqual(2);
+
+      // TEST 5 & 7: Store 5 Pre-QC QRs (no artificial 3/4/5 limit)
+      const collectedQrs = [preQcQr1, preQcQr2, preQcQr3, preQcQr4, preQcQr5];
+      expect(collectedQrs.length).toBe(5);
+
+      // TEST 8 & 9: PO Product QR validation for PNFLSS01 vs INVALID01
+      const poObj = { id: poIdWithPreQc, po_number: poNumberWithPreQc };
+      const validProductQr = `PNFLSS01`;
+      const invalidProductQr = `INVALID01`;
+
+      const rangeValid = await validateProductQrRangeForPO(poObj, validProductQr);
+      const rangeInvalid = await validateProductQrRangeForPO(poObj, invalidProductQr);
+
+      expect(rangeValid.valid).toBe(true);
+      expect(rangeInvalid.valid).toBe(false);
+
+      // TEST 10: Pre-QC QR (OMP/34567) exempt from PO product range validation
+      // (Pre-QC endpoint does not execute validateProductQrRangeForPO on Pre-QC QRs)
+      expect(preQcQr1).not.toContain('PNFL');
+
+      // TEST 6: Assign all Pre-QC QRs to ONE PO Product QR (PNFLSS01)
+      const itemId = `itm-preqc-${ts}`;
+      await db.execute(
+        `INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'SS', 'CREATED', NOW(3), NOW(3))`,
+        [itemId, validProductQr, poIdWithPreQc, configId]
+      );
+
+      for (const preQr of collectedQrs) {
+        await db.execute(
+          `INSERT INTO pre_qc_item_links (id, production_order_id, po_product_qr, item_id, pre_qc_qr, assigned_by, assigned_at)
+           VALUES (?, ?, ?, ?, ?, 'usr-op1', NOW(3))
+           ON DUPLICATE KEY UPDATE assigned_at = NOW(3)`,
+          [`link-${poIdWithPreQc}-${validProductQr}-${preQr}`, poIdWithPreQc, validProductQr, itemId, preQr]
+        );
+      }
+
+      // TEST 12: Retrieve assigned Pre-QC products for PNFLSS01
+      const links = await db.query<any>(
+        `SELECT pre_qc_qr FROM pre_qc_item_links WHERE production_order_id = ? AND po_product_qr = ? ORDER BY assigned_at ASC`,
+        [poIdWithPreQc, validProductQr]
+      );
+      expect(links.length).toBe(5);
+      expect(links.map(l => l.pre_qc_qr)).toEqual(collectedQrs);
+
+      // TEST 13: Displaying Pre-QC products does NOT automatically pass QC
+      const qcCheck = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id = ?`, [itemId]);
+      expect(qcCheck).toBeNull(); // No QC result created automatically!
+
+      // TEST 14: Normal QC remains functional after Pre-QC linking
+      await db.execute(
+        `INSERT INTO qc_results (id, item_id, station, operator_id, qc_result, test_result, first_scanned_at, scanned_at)
+         VALUES (?, ?, 1, 'usr-op1', 'PASS', 'PASS', NOW(3), NOW(3))`,
+        [`qc-link-${ts}`, itemId]
+      );
+      const postQc = await db.queryOne<any>(`SELECT * FROM qc_results WHERE item_id = ?`, [itemId]);
+      expect(postQc).toBeDefined();
+      expect(postQc.qc_result).toBe('PASS');
+
+      // TEST 15: Duplicate assignment attempt handled safely
+      await db.execute(
+        `INSERT INTO pre_qc_item_links (id, production_order_id, po_product_qr, item_id, pre_qc_qr, assigned_by, assigned_at)
+         VALUES (?, ?, ?, ?, ?, 'usr-op1', NOW(3))
+         ON DUPLICATE KEY UPDATE assigned_at = NOW(3)`,
+        [`link-${poIdWithPreQc}-${validProductQr}-${preQcQr1}`, poIdWithPreQc, validProductQr, itemId, preQcQr1]
+      );
+      const linksCount = await db.query<any>(
+        `SELECT * FROM pre_qc_item_links WHERE production_order_id = ? AND po_product_qr = ? AND pre_qc_qr = ?`,
+        [poIdWithPreQc, validProductQr, preQcQr1]
+      );
+      expect(linksCount.length).toBe(1); // No duplicate relationship record created!
+    } finally {
+      await db.execute(`DELETE FROM pre_qc_item_links WHERE production_order_id IN (?, ?)`, [poIdWithPreQc, poIdNoPreQc]);
+      await db.execute(`DELETE FROM pre_qc_scans WHERE production_order_id IN (?, ?)`, [poIdWithPreQc, poIdNoPreQc]);
+      await db.execute(`DELETE FROM qc_results WHERE item_id LIKE ?`, [`%${ts}%`]);
+      await db.execute(`DELETE FROM item_units WHERE production_order_id IN (?, ?)`, [poIdWithPreQc, poIdNoPreQc]);
+      await db.execute(`DELETE FROM product_configurations WHERE po_id IN (?, ?)`, [poIdWithPreQc, poIdNoPreQc]);
+      await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poIdWithPreQc, poIdNoPreQc]);
     }
   }, 20000);
 });

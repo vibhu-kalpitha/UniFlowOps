@@ -5,9 +5,10 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube, Layers, QrCode, Plus, Trash2, Link2 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { formatQcTestModeDisplay } from '../../types';
 import '../../styles/tokens.css';
 
 interface ScannedItem {
@@ -17,8 +18,17 @@ interface ScannedItem {
   status: 'VALID' | 'DUPLICATE' | 'INVALID';
 }
 
+interface StationStageSummary {
+  qcResult: 'PASS' | 'FAIL' | 'PENDING';
+  testResult: 'PASS' | 'FAIL' | 'PENDING';
+  qcCompleted: boolean;
+  testCompleted: boolean;
+  isFullyCompleted: boolean;
+}
+
 interface StageStatus {
   mode?: string;
+  station?: number;
   qcCompleted: boolean;
   testCompleted: boolean;
   qcResult: 'PASS' | 'FAIL' | 'PENDING';
@@ -50,18 +60,100 @@ export const QCTestPage: React.FC = () => {
   const { activeJob, setActiveJob, incrementQCPassed, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
-  const qcMode = po?.qcTestMode || 'QC & Test';
+  const qcModeDisplay = formatQcTestModeDisplay(po?.qcTestMode);
 
+  const [activeStation, setActiveStation] = useState<1 | 2>(1);
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
+  const [station1Summary, setStation1Summary] = useState<StationStageSummary | null>(null);
+  const [station2Summary, setStation2Summary] = useState<StationStageSummary | null>(null);
+
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [testResult, setTestResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [qcFailureReason, setQcFailureReason] = useState<string>('');
   const [testFailureReason, setTestFailureReason] = useState<string>('');
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
-  const [savingStage, setSavingStage] = useState<'QC' | 'TEST' | null>(null);
-  const [savedStage, setSavedStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
+  const [savingStage, setSavingStage] = useState<'STATION1' | 'QC' | 'TEST' | null>(null);
+  const [savedStage, setSavedStage] = useState<'STATION1' | 'QC' | 'TEST' | 'ALL' | null>(null);
+
+  // Pre-QC feature state
+  const hasPreQc = Boolean(po?.selectedOperations?.includes('Pre QC'));
+  const [preQcInput, setPreQcInput] = useState<string>('');
+  const [collectedPreQcQrs, setCollectedPreQcQrs] = useState<string[]>([]);
+  const [poProductInput, setPoProductInput] = useState<string>('');
+  const [savingPreQc, setSavingPreQc] = useState<boolean>(false);
+  const [assigningPreQc, setAssigningPreQc] = useState<boolean>(false);
+  const [scannedPreQcItems, setScannedPreQcItems] = useState<string[]>([]);
+
+  const handleAddPreQcQr = async (overrideQr?: string) => {
+    const codeToSave = (overrideQr || preQcInput).trim().toUpperCase();
+    if (!codeToSave) {
+      showToast('Please enter or scan a Pre-QC QR', 'warning');
+      return;
+    }
+    if (collectedPreQcQrs.includes(codeToSave)) {
+      showToast(`Pre-QC QR ${codeToSave} is already in the list`, 'warning');
+      setPreQcInput('');
+      return;
+    }
+
+    setSavingPreQc(true);
+    try {
+      await apiFetch('/api/pre-qc/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          productionOrderId: po?.dbId || po?.id,
+          preQcQr: codeToSave
+        })
+      });
+      setCollectedPreQcQrs(prev => [...prev, codeToSave]);
+      showToast(`✅ Saved Pre-QC QR: ${codeToSave}`, 'success');
+      setPreQcInput('');
+    } catch (err: any) {
+      showToast(`Failed to record Pre-QC QR: ${err?.message || err}`, 'error');
+    } finally {
+      setSavingPreQc(false);
+    }
+  };
+
+  const handleRemovePreQcQr = (index: number) => {
+    setCollectedPreQcQrs(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAssignPreQcToPoProduct = async () => {
+    const targetProductQr = poProductInput.trim().toUpperCase();
+    if (collectedPreQcQrs.length === 0) {
+      showToast('Please add at least one Pre-QC QR to assign', 'warning');
+      return;
+    }
+    if (!targetProductQr) {
+      showToast('Please enter or scan a PO Product QR', 'warning');
+      return;
+    }
+
+    setAssigningPreQc(true);
+    try {
+      await apiFetch('/api/pre-qc/assign', {
+        method: 'POST',
+        body: JSON.stringify({
+          productionOrderId: po?.dbId || po?.id,
+          poProductQr: targetProductQr,
+          preQcQrs: collectedPreQcQrs
+        })
+      });
+
+      showToast(`✅ Assigned ${collectedPreQcQrs.length} Pre-QC QRs to PO Product ${targetProductQr}`, 'success');
+      setScannedPreQcItems([...collectedPreQcQrs]);
+      setCollectedPreQcQrs([]);
+      setPoProductInput('');
+    } catch (err: any) {
+      const msg = err?.message || err?.error || 'Failed to assign Pre-QC QRs';
+      showToast(`Assign Error: ${msg}`, 'error');
+    } finally {
+      setAssigningPreQc(false);
+    }
+  };
 
   // Authoritative backend progress state
   const [poProgress, setPoProgress] = useState<{
@@ -138,6 +230,8 @@ export const QCTestPage: React.FC = () => {
     setTestFailureReason('');
     setHistoryData(null);
     setStageStatus(null);
+    setStation1Summary(null);
+    setStation2Summary(null);
 
     try {
       const hRes = await apiFetch(`/api/qc/history/${code}`);
@@ -155,7 +249,12 @@ export const QCTestPage: React.FC = () => {
     try {
       const res = await apiFetch('/api/qc/scan', {
         method: 'POST',
-        body: JSON.stringify({ code, productionOrderId: po?.dbId || po?.id, productionOrderNumber: po?.id }),
+        body: JSON.stringify({
+          code,
+          productionOrderId: po?.dbId || po?.id,
+          productionOrderNumber: po?.id,
+          station: activeStation
+        }),
       });
 
       if (res?.progress) {
@@ -171,12 +270,21 @@ export const QCTestPage: React.FC = () => {
         }));
       }
 
+      if (res.station1) setStation1Summary(res.station1);
+      if (res.station2) setStation2Summary(res.station2);
+      if (Array.isArray(res.preQcItems)) {
+        setScannedPreQcItems(res.preQcItems);
+      } else {
+        setScannedPreQcItems([]);
+      }
+
       const stStatus: StageStatus = res.stageStatus || {
         qcResult: 'PENDING',
         testResult: 'PENDING',
         qcCompleted: false,
         testCompleted: false,
         isFullyCompleted: false,
+        station: activeStation
       };
 
       setStageStatus(stStatus);
@@ -188,10 +296,10 @@ export const QCTestPage: React.FC = () => {
           size: res.item?.size || 'L',
           status: 'DUPLICATE',
         });
-        showToast(`⚠️ ${qcMode} already completed for item ${code}.`, 'warning');
+        showToast(`⚠️ Inspection already completed for item ${code} at Station ${activeStation}.`, 'warning');
         return {
           status: 'duplicate' as const,
-          message: `⚠️ Item ${code} is ALREADY ${qcMode} Completed!`,
+          message: `⚠️ Item ${code} is ALREADY Completed at Station ${activeStation}!`,
           code: res.item?.qr_code || code,
         };
       }
@@ -206,13 +314,7 @@ export const QCTestPage: React.FC = () => {
       setQcResult('PASS');
       setTestResult('PASS');
 
-      if (stStatus.qcCompleted && !stStatus.testCompleted) {
-        showToast(`ℹ️ QC already completed for ${code}. Test stage is pending.`, 'info');
-      } else if (stStatus.testCompleted && !stStatus.qcCompleted) {
-        showToast(`ℹ️ Test already completed for ${code}. QC stage is pending.`, 'info');
-      } else {
-        showToast(`✅ ${code} scanned successfully`, 'success');
-      }
+      showToast(`✅ ${code} scanned successfully for Station ${activeStation}`, 'success');
 
       return {
         status: 'accepted' as const,
@@ -253,8 +355,8 @@ export const QCTestPage: React.FC = () => {
     }
   };
 
-  /* ── save stage handler ──────────────────────────────────────────── */
-  const handleSaveStage = async (stageToSave: 'QC' | 'TEST') => {
+  /* ── Station 1 Combined Save Handler ─────────────────────────── */
+  const handleSaveStation1Combined = async () => {
     if (!scannedItem) {
       showToast('Please scan a garment QR first.', 'warning');
       return;
@@ -263,95 +365,55 @@ export const QCTestPage: React.FC = () => {
       showToast('Cannot save result for invalid item.', 'error');
       return;
     }
-    if (stageStatus?.isFullyCompleted) {
-      showToast('Item is already fully completed.', 'warning');
+    if (!qcResult || !testResult) {
+      showToast('Please select both Endline Inspection and Functional Test results before saving.', 'warning');
       return;
     }
     if (savingStage) return;
 
-    setSavingStage(stageToSave);
-    const key = `qc-${stageToSave.toLowerCase()}-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
-    let saveRes: any = null;
-
-    const resultVal = stageToSave === 'QC' ? qcResult : testResult;
-    const reasonVal = stageToSave === 'QC' ? qcFailureReason : testFailureReason;
+    setSavingStage('STATION1');
+    const key = `qc-st1-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
 
     try {
-      const payload: any = {
-        idempotencyKey: key,
-        itemQr: scannedItem.qr,
-        productionOrderId: po?.dbId || po?.id,
-        productionOrderNumber: po?.id || 'PO-2026-0184',
-        stage: stageToSave,
-        failureReason: resultVal === 'FAIL' ? reasonVal : undefined,
-      };
-
-      if (stageToSave === 'QC') {
-        payload.qcResult = qcResult;
-      } else {
-        payload.testResult = testResult;
-      }
-
-      saveRes = await apiFetch('/api/qc/results', {
+      const saveRes = await apiFetch('/api/qc/results', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          idempotencyKey: key,
+          itemQr: scannedItem.qr,
+          productionOrderId: po?.dbId || po?.id,
+          productionOrderNumber: po?.id,
+          station: 1,
+          qcResult,
+          testResult,
+          failureReason: qcResult === 'FAIL' ? qcFailureReason : undefined,
+          testFailureReason: testResult === 'FAIL' ? testFailureReason : undefined
+        })
       });
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      if (err?.error === 'UNAUTHORIZED_STAGE') {
-        showToast(`⛔ ${errMsg}`, 'error');
-      } else if (err?.error === 'QR_OUT_OF_RANGE' || errMsg.includes('does not belong')) {
-        const expMsg = err?.expectedRange ? ` (Expected range: ${err.expectedRange})` : '';
-        showToast(`Out of range — this QR does not belong to Production Order ${po?.id || ''}.${expMsg}`, 'error');
-      } else {
-        showToast(`Save failed: ${errMsg}`, 'error');
+
+      if (saveRes?.isDuplicate) {
+        showToast(`⚠️ ${saveRes.message}`, 'warning');
+        setSavingStage(null);
+        return;
       }
-      setSavingStage(null);
-      return;
-    }
 
-    if (saveRes?.progress) {
-      setPoProgress(prev => ({
-        ...prev,
-        loading: false,
-        targetQuantity: saveRes.progress.targetQuantity,
-        inspectedUnique: saveRes.progress.inspectedUnique,
-        passedUnique: saveRes.progress.passedUnique,
-        failedUnique: saveRes.progress.failedUnique,
-        remainingToInspect: saveRes.progress.remainingToInspect,
-        remainingToPass: saveRes.progress.remainingToPass,
-      }));
-    }
-    await fetchProgress();
-
-    const newStageStatus: StageStatus = saveRes?.stageStatus || {
-      qcCompleted: stageToSave === 'QC' ? resultVal === 'PASS' : (stageStatus?.qcCompleted || false),
-      testCompleted: stageToSave === 'TEST' ? resultVal === 'PASS' : (stageStatus?.testCompleted || false),
-      qcResult: stageToSave === 'QC' ? resultVal : (stageStatus?.qcResult || 'PENDING'),
-      testResult: stageToSave === 'TEST' ? resultVal : (stageStatus?.testResult || 'PENDING'),
-      isFullyCompleted: false,
-    };
-
-    const isFullyCompleteNow = (qcMode === 'QC Only' && newStageStatus.qcCompleted) ||
-      (qcMode === 'Test Only' && newStageStatus.testCompleted) ||
-      (newStageStatus.qcCompleted && newStageStatus.testCompleted);
-
-    newStageStatus.isFullyCompleted = isFullyCompleteNow;
-    setStageStatus(newStageStatus);
-
-    if (resultVal === 'PASS') {
-      showToast(`✅ ${stageToSave} stage PASSED for ${scannedItem.qr}!`, 'success');
-    } else {
-      showToast(`❌ ${stageToSave} stage FAILED for ${scannedItem.qr}`, 'warning');
-    }
-
-    setSavingStage(null);
-    setSavedStage(stageToSave);
-
-    if (isFullyCompleteNow) {
-      incrementQCPassed();
+      showToast('✅ Endline Inspection & Functional Test saved successfully for Station 1!', 'success');
       setSavedStage('ALL');
-      showToast(`🎉 ALL STAGES (${qcMode}) COMPLETED for ${scannedItem.qr}!`, 'success');
+      incrementQCPassed();
+
+      if (saveRes?.progress) {
+        setPoProgress(prev => ({
+          ...prev,
+          loading: false,
+          targetQuantity: saveRes.progress.targetQuantity,
+          inspectedUnique: saveRes.progress.inspectedUnique,
+          passedUnique: saveRes.progress.passedUnique,
+          failedUnique: saveRes.progress.failedUnique,
+          remainingToInspect: saveRes.progress.remainingToInspect,
+          remainingToPass: saveRes.progress.remainingToPass,
+        }));
+      }
+      await fetchProgress();
+
       setTimeout(() => {
         setScannedItem(null);
         setStageStatus(null);
@@ -361,7 +423,91 @@ export const QCTestPage: React.FC = () => {
         setTestFailureReason('');
         setHistoryData(null);
         setSavedStage(null);
-      }, 1500);
+        setSavingStage(null);
+      }, 1200);
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (err?.error === 'UNAUTHORIZED_STAGE') {
+        showToast(`⛔ ${errMsg}`, 'error');
+      } else {
+        showToast(`Save failed: ${errMsg}`, 'error');
+      }
+      setSavingStage(null);
+    }
+  };
+
+  /* ── Station 2 Independent Save Handler ───────────────────────── */
+  const handleSaveStation2Independent = async (targetStage: 'QC' | 'TEST') => {
+    if (!scannedItem) {
+      showToast('Please scan a garment QR first.', 'warning');
+      return;
+    }
+    if (scannedItem.status === 'INVALID') {
+      showToast('Cannot save result for invalid item.', 'error');
+      return;
+    }
+    if (savingStage) return;
+
+    setSavingStage(targetStage);
+    const key = `qc-st2-${targetStage.toLowerCase()}-${po?.id || 'po'}-${scannedItem.qr}-${Date.now()}`;
+    const resultVal = targetStage === 'QC' ? qcResult : testResult;
+    const reasonVal = targetStage === 'QC' ? qcFailureReason : testFailureReason;
+
+    try {
+      const payload: any = {
+        idempotencyKey: key,
+        itemQr: scannedItem.qr,
+        productionOrderId: po?.dbId || po?.id,
+        productionOrderNumber: po?.id,
+        station: 2,
+        stage: targetStage,
+        failureReason: resultVal === 'FAIL' ? reasonVal : undefined,
+      };
+
+      if (targetStage === 'QC') {
+        payload.qcResult = qcResult;
+      } else {
+        payload.testResult = testResult;
+      }
+
+      const saveRes = await apiFetch('/api/qc/results', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      if (saveRes?.isDuplicate) {
+        showToast(`⚠️ ${saveRes.message}`, 'warning');
+        setSavingStage(null);
+        return;
+      }
+
+      const stageName = targetStage === 'QC' ? 'Endline Inspection' : 'Functional Test';
+      showToast(`${stageName} result saved successfully.`, 'success');
+      setSavedStage(targetStage);
+
+      if (saveRes?.progress) {
+        setPoProgress(prev => ({
+          ...prev,
+          loading: false,
+          targetQuantity: saveRes.progress.targetQuantity,
+          inspectedUnique: saveRes.progress.inspectedUnique,
+          passedUnique: saveRes.progress.passedUnique,
+          failedUnique: saveRes.progress.failedUnique,
+          remainingToInspect: saveRes.progress.remainingToInspect,
+          remainingToPass: saveRes.progress.remainingToPass,
+        }));
+      }
+      await fetchProgress();
+
+      setSavingStage(null);
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (err?.error === 'UNAUTHORIZED_STAGE') {
+        showToast(`⛔ ${errMsg}`, 'error');
+      } else {
+        showToast(`Save failed: ${errMsg}`, 'error');
+      }
+      setSavingStage(null);
     }
   };
 
@@ -386,18 +532,19 @@ export const QCTestPage: React.FC = () => {
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top Banner */}
       <div style={styles.banner}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                QC Inspection • {formatPoDisplayName(po)}
+                Inspection Station • {formatPoDisplayName(po)}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
+                Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcModeDisplay}</strong>
               </span>
             </div>
           </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button
               onClick={() => setShowPoSelector(true)}
@@ -423,13 +570,60 @@ export const QCTestPage: React.FC = () => {
         </div>
       </div>
 
+      {/* STATION SELECTOR (Only shown in combined mode) */}
+      {qcModeDisplay === 'Endline Inspection & Functional Test' && (
+        <div style={{ display: 'flex', gap: '10px', backgroundColor: 'var(--bg-surface-1)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+          <button
+            type="button"
+            onClick={() => { setActiveStation(1); setScannedItem(null); }}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: '10px',
+              border: activeStation === 1 ? '2px solid var(--primary-teal)' : '1px solid transparent',
+              backgroundColor: activeStation === 1 ? 'rgba(22, 184, 174, 0.15)' : 'transparent',
+              color: activeStation === 1 ? 'var(--primary-teal)' : 'var(--text-secondary)',
+              fontWeight: 800,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            <Layers size={16} /> Station 1 — Endline Inspection &amp; Functional Test (Combined Save)
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveStation(2); setScannedItem(null); }}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: '10px',
+              border: activeStation === 2 ? '2px solid var(--primary-teal)' : '1px solid transparent',
+              backgroundColor: activeStation === 2 ? 'rgba(22, 184, 174, 0.15)' : 'transparent',
+              color: activeStation === 2 ? 'var(--primary-teal)' : 'var(--text-secondary)',
+              fontWeight: 800,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            <Layers size={16} /> Station 2 — Endline Inspection &amp; Functional Test (Separate Saves)
+          </button>
+        </div>
+      )}
+
       {/* Split Grid for Desktop */}
       <div className="desktop-split-7-5">
         {/* Left Panel: Scanner & Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* PO Progress Card - Operator Work Primary */}
+          {/* PO Progress Card */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            {/* PRIMARY / LARGE: Operator Work */}
             <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
@@ -458,7 +652,6 @@ export const QCTestPage: React.FC = () => {
               <ProgressBar current={poProgress.operatorStats.passedCount} total={targetPoQty} height={8} />
             </div>
 
-            {/* SECONDARY / SMALL: PO Total Summary */}
             <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
               <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
               <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
@@ -478,17 +671,100 @@ export const QCTestPage: React.FC = () => {
             )}
           </div>
 
+          {/* PRE-QC SECTION (Conditional: Only when PO has Pre QC enabled) */}
+          {hasPreQc && (
+            <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px dashed var(--primary-teal)', margin: 0, padding: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <QrCode size={18} color="var(--primary-teal)" />
+                <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0 }}>
+                  PRE QC CAPTURE &amp; LINKING
+                </h4>
+              </div>
+
+              {/* 1. Scan Pre-QC QR */}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Scan Pre-QC QR (e.g. OMP/34567, EVT/34545)
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    value={preQcInput}
+                    onChange={(e) => setPreQcInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddPreQcQr(); }}
+                    placeholder="Enter/scan Pre-QC QR..."
+                    style={{ ...styles.textInput, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => handleAddPreQcQr()}
+                    disabled={savingPreQc}
+                    style={{ padding: '8px 12px', fontWeight: 700, fontSize: '12px', backgroundColor: 'var(--primary-teal)', color: '#fff' }}
+                  >
+                    {savingPreQc ? 'Saving...' : '[ SAVE PRE QC ]'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Saved Pre-QC Products */}
+              {collectedPreQcQrs.length > 0 && (
+                <div style={{ marginBottom: '14px', backgroundColor: 'var(--bg-surface-2)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                    Saved Pre-QC Products ({collectedPreQcQrs.length}):
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
+                    {collectedPreQcQrs.map((qr, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-surface-1)', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                        <code style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{idx + 1}. {qr}</code>
+                        <button type="button" onClick={() => handleRemovePreQcQr(idx)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '2px' }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. Assign to PO Product */}
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Assign to PO Product QR (e.g. PNFLSS01)
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    value={poProductInput}
+                    onChange={(e) => setPoProductInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAssignPreQcToPoProduct(); }}
+                    placeholder="Scan PO Product QR..."
+                    style={{ ...styles.textInput, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleAssignPreQcToPoProduct}
+                    disabled={assigningPreQc || collectedPreQcQrs.length === 0}
+                    style={{ padding: '8px 12px', fontWeight: 800, fontSize: '12px' }}
+                  >
+                    {assigningPreQc ? 'Assigning...' : '[ SAVE / ASSIGN ]'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
-          <ScannerInput onScan={handleScanCode} placeholder="Scan product QR barcode..." />
+          <ScannerInput onScan={handleScanCode} placeholder={`Scan barcode for Station ${activeStation} inspection...`} />
 
           {!scannedItem ? (
             <div style={styles.emptyCard}>
               <ScanLine size={36} color="var(--text-muted)" />
               <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
-                Waiting for scan…
+                Waiting for scan at Station {activeStation}…
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Scan a product QR code to inspect item details
+                Scan a garment QR code to open inspection details
               </span>
             </div>
           ) : (
@@ -505,7 +781,15 @@ export const QCTestPage: React.FC = () => {
                   borderWidth: '1.5px',
                 }}
               >
-                <span style={styles.cardHeaderTitle}>ITEM DETAILS</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardHeaderTitle}>ITEM DETAILS • STATION {activeStation}</span>
+                  {activeStation === 1 && station1Summary?.isFullyCompleted && (
+                    <StatusPill label="Station 1 Done" variant="green" />
+                  )}
+                  {activeStation === 2 && station2Summary?.isFullyCompleted && (
+                    <StatusPill label="Station 2 Done" variant="green" />
+                  )}
+                </div>
 
                 <div style={styles.detailRow}>
                   <span style={styles.detailLabel}>Barcode / QR</span>
@@ -524,7 +808,7 @@ export const QCTestPage: React.FC = () => {
                 <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
                   <span style={styles.detailLabel}>Validation</span>
                   {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid — In Range" variant="green" />}
-                  {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Fully Completed" variant="amber" />}
+                  {scannedItem.status === 'DUPLICATE' && <StatusPill label="⚠️ Station Completed" variant="amber" />}
                   {scannedItem.status === 'INVALID' && <StatusPill label="❌ Out of Range" variant="red" />}
                 </div>
 
@@ -544,146 +828,314 @@ export const QCTestPage: React.FC = () => {
                     </span>
                   </div>
                 )}
+
+                {scannedPreQcItems.length > 0 && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(22, 184, 174, 0.08)',
+                    border: '1px solid rgba(22, 184, 174, 0.3)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                      <Link2 size={15} color="var(--primary-teal)" />
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                        Assigned Pre-QC Products ({scannedPreQcItems.length}):
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {scannedPreQcItems.map((preQr, idx) => (
+                        <div key={idx} style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{idx + 1}.</span>
+                          <code style={{ backgroundColor: 'var(--bg-surface-2)', padding: '2px 6px', borderRadius: '4px' }}>{preQr}</code>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* OVERALL STAGE STATUS BANNER IF FULLY COMPLETED */}
-              {stageStatus?.isFullyCompleted && (
-                <div style={{ padding: '12px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '12px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={18} /> Overall: {qcMode} COMPLETED
+              {/* STATION 1 WORKFLOW (COMBINED SAVE) */}
+              {(qcModeDisplay === 'Endline Inspection & Functional Test' && activeStation === 1) && (
+                <div style={styles.stageCard}>
+                  <h4 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)', marginBottom: '12px' }}>
+                    Station 1 — Endline Inspection &amp; Functional Test
+                  </h4>
+
+                  {/* Endline Inspection Section */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <span style={styles.controlLabel}>
+                      <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Endline Inspection
+                    </span>
+                    <div style={styles.segmentRow}>
+                      <button
+                        type="button"
+                        style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                        onClick={() => setQcResult('PASS')}
+                      >
+                        <Check size={18} /> PASS
+                      </button>
+                      <button
+                        type="button"
+                        style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                        onClick={() => setQcResult('FAIL')}
+                      >
+                        <XCircle size={18} /> FAIL
+                      </button>
+                    </div>
+                    {qcResult === 'FAIL' && (
+                      <input
+                        type="text"
+                        value={qcFailureReason}
+                        onChange={(e) => setQcFailureReason(e.target.value)}
+                        placeholder="Endline Inspection Failure Reason..."
+                        style={{ ...styles.textInput, marginTop: '8px' }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Functional Test Section */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <span style={styles.controlLabel}>
+                      <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Functional Test
+                    </span>
+                    <div style={styles.segmentRow}>
+                      <button
+                        type="button"
+                        style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                        onClick={() => setTestResult('PASS')}
+                      >
+                        <Check size={18} /> PASS
+                      </button>
+                      <button
+                        type="button"
+                        style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                        onClick={() => setTestResult('FAIL')}
+                      >
+                        <XCircle size={18} /> FAIL
+                      </button>
+                    </div>
+                    {testResult === 'FAIL' && (
+                      <input
+                        type="text"
+                        value={testFailureReason}
+                        onChange={(e) => setTestFailureReason(e.target.value)}
+                        placeholder="Functional Test Failure Reason..."
+                        style={{ ...styles.textInput, marginTop: '8px' }}
+                      />
+                    )}
+                  </div>
+
+                  {/* ONE COMBINED SAVE BUTTON */}
+                  <button
+                    className="btn-primary"
+                    onClick={handleSaveStation1Combined}
+                    disabled={savingStage !== null}
+                    style={{
+                      width: '100%',
+                      height: '46px',
+                      fontSize: '14px',
+                      fontWeight: 800,
+                      background: savedStage === 'ALL' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                    }}
+                  >
+                    {savingStage === 'STATION1' ? 'Saving Station 1...' : savedStage === 'ALL' ? '✅ Station 1 Saved!' : '[ SAVE ENDLINE + FUNCTIONAL TEST ]'}
+                  </button>
+                </div>
+              )}
+
+              {/* STATION 2 WORKFLOW (SEPARATE SAVES) */}
+              {(qcModeDisplay === 'Endline Inspection & Functional Test' && activeStation === 2) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* Endline Inspection Section */}
+                  <div style={styles.stageCard}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={styles.controlLabel}>
+                        <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Endline Inspection (Station 2)
+                      </span>
+                    </div>
+
+                    <div style={styles.segmentRow}>
+                      <button
+                        type="button"
+                        style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                        onClick={() => setQcResult('PASS')}
+                      >
+                        <Check size={18} /> PASS
+                      </button>
+                      <button
+                        type="button"
+                        style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                        onClick={() => setQcResult('FAIL')}
+                      >
+                        <XCircle size={18} /> FAIL
+                      </button>
+                    </div>
+
+                    {qcResult === 'FAIL' && (
+                      <input
+                        type="text"
+                        value={qcFailureReason}
+                        onChange={(e) => setQcFailureReason(e.target.value)}
+                        placeholder="Endline Inspection Failure Reason..."
+                        style={{ ...styles.textInput, marginTop: '8px' }}
+                      />
+                    )}
+
+                    <button
+                      className="btn-primary"
+                      onClick={() => handleSaveStation2Independent('QC')}
+                      disabled={savingStage !== null}
+                      style={{
+                        marginTop: '10px',
+                        width: '100%',
+                        background: savedStage === 'QC' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                      }}
+                    >
+                      {savingStage === 'QC' ? 'Saving Endline Inspection...' : savedStage === 'QC' ? '✅ Endline Inspection Saved!' : '[ SAVE ENDLINE INSPECTION ]'}
+                    </button>
+                  </div>
+
+                  {/* Functional Test Section */}
+                  <div style={styles.stageCard}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={styles.controlLabel}>
+                        <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Functional Test (Station 2)
+                      </span>
+                    </div>
+
+                    <div style={styles.segmentRow}>
+                      <button
+                        type="button"
+                        style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                        onClick={() => setTestResult('PASS')}
+                      >
+                        <Check size={18} /> PASS
+                      </button>
+                      <button
+                        type="button"
+                        style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                        onClick={() => setTestResult('FAIL')}
+                      >
+                        <XCircle size={18} /> FAIL
+                      </button>
+                    </div>
+
+                    {testResult === 'FAIL' && (
+                      <input
+                        type="text"
+                        value={testFailureReason}
+                        onChange={(e) => setTestFailureReason(e.target.value)}
+                        placeholder="Functional Test Failure Reason..."
+                        style={{ ...styles.textInput, marginTop: '8px' }}
+                      />
+                    )}
+
+                    <button
+                      className="btn-primary"
+                      onClick={() => handleSaveStation2Independent('TEST')}
+                      disabled={savingStage !== null}
+                      style={{
+                        marginTop: '10px',
+                        width: '100%',
+                        background: savedStage === 'TEST' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                      }}
+                    >
+                      {savingStage === 'TEST' ? 'Saving Functional Test...' : savedStage === 'TEST' ? '✅ Functional Test Saved!' : '[ SAVE FUNCTIONAL TEST ]'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SINGLE MODE: ENDLINE INSPECTION ONLY */}
+              {qcModeDisplay === 'Endline Inspection' && (
+                <div style={styles.stageCard}>
+                  <span style={styles.controlLabel}>
+                    <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Endline Inspection
                   </span>
+                  <div style={styles.segmentRow}>
+                    <button
+                      type="button"
+                      style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                      onClick={() => setQcResult('PASS')}
+                    >
+                      <Check size={18} /> PASS
+                    </button>
+                    <button
+                      type="button"
+                      style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                      onClick={() => setQcResult('FAIL')}
+                    >
+                      <XCircle size={18} /> FAIL
+                    </button>
+                  </div>
+                  {qcResult === 'FAIL' && (
+                    <input
+                      type="text"
+                      value={qcFailureReason}
+                      onChange={(e) => setQcFailureReason(e.target.value)}
+                      placeholder="Endline Inspection Failure Reason..."
+                      style={{ ...styles.textInput, marginTop: '8px' }}
+                    />
+                  )}
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleSaveStation2Independent('QC')}
+                    disabled={savingStage !== null}
+                    style={{
+                      marginTop: '10px',
+                      width: '100%',
+                      background: savedStage === 'QC' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                    }}
+                  >
+                    {savingStage === 'QC' ? 'Saving...' : savedStage === 'QC' ? '✅ Saved!' : '[ SAVE ENDLINE INSPECTION ]'}
+                  </button>
                 </div>
               )}
 
-              {/* INDEPENDENT QC STAGE SECTION */}
-              {(qcMode === 'QC & Test' || qcMode === 'QC Only') && (
+              {/* SINGLE MODE: FUNCTIONAL TEST ONLY */}
+              {qcModeDisplay === 'Functional Test' && (
                 <div style={styles.stageCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={styles.controlLabel}>
-                      <ShieldCheck size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> QC Result
-                    </span>
-                    {stageStatus?.qcCompleted && (
-                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle2 size={14} /> ✓ PASS Completed
-                      </span>
-                    )}
+                  <span style={styles.controlLabel}>
+                    <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Functional Test
+                  </span>
+                  <div style={styles.segmentRow}>
+                    <button
+                      type="button"
+                      style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                      onClick={() => setTestResult('PASS')}
+                    >
+                      <Check size={18} /> PASS
+                    </button>
+                    <button
+                      type="button"
+                      style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                      onClick={() => setTestResult('FAIL')}
+                    >
+                      <XCircle size={18} /> FAIL
+                    </button>
                   </div>
-
-                  {stageStatus?.qcCompleted ? (
-                    <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
-                      QC Stage Completed {stageStatus.qcOperatorName ? `by ${stageStatus.qcOperatorName}` : ''}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={styles.segmentRow}>
-                        <button
-                          type="button"
-                          style={qcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                          onClick={() => setQcResult('PASS')}
-                        >
-                          <Check size={18} /> PASS
-                        </button>
-                        <button
-                          type="button"
-                          style={qcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                          onClick={() => setQcResult('FAIL')}
-                        >
-                          <XCircle size={18} /> FAIL
-                        </button>
-                      </div>
-
-                      {qcResult === 'FAIL' && (
-                        <div style={{ marginTop: '8px' }}>
-                          <input
-                            type="text"
-                            value={qcFailureReason}
-                            onChange={(e) => setQcFailureReason(e.target.value)}
-                            placeholder="QC Failure Reason (e.g. Stitching error, fabric defect)..."
-                            style={styles.textInput}
-                          />
-                        </div>
-                      )}
-
-                      <button
-                        className="btn-primary"
-                        onClick={() => handleSaveStage('QC')}
-                        disabled={savingStage !== null}
-                        style={{
-                          marginTop: '10px',
-                          width: '100%',
-                          background: savedStage === 'QC' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-                        }}
-                      >
-                        {savingStage === 'QC' ? 'Saving QC...' : savedStage === 'QC' ? '✅ QC Saved!' : 'Save QC Result'}
-                      </button>
-                    </>
+                  {testResult === 'FAIL' && (
+                    <input
+                      type="text"
+                      value={testFailureReason}
+                      onChange={(e) => setTestFailureReason(e.target.value)}
+                      placeholder="Functional Test Failure Reason..."
+                      style={{ ...styles.textInput, marginTop: '8px' }}
+                    />
                   )}
-                </div>
-              )}
-
-              {/* INDEPENDENT TEST STAGE SECTION */}
-              {(qcMode === 'QC & Test' || qcMode === 'Test Only') && (
-                <div style={styles.stageCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={styles.controlLabel}>
-                      <TestTube size={16} color="var(--primary-teal)" style={{ marginRight: '6px' }} /> Test Result
-                    </span>
-                    {stageStatus?.testCompleted && (
-                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle2 size={14} /> ✓ PASS Completed
-                      </span>
-                    )}
-                  </div>
-
-                  {stageStatus?.testCompleted ? (
-                    <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
-                      Test Stage Completed {stageStatus.testOperatorName ? `by ${stageStatus.testOperatorName}` : ''}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={styles.segmentRow}>
-                        <button
-                          type="button"
-                          style={testResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                          onClick={() => setTestResult('PASS')}
-                        >
-                          <Check size={18} /> PASS
-                        </button>
-                        <button
-                          type="button"
-                          style={testResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                          onClick={() => setTestResult('FAIL')}
-                        >
-                          <XCircle size={18} /> FAIL
-                        </button>
-                      </div>
-
-                      {testResult === 'FAIL' && (
-                        <div style={{ marginTop: '8px' }}>
-                          <input
-                            type="text"
-                            value={testFailureReason}
-                            onChange={(e) => setTestFailureReason(e.target.value)}
-                            placeholder="Test Failure Reason (e.g. Wash test fail, measurement out of spec)..."
-                            style={styles.textInput}
-                          />
-                        </div>
-                      )}
-
-                      <button
-                        className="btn-primary"
-                        onClick={() => handleSaveStage('TEST')}
-                        disabled={savingStage !== null}
-                        style={{
-                          marginTop: '10px',
-                          width: '100%',
-                          background: savedStage === 'TEST' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-                        }}
-                      >
-                        {savingStage === 'TEST' ? 'Saving Test...' : savedStage === 'TEST' ? '✅ Test Saved!' : 'Save Test Result'}
-                      </button>
-                    </>
-                  )}
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleSaveStation2Independent('TEST')}
+                    disabled={savingStage !== null}
+                    style={{
+                      marginTop: '10px',
+                      width: '100%',
+                      background: savedStage === 'TEST' ? 'var(--color-green)' : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+                    }}
+                  >
+                    {savingStage === 'TEST' ? 'Saving...' : savedStage === 'TEST' ? '✅ Saved!' : '[ SAVE FUNCTIONAL TEST ]'}
+                  </button>
                 </div>
               )}
             </>
@@ -707,7 +1159,7 @@ export const QCTestPage: React.FC = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Mode:</span>
-                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{qcMode}</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{qcModeDisplay}</span>
               </div>
               {po?.productConfigurations && po.productConfigurations.length > 0 && (
                 <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)' }}>
@@ -724,13 +1176,12 @@ export const QCTestPage: React.FC = () => {
 
           <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              QC & TEST INSTRUCTIONS
+              STATION INSTRUCTIONS
             </span>
             <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              <li>Scan the product QR code barcode.</li>
-              <li>Perform required inspection according to selected mode ({qcMode}).</li>
-              <li>Save QC and/or Test results independently.</li>
-              <li>Multi-stage mode allows scanning the same QR to complete pending stages.</li>
+              <li><strong>Station 1:</strong> Perform Endline Inspection &amp; Functional Test. Select both PASS/FAIL and click [ SAVE ENDLINE + FUNCTIONAL TEST ].</li>
+              <li><strong>Station 2:</strong> Independent station. Save Endline Inspection or Functional Test independently when completed.</li>
+              <li>Station 1 and Station 2 results are tracked separately.</li>
             </ul>
           </div>
         </div>

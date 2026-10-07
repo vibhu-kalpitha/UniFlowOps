@@ -429,9 +429,39 @@ async function runStartupColumnChecks(): Promise<void> {
       }
     } catch (e: any) { console.warn('  ⚠️ pre_qc_results:', e.message); }
 
-    // ── qc_results columns for independent Test stage tracking ────────
+    // ── pre_qc_item_links table for Pre-QC-to-PO-Product linking ───────
+    try {
+      if (!(await tableExists('pre_qc_item_links'))) {
+        await db.exec(`
+          CREATE TABLE pre_qc_item_links (
+            id VARCHAR(191) PRIMARY KEY,
+            production_order_id VARCHAR(191) NOT NULL,
+            po_product_qr VARCHAR(191) NOT NULL,
+            item_id VARCHAR(191) NULL,
+            pre_qc_qr VARCHAR(191) NOT NULL,
+            pre_qc_result_id VARCHAR(191) NULL,
+            assigned_by VARCHAR(191) NOT NULL,
+            assigned_at DATETIME(3) NOT NULL,
+            INDEX idx_preqc_link_po (production_order_id),
+            INDEX idx_preqc_link_po_qr (po_product_qr),
+            INDEX idx_preqc_link_item (item_id),
+            INDEX idx_preqc_link_pre_qr (pre_qc_qr),
+            UNIQUE KEY uq_preqc_po_link (production_order_id, po_product_qr, pre_qc_qr)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created pre_qc_item_links table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ pre_qc_item_links:', e.message); }
+
+    // ── qc_results columns for independent Station 1 & 2 tracking ────────
     try {
       if (await tableExists('qc_results')) {
+        if (!(await columnExists('qc_results', 'station'))) {
+          try {
+            await db.exec(`ALTER TABLE qc_results ADD COLUMN station INT NOT NULL DEFAULT 1 AFTER item_id`);
+            console.log('  ✅ Added qc_results.station');
+          } catch (_) {}
+        }
         if (!(await columnExists('qc_results', 'test_operator_id'))) {
           try {
             await db.exec(`ALTER TABLE qc_results ADD COLUMN test_operator_id VARCHAR(191) NULL AFTER test_result`);
@@ -450,8 +480,34 @@ async function runStartupColumnChecks(): Promise<void> {
             console.log('  ✅ Added qc_results.test_failure_reason');
           } catch (_) {}
         }
+
+        // Align unique constraints on qc_results (composite item_id + station)
+        if (await indexExists('qc_results', 'item_id')) {
+          try {
+            await db.exec(`ALTER TABLE qc_results DROP INDEX item_id`);
+            console.log('  ✅ Removed single-column item_id unique constraint from qc_results');
+          } catch (_) {}
+        }
+        if (!(await indexExists('qc_results', 'uq_qc_results_item_station')) && !(await constraintExists('qc_results', 'uq_qc_results_item_station'))) {
+          try {
+            await db.exec(`ALTER TABLE qc_results ADD CONSTRAINT uq_qc_results_item_station UNIQUE (item_id, station)`);
+            console.log('  ✅ Added uq_qc_results_item_station UNIQUE constraint to qc_results');
+          } catch (_) {}
+        }
       }
     } catch (e: any) { console.warn('  ⚠️ qc_results columns:', e.message); }
+
+    // ── qc_fail_log station column ──────────────────────────────────────
+    try {
+      if (await tableExists('qc_fail_log')) {
+        if (!(await columnExists('qc_fail_log', 'station'))) {
+          try {
+            await db.exec(`ALTER TABLE qc_fail_log ADD COLUMN station INT NOT NULL DEFAULT 1 AFTER item_id`);
+            console.log('  ✅ Added qc_fail_log.station');
+          } catch (_) {}
+        }
+      }
+    } catch (e: any) { console.warn('  ⚠️ qc_fail_log station:', e.message); }
 
     // ── aql_inspections columns for Final AQL stage separation ────────
     try {
@@ -491,6 +547,43 @@ async function runStartupColumnChecks(): Promise<void> {
         }
       }
     } catch (e: any) { console.warn('  ⚠️ item_units index alignment:', e.message); }
+
+    // ── product_configuration_types & product_configuration_sizes ────
+    try {
+      if (!(await tableExists('product_configuration_types'))) {
+        await db.exec(`
+          CREATE TABLE product_configuration_types (
+            id VARCHAR(191) PRIMARY KEY,
+            name VARCHAR(191) NOT NULL,
+            prefix VARCHAR(191) NULL,
+            uses_sizes TINYINT NOT NULL DEFAULT 1,
+            active TINYINT NOT NULL DEFAULT 1,
+            created_at DATETIME(3) NOT NULL,
+            updated_at DATETIME(3) NOT NULL,
+            INDEX idx_pct_active (active),
+            INDEX idx_pct_name (name)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created product_configuration_types table');
+      }
+
+      if (!(await tableExists('product_configuration_sizes'))) {
+        await db.exec(`
+          CREATE TABLE product_configuration_sizes (
+            id VARCHAR(191) PRIMARY KEY,
+            configuration_type_id VARCHAR(191) NOT NULL,
+            size_code VARCHAR(191) NOT NULL,
+            active TINYINT NOT NULL DEFAULT 1,
+            created_at DATETIME(3) NOT NULL,
+            updated_at DATETIME(3) NOT NULL,
+            INDEX idx_pcs_type (configuration_type_id),
+            INDEX idx_pcs_active (active),
+            FOREIGN KEY (configuration_type_id) REFERENCES product_configuration_types(id) ON DELETE CASCADE
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('  ✅ Created product_configuration_sizes table');
+      }
+    } catch (e: any) { console.warn('  ⚠️ product_configuration_types/sizes:', e.message); }
 
     console.log('✅ Startup column checks complete.');
   } catch (outerErr: any) {

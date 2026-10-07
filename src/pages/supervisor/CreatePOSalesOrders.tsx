@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ProductConfiguration, ShiftAssignment } from '../../types';
+import { ProductConfiguration, ShiftAssignment, ProductConfigTypeMaster } from '../../types';
 import { apiFetch } from '../../services/api';
-import { Plus, Trash2, ArrowRight, ArrowLeft, CheckSquare, Square, Layers } from 'lucide-react';
+import { ManageProductConfigTypesModal } from '../../components/ManageProductConfigTypesModal';
+import { Plus, Trash2, ArrowRight, ArrowLeft, CheckSquare, Square, Layers, Settings } from 'lucide-react';
 import '../../styles/tokens.css';
 
 interface StyleItem {
@@ -14,9 +15,6 @@ interface StyleItem {
   season?: string;
 }
 
-const GLOBAL_LEG_SIZES = ['SS', 'SM', 'SL', 'TM', 'TL', 'TXL'];
-const GLOBAL_CORE_SIZES = ['SS', 'SM', 'SL', 'TS', 'TM', 'TL'];
-
 export const CreatePOSalesOrders: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useApp();
@@ -24,14 +22,14 @@ export const CreatePOSalesOrders: React.FC = () => {
   const [draftPoGeneral, setDraftPoGeneral] = useState<any>(null);
   const [styleDetails, setStyleDetails] = useState<StyleItem | null>(null);
 
-  // Global Product Configuration Type Selection
-  const [enableLeg, setEnableLeg] = useState<boolean>(true);
-  const [enableCore, setEnableCore] = useState<boolean>(true);
-  const [enableNoSize, setEnableNoSize] = useState<boolean>(false);
+  // Dynamic Master Configuration Types from Database
+  const [masterConfigTypes, setMasterConfigTypes] = useState<ProductConfigTypeMaster[]>([]);
+  const [loadingMasterTypes, setLoadingMasterTypes] = useState<boolean>(true);
+  const [showManageModal, setShowManageModal] = useState<boolean>(false);
 
-  // Selected Size States
-  const [selectedLegSizes, setSelectedLegSizes] = useState<string[]>(['SS', 'SM']);
-  const [selectedCoreSizes, setSelectedCoreSizes] = useState<string[]>(['TS', 'TL']);
+  // Selected Master Type IDs & Selected Sizes per Type ID
+  const [enabledTypeIds, setEnabledTypeIds] = useState<string[]>([]);
+  const [selectedSizesMap, setSelectedSizesMap] = useState<Record<string, string[]>>({});
 
   // Dynamic Product Configurations List
   const [configs, setConfigs] = useState<ProductConfiguration[]>([]);
@@ -49,7 +47,38 @@ export const CreatePOSalesOrders: React.FC = () => {
     }
   ]);
 
-  // Load General Draft and Style info on mount
+  const fetchMasterConfigTypes = async () => {
+    setLoadingMasterTypes(true);
+    try {
+      const data = await apiFetch<ProductConfigTypeMaster[]>('/api/product-config-types');
+      if (Array.isArray(data)) {
+        setMasterConfigTypes(data);
+
+        // Auto-enable active types on initial load if none selected yet
+        if (enabledTypeIds.length === 0 && data.length > 0) {
+          const firstIds = data.map(t => t.id);
+          setEnabledTypeIds(firstIds);
+
+          const initialSizes: Record<string, string[]> = {};
+          data.forEach(t => {
+            if (t.usesSizes && t.sizes.length > 0) {
+              // Enable first 2 sizes by default for convenience
+              initialSizes[t.id] = t.sizes.slice(0, 2).map(s => s.sizeCode);
+            }
+          });
+          setSelectedSizesMap(initialSizes);
+        }
+      } else {
+        setMasterConfigTypes([]);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch product configuration types:', err);
+    } finally {
+      setLoadingMasterTypes(false);
+    }
+  };
+
+  // Load General Draft, Style info, and Master Types on mount
   useEffect(() => {
     const genData = sessionStorage.getItem('uniflow_draft_po_general');
     const existingConfigsData = sessionStorage.getItem('uniflow_draft_po_configs');
@@ -73,78 +102,69 @@ export const CreatePOSalesOrders: React.FC = () => {
         const parsedConfigs = JSON.parse(existingConfigsData);
         if (Array.isArray(parsedConfigs) && parsedConfigs.length > 0) {
           setConfigs(parsedConfigs);
-          return;
         }
       } catch (e) {
-        // Fallback to generator
+        // Fallback
       }
     }
+
+    fetchMasterConfigTypes();
   }, []);
 
-  const styleCode = styleDetails?.code || draftPoGeneral?.styleCode || 'PNFL';
+  const styleCode = styleDetails?.code || draftPoGeneral?.styleCode || 'STYLE';
 
-  // Synchronize Configs based on selected types & sizes
+  // Synchronize PO Configs dynamically based on selected master types & sizes
   useEffect(() => {
-    // If existing configs loaded from session storage, do not wipe on mount unless toggled
+    if (masterConfigTypes.length === 0) return;
+
     setConfigs(prev => {
       const updated: ProductConfiguration[] = [];
 
-      // 1. LEG (PNFL)
-      if (enableLeg) {
-        selectedLegSizes.forEach(sz => {
-          const code = `PNFL${sz}`;
-          const existing = prev.find(c => c.configCode === code);
-          const defaultQty = existing?.quantity && existing.quantity > 0 ? existing.quantity : 500;
+      masterConfigTypes.forEach(t => {
+        const isEnabled = enabledTypeIds.includes(t.id);
+        if (!isEnabled) return;
+
+        const prefix = t.prefix ? t.prefix.trim().toUpperCase() : '';
+
+        if (t.usesSizes) {
+          const sizesForType = selectedSizesMap[t.id] || [];
+          sizesForType.forEach(sz => {
+            const code = prefix ? `${prefix}${sz}` : `${t.name}-${sz}`;
+            const existing = prev.find(c => c.configCode === code || (c.productType === t.name && c.size === sz));
+            const defaultQty = existing?.quantity && existing.quantity > 0 ? existing.quantity : 500;
+
+            updated.push({
+              id: existing?.id,
+              configCode: code,
+              productType: t.name,
+              size: sz,
+              productQrPrefix: existing?.productQrPrefix || (prefix ? `${prefix}${sz}0926` : `${t.name}${sz}0926`),
+              productSerialStart: 1,
+              productSerialEnd: defaultQty,
+              quantity: defaultQty
+            });
+          });
+        } else {
+          // Uses Sizes = NO
+          const code = prefix || t.name;
+          const existing = prev.find(c => c.configCode === code || c.productType === t.name);
+          const defaultQty = existing?.quantity && existing.quantity > 0 ? existing.quantity : 1000;
+
           updated.push({
             id: existing?.id,
-            configCode: code,
-            productType: 'LEG',
-            size: sz,
-            productQrPrefix: existing?.productQrPrefix || `PNFL${sz}0926`,
+            configCode: existing?.configCode || code,
+            productType: t.name,
+            productQrPrefix: existing?.productQrPrefix || prefix || t.name,
             productSerialStart: 1,
             productSerialEnd: defaultQty,
             quantity: defaultQty
           });
-        });
-      }
+        }
+      });
 
-      // 2. CORE (PNCR)
-      if (enableCore) {
-        selectedCoreSizes.forEach(sz => {
-          const code = `PNCR${sz}`;
-          const existing = prev.find(c => c.configCode === code);
-          const defaultQty = existing?.quantity && existing.quantity > 0 ? existing.quantity : 500;
-          updated.push({
-            id: existing?.id,
-            configCode: code,
-            productType: 'CORE',
-            size: sz,
-            productQrPrefix: existing?.productQrPrefix || `PNCR${sz}0926`,
-            productSerialStart: 1,
-            productSerialEnd: defaultQty,
-            quantity: defaultQty
-          });
-        });
-      }
-
-      // 3. NO SIZE / LETTERS
-      if (enableNoSize) {
-        const code = '009735535';
-        const existing = prev.find(c => c.configCode === code || c.productType === 'NO_SIZE');
-        const defaultQty = existing?.quantity && existing.quantity > 0 ? existing.quantity : 1000;
-        updated.push({
-          id: existing?.id,
-          configCode: existing?.configCode || code,
-          productType: 'NO_SIZE',
-          productQrPrefix: existing?.productQrPrefix || '009735535',
-          productSerialStart: 1,
-          productSerialEnd: defaultQty,
-          quantity: defaultQty
-        });
-      }
-
-      // Preserve custom configurations
-      prev.filter(c => c.productType === 'CUSTOM' || (!['LEG', 'CORE', 'NO_SIZE'].includes(c.productType || ''))).forEach(c => {
+      // Preserve custom configurations added manually
+      const masterNames = masterConfigTypes.map(m => m.name);
+      prev.filter(c => c.productType === 'CUSTOM' || !masterNames.includes(c.productType || '')).forEach(c => {
         if (!updated.some(u => u.configCode === c.configCode)) {
           updated.push(c);
         }
@@ -152,18 +172,22 @@ export const CreatePOSalesOrders: React.FC = () => {
 
       return updated;
     });
-  }, [enableLeg, enableCore, enableNoSize, selectedLegSizes, selectedCoreSizes, styleCode]);
+  }, [masterConfigTypes, enabledTypeIds, selectedSizesMap, styleCode]);
 
-  const toggleLegSize = (sz: string) => {
-    setSelectedLegSizes(prev =>
-      prev.includes(sz) ? prev.filter(s => s !== sz) : [...prev, sz]
+  const toggleTypeEnabled = (typeId: string) => {
+    setEnabledTypeIds(prev =>
+      prev.includes(typeId) ? prev.filter(id => id !== typeId) : [...prev, typeId]
     );
   };
 
-  const toggleCoreSize = (sz: string) => {
-    setSelectedCoreSizes(prev =>
-      prev.includes(sz) ? prev.filter(s => s !== sz) : [...prev, sz]
-    );
+  const toggleSizeSelected = (typeId: string, sizeCode: string) => {
+    setSelectedSizesMap(prev => {
+      const currentSizes = prev[typeId] || [];
+      const updated = currentSizes.includes(sizeCode)
+        ? currentSizes.filter(s => s !== sizeCode)
+        : [...currentSizes, sizeCode];
+      return { ...prev, [typeId]: updated };
+    });
   };
 
   const updateConfig = (index: number, field: keyof ProductConfiguration, val: any) => {
@@ -205,7 +229,7 @@ export const CreatePOSalesOrders: React.FC = () => {
 
   const handleNext = () => {
     if (configs.length === 0) {
-      showToast('Please add at least one product configuration.', 'warning');
+      showToast('Please select or create at least one product configuration.', 'warning');
       return;
     }
 
@@ -260,163 +284,142 @@ export const CreatePOSalesOrders: React.FC = () => {
 
       {/* Global Product Configuration Selector */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Layers size={20} color="var(--primary-teal)" />
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Global Product Configurations</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Choose standard product configuration types (available to all styles) and enable required sizes.
-            </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Layers size={20} color="var(--primary-teal)" />
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Master Product Configurations</h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Database-driven configuration types and size definitions.
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowManageModal(true)}
+            style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Settings size={14} /> Manage Master Types & Sizes
+          </button>
         </div>
 
-        {/* Global Types Selection */}
+        {/* Dynamic Types Selection */}
         <div>
           <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
-            Configuration Types
+            Available Configuration Types ({masterConfigTypes.length})
           </span>
-          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-            {/* LEG */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 16px',
-                borderRadius: '10px',
-                border: `2px solid ${enableLeg ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                backgroundColor: enableLeg ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
-                cursor: 'pointer',
-                fontWeight: 800,
-                fontSize: '14px',
-                color: enableLeg ? 'var(--primary-teal)' : 'var(--text-primary)'
-              }}
-              onClick={() => setEnableLeg(!enableLeg)}
-            >
-              {enableLeg ? <CheckSquare size={18} color="var(--primary-teal)" /> : <Square size={18} color="var(--text-muted)" />}
-              LEG (PNFL)
-            </div>
 
-            {/* CORE */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 16px',
-                borderRadius: '10px',
-                border: `2px solid ${enableCore ? 'var(--color-purple)' : 'var(--border-color)'}`,
-                backgroundColor: enableCore ? 'rgba(168, 85, 247, 0.12)' : 'var(--bg-surface-1)',
-                cursor: 'pointer',
-                fontWeight: 800,
-                fontSize: '14px',
-                color: enableCore ? 'var(--color-purple)' : 'var(--text-primary)'
-              }}
-              onClick={() => setEnableCore(!enableCore)}
-            >
-              {enableCore ? <CheckSquare size={18} color="var(--color-purple)" /> : <Square size={18} color="var(--text-muted)" />}
-              CORE (PNCR)
+          {loadingMasterTypes ? (
+            <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              Loading configuration master data...
             </div>
-
-            {/* NO SIZE / LETTERS */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 16px',
-                borderRadius: '10px',
-                border: `2px solid ${enableNoSize ? 'var(--color-amber)' : 'var(--border-color)'}`,
-                backgroundColor: enableNoSize ? 'rgba(243, 168, 51, 0.12)' : 'var(--bg-surface-1)',
-                cursor: 'pointer',
-                fontWeight: 800,
-                fontSize: '14px',
-                color: enableNoSize ? 'var(--color-amber)' : 'var(--text-primary)'
-              }}
-              onClick={() => setEnableNoSize(!enableNoSize)}
-            >
-              {enableNoSize ? <CheckSquare size={18} color="var(--color-amber)" /> : <Square size={18} color="var(--text-muted)" />}
-              NO SIZE / LETTERS (009735535)
+          ) : masterConfigTypes.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', backgroundColor: 'var(--bg-surface-1)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                No configuration types have been created in database master data yet.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowManageModal(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+              >
+                <Plus size={16} /> Add Configuration Type
+              </button>
             </div>
-          </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {masterConfigTypes.map(t => {
+                const isEnabled = enabledTypeIds.includes(t.id);
+                return (
+                  <div
+                    key={t.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 16px',
+                      borderRadius: '10px',
+                      border: `2px solid ${isEnabled ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                      backgroundColor: isEnabled ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+                      cursor: 'pointer',
+                      fontWeight: 800,
+                      fontSize: '14px',
+                      color: isEnabled ? 'var(--primary-teal)' : 'var(--text-primary)',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onClick={() => toggleTypeEnabled(t.id)}
+                  >
+                    {isEnabled ? <CheckSquare size={18} color="var(--primary-teal)" /> : <Square size={18} color="var(--text-muted)" />}
+                    {t.name} {t.prefix ? `(${t.prefix})` : ''}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* LEG Sizes Selector */}
-        {enableLeg && (
-          <div style={{ paddingTop: '12px', borderTop: '1px dashed var(--border-color)' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>
-              LEG (PNFL) Sizes
-            </span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-              {GLOBAL_LEG_SIZES.map(sz => {
-                const isSelected = selectedLegSizes.includes(sz);
-                return (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => toggleLegSize(sz)}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      border: `2px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                      backgroundColor: isSelected ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
-                      color: isSelected ? 'var(--primary-teal)' : 'var(--text-primary)',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} {sz}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* Dynamic Sizes Selector for Enabled Master Types */}
+        {masterConfigTypes.filter(t => enabledTypeIds.includes(t.id) && t.usesSizes).map(t => {
+          const selectedSizes = selectedSizesMap[t.id] || [];
+          return (
+            <div key={t.id} style={{ paddingTop: '12px', borderTop: '1px dashed var(--border-color)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>
+                  {t.name} {t.prefix ? `(${t.prefix})` : ''} Sizes
+                </span>
+                <button
+                  type="button"
+                  style={{ background: 'none', border: 'none', color: 'var(--primary-teal)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                  onClick={() => setShowManageModal(true)}
+                >
+                  + Add Size to Master Data
+                </button>
+              </div>
 
-        {/* CORE Sizes Selector */}
-        {enableCore && (
-          <div style={{ paddingTop: '12px', borderTop: '1px dashed var(--border-color)' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-purple)', textTransform: 'uppercase' }}>
-              CORE (PNCR) Sizes
-            </span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-              {GLOBAL_CORE_SIZES.map(sz => {
-                const isSelected = selectedCoreSizes.includes(sz);
-                return (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => toggleCoreSize(sz)}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: '10px',
-                      border: `2px solid ${isSelected ? 'var(--color-purple)' : 'var(--border-color)'}`,
-                      backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.15)' : 'var(--bg-surface-1)',
-                      color: isSelected ? 'var(--color-purple)' : 'var(--text-primary)',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} {sz}
-                  </button>
-                );
-              })}
+              {t.sizes.length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' }}>
+                  No sizes defined for {t.name} yet. Click "Manage Master Types & Sizes" to add sizes.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                  {t.sizes.map(s => {
+                    const isSelected = selectedSizes.includes(s.sizeCode);
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => toggleSizeSelected(t.id, s.sizeCode)}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: '10px',
+                          border: `2px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                          backgroundColor: isSelected ? 'rgba(22, 184, 174, 0.15)' : 'var(--bg-surface-1)',
+                          color: isSelected ? 'var(--primary-teal)' : 'var(--text-primary)',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        {isSelected ? <CheckSquare size={16} /> : <Square size={16} />} {s.sizeCode}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })}
       </div>
 
       {/* Configured Product Configurations List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ fontSize: '15px', fontWeight: 800 }}>
-            Selected Product Configurations ({configs.length})
+            Selected PO Product Configurations ({configs.length})
           </h3>
           <button
             type="button"
@@ -499,6 +502,13 @@ export const CreatePOSalesOrders: React.FC = () => {
           Next: Review PO <ArrowRight size={16} />
         </button>
       </div>
+
+      {/* Manage Master Types & Sizes Modal */}
+      <ManageProductConfigTypesModal
+        isOpen={showManageModal}
+        onClose={() => setShowManageModal(false)}
+        onUpdated={fetchMasterConfigTypes}
+      />
     </div>
   );
 };
@@ -597,4 +607,3 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border-color)'
   }
 };
-

@@ -153,9 +153,9 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     : 0;
 
   // QC Test Mode
-  let qcTestMode: string = 'QC & Test';
-  if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
-  else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
+  let qcTestMode: string = 'Endline Inspection & Functional Test';
+  if (po.qc_test_mode === 'QC_ONLY' || po.qc_test_mode === 'QC Only' || po.qc_test_mode === 'Endline Inspection') qcTestMode = 'Endline Inspection';
+  else if (po.qc_test_mode === 'TEST_ONLY' || po.qc_test_mode === 'Test Only' || po.qc_test_mode === 'Functional Test') qcTestMode = 'Functional Test';
 
   // Load PO-level allocations
   const poAllocations = await db.prepare(`
@@ -486,8 +486,8 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
     // QC Test Mode format mapping
     let dbQcTestMode = 'QC_AND_TEST';
-    if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
-    else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
+    if (body.qcTestMode === 'Endline Inspection' || body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
+    else if (body.qcTestMode === 'Functional Test' || body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;
@@ -941,6 +941,315 @@ router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
     }));
 
     return res.json(formattedBoxes);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// PRODUCT CONFIGURATION MASTER-DATA ENDPOINTS (FULLY DYNAMIC / USER-MANAGED)
+// =========================================================================
+
+// GET /api/product-config-types — List configuration types with associated sizes
+router.get('/product-config-types', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const showAll = req.query.all === '1' || req.query.all === 'true';
+    const typesQuery = showAll
+      ? `SELECT * FROM product_configuration_types ORDER BY created_at ASC`
+      : `SELECT * FROM product_configuration_types WHERE active = 1 ORDER BY created_at ASC`;
+
+    const types = await db.query<any>(typesQuery);
+
+    const result = await Promise.all(
+      types.map(async (t) => {
+        const sizesQuery = showAll
+          ? `SELECT id, configuration_type_id as configurationTypeId, size_code as sizeCode, active FROM product_configuration_sizes WHERE configuration_type_id = ? ORDER BY created_at ASC`
+          : `SELECT id, configuration_type_id as configurationTypeId, size_code as sizeCode, active FROM product_configuration_sizes WHERE configuration_type_id = ? AND active = 1 ORDER BY created_at ASC`;
+        const sizes = await db.query<any>(sizesQuery, [t.id]);
+
+        return {
+          id: t.id,
+          name: t.name,
+          prefix: t.prefix || '',
+          usesSizes: Boolean(t.uses_sizes),
+          active: Boolean(t.active),
+          createdAt: t.created_at,
+          updatedAt: t.updated_at,
+          sizes: sizes.map(s => ({
+            id: s.id,
+            configurationTypeId: s.configurationTypeId,
+            sizeCode: s.sizeCode,
+            active: Boolean(s.active)
+          }))
+        };
+      })
+    );
+
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/product-config-types — Create new Product Configuration Type (SUPERVISOR / ADMIN)
+router.post('/product-config-types', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { name, prefix, usesSizes } = req.body;
+    const cleanName = (name || '').trim();
+
+    if (!cleanName) {
+      return res.status(400).json({ error: 'NAME_REQUIRED', message: 'Configuration Type Name is required.' });
+    }
+
+    const cleanPrefix = prefix ? prefix.trim().toUpperCase() : null;
+    const usesSizesVal = usesSizes === false || usesSizes === 0 || usesSizes === 'false' ? 0 : 1;
+
+    // Check duplicate active name
+    const existing = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_types WHERE UPPER(TRIM(name)) = UPPER(TRIM(?)) AND active = 1`,
+      [cleanName]
+    );
+
+    if (existing) {
+      return res.status(400).json({
+        error: 'DUPLICATE_TYPE',
+        message: `A configuration type named '${cleanName}' already exists.`
+      });
+    }
+
+    const id = `pct-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await db.execute(
+      `INSERT INTO product_configuration_types (id, name, prefix, uses_sizes, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, NOW(3), NOW(3))`,
+      [id, cleanName, cleanPrefix, usesSizesVal]
+    );
+
+    await auditLog(req.user!.id, 'CREATE_CONFIG_TYPE', 'product_configuration_types', id, { name: cleanName, prefix: cleanPrefix, usesSizes: usesSizesVal });
+
+    return res.status(201).json({
+      id,
+      name: cleanName,
+      prefix: cleanPrefix || '',
+      usesSizes: Boolean(usesSizesVal),
+      active: true,
+      sizes: []
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/product-config-types/:id — Update Configuration Type details
+router.put('/product-config-types/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, prefix, usesSizes } = req.body;
+
+    const existingType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!existingType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    const cleanName = name ? name.trim() : existingType.name;
+    const cleanPrefix = prefix !== undefined ? (prefix ? prefix.trim().toUpperCase() : null) : existingType.prefix;
+    const usesSizesVal = usesSizes !== undefined ? (usesSizes ? 1 : 0) : existingType.uses_sizes;
+
+    // Check duplicate active name excluding this ID
+    const dup = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_types WHERE UPPER(TRIM(name)) = UPPER(TRIM(?)) AND id != ? AND active = 1`,
+      [cleanName, id]
+    );
+
+    if (dup) {
+      return res.status(400).json({
+        error: 'DUPLICATE_TYPE',
+        message: `Another active configuration type named '${cleanName}' already exists.`
+      });
+    }
+
+    await db.execute(
+      `UPDATE product_configuration_types SET name = ?, prefix = ?, uses_sizes = ?, updated_at = NOW(3) WHERE id = ?`,
+      [cleanName, cleanPrefix, usesSizesVal, id]
+    );
+
+    await auditLog(req.user!.id, 'UPDATE_CONFIG_TYPE', 'product_configuration_types', id, { name: cleanName, prefix: cleanPrefix, usesSizes: usesSizesVal });
+
+    const updated = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    const sizes = await db.query<any>(`SELECT id, configuration_type_id as configurationTypeId, size_code as sizeCode, active FROM product_configuration_sizes WHERE configuration_type_id = ? AND active = 1`, [id]);
+
+    return res.json({
+      id: updated.id,
+      name: updated.name,
+      prefix: updated.prefix || '',
+      usesSizes: Boolean(updated.uses_sizes),
+      active: Boolean(updated.active),
+      sizes: sizes.map(s => ({ id: s.id, configurationTypeId: s.configurationTypeId, sizeCode: s.sizeCode, active: Boolean(s.active) }))
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/product-config-types/:id/toggle — Activate/Deactivate Configuration Type
+router.patch('/product-config-types/:id/toggle', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+
+    const existingType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!existingType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    const newActive = active ? 1 : 0;
+    await db.execute(`UPDATE product_configuration_types SET active = ?, updated_at = NOW(3) WHERE id = ?`, [newActive, id]);
+    await auditLog(req.user!.id, newActive ? 'ACTIVATE_CONFIG_TYPE' : 'DEACTIVATE_CONFIG_TYPE', 'product_configuration_types', id, { active: newActive });
+
+    return res.json({ id, active: Boolean(newActive), message: `Configuration type ${newActive ? 'activated' : 'deactivated'}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/product-config-types/:id — Delete or Deactivate Configuration Type
+router.delete('/product-config-types/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const existingType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!existingType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    // Check if referenced in historical PO configurations
+    const usedRow = await db.queryOne<any>(
+      `SELECT COUNT(*) as cnt FROM production_order_configs WHERE UPPER(TRIM(product_type)) = UPPER(TRIM(?))`,
+      [existingType.name]
+    );
+
+    const isUsed = (usedRow?.cnt || 0) > 0;
+
+    if (isUsed) {
+      // Safely deactivate instead of deleting to protect historical production data
+      await db.execute(`UPDATE product_configuration_types SET active = 0, updated_at = NOW(3) WHERE id = ?`, [id]);
+      await auditLog(req.user!.id, 'DEACTIVATE_CONFIG_TYPE', 'product_configuration_types', id, { isUsed: true });
+      return res.json({ id, active: false, deactivated: true, message: `Configuration type '${existingType.name}' is referenced by historical PO records. It has been deactivated to preserve traceability.` });
+    }
+
+    // Unused: Safe to delete
+    await db.execute(`DELETE FROM product_configuration_sizes WHERE configuration_type_id = ?`, [id]);
+    await db.execute(`DELETE FROM product_configuration_types WHERE id = ?`, [id]);
+    await auditLog(req.user!.id, 'DELETE_CONFIG_TYPE', 'product_configuration_types', id, { deleted: true });
+
+    return res.json({ id, deleted: true, message: `Configuration type '${existingType.name}' deleted.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/product-config-types/:id/sizes — Add Size under Configuration Type
+router.post('/product-config-types/:id/sizes', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { sizeCode } = req.body;
+
+    const configType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!configType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    const cleanSize = (sizeCode || '').trim().toUpperCase();
+    if (!cleanSize) {
+      return res.status(400).json({ error: 'SIZE_REQUIRED', message: 'Size code is required.' });
+    }
+
+    // Check duplicate active size code under THIS configuration type
+    const dup = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_sizes WHERE configuration_type_id = ? AND UPPER(TRIM(size_code)) = ? AND active = 1`,
+      [id, cleanSize]
+    );
+
+    if (dup) {
+      return res.status(400).json({
+        error: 'DUPLICATE_SIZE',
+        message: `Size '${cleanSize}' already exists for configuration type '${configType.name}'.`
+      });
+    }
+
+    const sizeId = `pcs-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await db.execute(
+      `INSERT INTO product_configuration_sizes (id, configuration_type_id, size_code, active, created_at, updated_at)
+       VALUES (?, ?, ?, 1, NOW(3), NOW(3))`,
+      [sizeId, id, cleanSize]
+    );
+
+    await auditLog(req.user!.id, 'CREATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { configurationTypeId: id, sizeCode: cleanSize });
+
+    return res.status(201).json({
+      id: sizeId,
+      configurationTypeId: id,
+      sizeCode: cleanSize,
+      active: true
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/product-config-types/sizes/:sizeId — Update Size code
+router.put('/product-config-types/sizes/:sizeId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { sizeId } = req.params;
+    const { sizeCode } = req.body;
+
+    const existingSize = await db.queryOne<any>(`SELECT * FROM product_configuration_sizes WHERE id = ?`, [sizeId]);
+    if (!existingSize) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Size not found.' });
+    }
+
+    const cleanSize = (sizeCode || '').trim().toUpperCase();
+    if (!cleanSize) {
+      return res.status(400).json({ error: 'SIZE_REQUIRED', message: 'Size code is required.' });
+    }
+
+    // Duplicate check under same configuration type
+    const dup = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_sizes WHERE configuration_type_id = ? AND UPPER(TRIM(size_code)) = ? AND id != ? AND active = 1`,
+      [existingSize.configuration_type_id, cleanSize, sizeId]
+    );
+
+    if (dup) {
+      return res.status(400).json({
+        error: 'DUPLICATE_SIZE',
+        message: `Size '${cleanSize}' already exists for this configuration type.`
+      });
+    }
+
+    await db.execute(`UPDATE product_configuration_sizes SET size_code = ?, updated_at = NOW(3) WHERE id = ?`, [cleanSize, sizeId]);
+    await auditLog(req.user!.id, 'UPDATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { sizeCode: cleanSize });
+
+    return res.json({ id: sizeId, configurationTypeId: existingSize.configuration_type_id, sizeCode: cleanSize, active: Boolean(existingSize.active) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/product-config-types/sizes/:sizeId/toggle — Activate/Deactivate Size
+router.patch('/product-config-types/sizes/:sizeId/toggle', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { sizeId } = req.params;
+    const { active } = req.body;
+
+    const existingSize = await db.queryOne<any>(`SELECT * FROM product_configuration_sizes WHERE id = ?`, [sizeId]);
+    if (!existingSize) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Size not found.' });
+    }
+
+    const newActive = active ? 1 : 0;
+    await db.execute(`UPDATE product_configuration_sizes SET active = ?, updated_at = NOW(3) WHERE id = ?`, [newActive, sizeId]);
+    await auditLog(req.user!.id, newActive ? 'ACTIVATE_CONFIG_SIZE' : 'DEACTIVATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { active: newActive });
+
+    return res.json({ id: sizeId, active: Boolean(newActive), message: `Size ${newActive ? 'activated' : 'deactivated'}` });
   } catch (err) {
     next(err);
   }
