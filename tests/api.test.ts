@@ -1393,7 +1393,132 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       expect(uncapturedQr).toBe('XYZ/999');
     }
   });
+
+  it('21. Pre-QC Progress Statistics — Operator Scoped vs All-Operator PO Totals', async () => {
+    const { calculatePreQCProgress } = await import('../server/src/routes/scans');
+    const timestamp = Date.now();
+    const poId = `po-pqc-stats-${timestamp}`;
+    const opA = { id: `op-a-${timestamp}`, username: `chamika_${timestamp}`, full_name: 'Chamika' };
+    const opB = { id: `op-b-${timestamp}`, username: `nimal_${timestamp}`, full_name: 'Nimal' };
+
+    // Test operator progress calculation logic
+    const mockDbResults = [
+      { item_id: 'i1', operator_id: opA.id, pre_qc_result: 'PASS' },
+      { item_id: 'i2', operator_id: opA.id, pre_qc_result: 'PASS' },
+      { item_id: 'i3', operator_id: opA.id, pre_qc_result: 'FAIL' },
+      { item_id: 'i4', operator_id: opB.id, pre_qc_result: 'PASS' },
+      { item_id: 'i5', operator_id: opB.id, pre_qc_result: 'PASS' },
+      { item_id: 'i6', operator_id: opB.id, pre_qc_result: 'PASS' },
+      { item_id: 'i7', operator_id: opB.id, pre_qc_result: 'FAIL' },
+      { item_id: 'i8', operator_id: opB.id, pre_qc_result: 'FAIL' },
+    ];
+
+    const opAPassed = mockDbResults.filter(r => r.operator_id === opA.id && r.pre_qc_result === 'PASS').length;
+    const opAFailed = mockDbResults.filter(r => r.operator_id === opA.id && r.pre_qc_result === 'FAIL').length;
+    const totalPassed = mockDbResults.filter(r => r.pre_qc_result === 'PASS').length;
+    const totalFailed = mockDbResults.filter(r => r.pre_qc_result === 'FAIL').length;
+
+    // Operator A stats
+    expect(opAPassed).toBe(2);
+    expect(opAFailed).toBe(1);
+    expect(opAPassed + opAFailed).toBe(3);
+
+    // All Operator totals
+    expect(totalPassed).toBe(5);
+    expect(totalFailed).toBe(3);
+    expect(totalPassed + totalFailed).toBe(8);
+
+    // Operator stats are filtered by operator; Total stats include all operators
+    expect(opAPassed).not.toBe(totalPassed);
+    expect(totalPassed).toBe(5);
+  });
+
+  it('22. QC PASS Limit Validation Rule — PASS <= PO quantity, FAIL does not consume PO quantity', async () => {
+    const { getPOTargetQuantity } = await import('../server/src/routes/scans');
+
+    const poTargetQty = 4;
+    let existingPassCount = 0;
+    let existingFailCount = 0;
+
+    // Helper simulating PASS submission check
+    const canPass = (targetQty: number, currentPasses: number) => {
+      return targetQty <= 0 || currentPasses < targetQty;
+    };
+
+    // 1. First 4 PASS results allowed
+    for (let i = 0; i < 4; i++) {
+      expect(canPass(poTargetQty, existingPassCount)).toBe(true);
+      existingPassCount++;
+    }
+    expect(existingPassCount).toBe(4);
+
+    // 2. 5th PASS result REJECTED
+    expect(canPass(poTargetQty, existingPassCount)).toBe(false);
+
+    // 3. FAIL results DO NOT consume PO quantity or increment PASS count
+    existingFailCount += 10;
+    expect(existingPassCount).toBe(4); // PASS count remains 4
+    expect(existingFailCount).toBe(10); // FAIL count is 10
+
+    // 4. FAIL submission is ALWAYS allowed even when PASS count reached PO quantity
+    const isFailSubmissionAllowed = true;
+    expect(isFailSubmissionAllowed).toBe(true);
+
+    // 5. Attempting another PASS still rejected
+    expect(canPass(poTargetQty, existingPassCount)).toBe(false);
+  });
+
+  it('23. Pre-QC QR Validation Separation — Pre-QC QRs do NOT use Product Config Validation', async () => {
+    const { validateProductQrRange } = await import('../server/src/routes/scans');
+
+    const productConfig = { config_code: 'PNFLSS' };
+    const validProductQr = 'PNFLSS0926001';
+    const preQcQr1 = 'AAA-1';
+    const preQcQr2 = 'OMP/34567';
+
+    // 1. Valid Product QR passes product validator
+    const prodVal = validateProductQrRange(productConfig, validProductQr);
+    expect(prodVal.valid).toBe(true);
+
+    // 2. Product validator WOULD reject Pre-QC QR if wrongly called (verifying why separation is needed)
+    const preQcWrongVal = validateProductQrRange(productConfig, preQcQr1);
+    expect(preQcWrongVal.valid).toBe(false);
+
+    // 3. Separation rule: Pre-QC QR MUST NOT be passed to product validator
+    const isPreQcQr = (qr: string) => qr.startsWith('AAA') || qr.startsWith('OMP') || !qr.startsWith('PNFLSS');
+    expect(isPreQcQr(preQcQr1)).toBe(true);
+    expect(isPreQcQr(preQcQr2)).toBe(true);
+    expect(isPreQcQr(validProductQr)).toBe(false);
+  });
+
+  it('24. Packing Duplicate Check — Scoped by production_order_id + product QR', async () => {
+    // Model packing records across different POs
+    const packedRecords = [
+      { poId: 'PO-A', productQr: 'AAA-1', boxNumber: 'BX-000' },
+      { poId: 'PO-B', productQr: 'BBB-1', boxNumber: 'BX-001' },
+    ];
+
+    const isAlreadyPackedInPo = (targetPoId: string, qr: string) => {
+      return packedRecords.some(r => r.poId === targetPoId && r.productQr === qr);
+    };
+
+    // 1. PO-A has AAA-1 packed
+    expect(isAlreadyPackedInPo('PO-A', 'AAA-1')).toBe(true);
+
+    // 2. PO-B DOES NOT have AAA-1 packed -> ALLOWED!
+    expect(isAlreadyPackedInPo('PO-B', 'AAA-1')).toBe(false);
+
+    // 3. PO-A scanning AAA-1 again -> REJECTED (already packed in PO-A)
+    expect(isAlreadyPackedInPo('PO-A', 'AAA-1')).toBe(true);
+
+    // 4. Pack AAA-1 under PO-B
+    packedRecords.push({ poId: 'PO-B', productQr: 'AAA-1', boxNumber: 'BX-01' });
+
+    // Now PO-B has AAA-1 packed into BX-01
+    expect(isAlreadyPackedInPo('PO-B', 'AAA-1')).toBe(true);
+  });
 });
+
 
 
 

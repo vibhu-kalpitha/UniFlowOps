@@ -34,21 +34,44 @@ export const PreQCPage: React.FC = () => {
   // Live Pre QC progress state from server
   const [poProgress, setPoProgress] = useState<{
     loading: boolean;
-    completed: number;
-    failed: number;
+    myCompleted: number;
+    myFailed: number;
+    myTotalProcessed: number;
+    totalCompleted: number;
+    totalFailed: number;
     totalProcessed: number;
-    hasTarget: boolean;
-    target: number | null;
     operatorName: string;
   }>({
     loading: true,
-    completed: 0,
-    failed: 0,
+    myCompleted: 0,
+    myFailed: 0,
+    myTotalProcessed: 0,
+    totalCompleted: 0,
+    totalFailed: 0,
     totalProcessed: 0,
-    hasTarget: false,
-    target: null,
     operatorName: 'Operator'
   });
+
+  const updateProgressFromRes = (prog: any) => {
+    if (!prog) return;
+    const myComp = prog.myCompleted ?? prog.operatorStats?.myCompleted ?? prog.operatorStats?.completed ?? prog.completed ?? 0;
+    const myFail = prog.myFailed ?? prog.operatorStats?.myFailed ?? prog.operatorStats?.failed ?? prog.failed ?? 0;
+    const myTot = prog.myTotalProcessed ?? prog.operatorStats?.myTotalProcessed ?? (myComp + myFail);
+    const totComp = prog.totalCompleted ?? prog.poStats?.totalCompleted ?? prog.completed ?? 0;
+    const totFail = prog.totalFailed ?? prog.poStats?.totalFailed ?? prog.failed ?? 0;
+    const totProc = prog.totalProcessed ?? prog.poTotalProcessed ?? prog.poStats?.totalProcessed ?? (totComp + totFail);
+
+    setPoProgress({
+      loading: false,
+      myCompleted: myComp,
+      myFailed: myFail,
+      myTotalProcessed: myTot,
+      totalCompleted: totComp,
+      totalFailed: totFail,
+      totalProcessed: totProc,
+      operatorName: prog.operatorStats?.operatorName || 'Operator'
+    });
+  };
 
   const fetchProgress = async () => {
     const targetPoKey = po?.dbId || po?.id;
@@ -56,26 +79,8 @@ export const PreQCPage: React.FC = () => {
     setPoProgress(prev => ({ ...prev, loading: true }));
     try {
       const res = await apiFetch<any>(`/api/pre-qc/progress/${encodeURIComponent(targetPoKey)}`);
-      if (res && typeof res.completed === 'number') {
-        setPoProgress({
-          loading: false,
-          completed: res.completed || 0,
-          failed: res.failed || 0,
-          totalProcessed: res.totalProcessed || (res.completed || 0) + (res.failed || 0),
-          hasTarget: Boolean(res.hasTarget),
-          target: res.target ?? null,
-          operatorName: res.operatorStats?.operatorName || 'Operator'
-        });
-      } else if (res && typeof res.passedUnique === 'number') {
-        setPoProgress({
-          loading: false,
-          completed: res.passedUnique || 0,
-          failed: res.failedUnique || 0,
-          totalProcessed: (res.passedUnique || 0) + (res.failedUnique || 0),
-          hasTarget: false,
-          target: null,
-          operatorName: res.operatorStats?.operatorName || 'Operator'
-        });
+      if (res) {
+        updateProgressFromRes(res);
       } else {
         setPoProgress(prev => ({ ...prev, loading: false }));
       }
@@ -109,16 +114,7 @@ export const PreQCPage: React.FC = () => {
       });
 
       if (res?.progress) {
-        const prog = res.progress;
-        setPoProgress({
-          loading: false,
-          completed: prog.completed ?? prog.passedUnique ?? 0,
-          failed: prog.failed ?? prog.failedUnique ?? 0,
-          totalProcessed: prog.totalProcessed ?? ((prog.completed ?? prog.passedUnique ?? 0) + (prog.failed ?? prog.failedUnique ?? 0)),
-          hasTarget: Boolean(prog.hasTarget),
-          target: prog.target ?? null,
-          operatorName: prog.operatorStats?.operatorName || 'Operator'
-        });
+        updateProgressFromRes(res.progress);
       }
 
       if (res?.status === 'DUPLICATE') {
@@ -216,16 +212,7 @@ export const PreQCPage: React.FC = () => {
       });
 
       if (recRes?.progress) {
-        const prog = recRes.progress;
-        setPoProgress({
-          loading: false,
-          completed: prog.completed ?? prog.passedUnique ?? 0,
-          failed: prog.failed ?? prog.failedUnique ?? 0,
-          totalProcessed: prog.totalProcessed ?? ((prog.completed ?? prog.passedUnique ?? 0) + (prog.failed ?? prog.failedUnique ?? 0)),
-          hasTarget: Boolean(prog.hasTarget),
-          target: prog.target ?? null,
-          operatorName: prog.operatorStats?.operatorName || 'Operator'
-        });
+        updateProgressFromRes(recRes.progress);
       }
 
       const savedRecord: ScannedItem = {
@@ -300,42 +287,54 @@ export const PreQCPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Summary Stats Grid (Operator Scoped) */}
-        <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Completed</span>
-            <span style={{ fontSize: '24px', fontWeight: 800, color: '#10B981', marginTop: '2px', display: 'block' }}>
-              {poProgress.completed}
-            </span>
-          </div>
+        {/* MY OPERATOR PROGRESS */}
+        <div style={{ marginTop: '14px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            MY OPERATOR PROGRESS
+          </span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Completed</span>
+              <span style={{ fontSize: '24px', fontWeight: 800, color: '#10B981', marginTop: '2px', display: 'block' }}>
+                {poProgress.myCompleted}
+              </span>
+            </div>
 
-          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Failed</span>
-            <span style={{ fontSize: '24px', fontWeight: 800, color: '#EF4444', marginTop: '2px', display: 'block' }}>
-              {poProgress.failed}
-            </span>
-          </div>
+            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Failed</span>
+              <span style={{ fontSize: '24px', fontWeight: 800, color: '#EF4444', marginTop: '2px', display: 'block' }}>
+                {poProgress.myFailed}
+              </span>
+            </div>
 
-          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Processed</span>
-            <span style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'block' }}>
-              {poProgress.totalProcessed}
-            </span>
+            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Total Processed</span>
+              <span style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'block' }}>
+                {poProgress.myTotalProcessed}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Target Status / Information Line */}
-        <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
-          <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PRE-QC TARGET STATUS</span>
-          {poProgress.hasTarget && poProgress.target != null ? (
-            <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
-              Target: <strong>{poProgress.target}</strong> • Progress: <strong style={{ color: 'var(--primary-teal)' }}>{poProgress.completed} / {poProgress.target}</strong>
-            </span>
-          ) : (
-            <span style={{ color: 'var(--text-muted)', fontWeight: 600, fontStyle: 'italic' }}>
-              No Pre-QC target configured
-            </span>
-          )}
+        {/* PO TOTAL — ALL OPERATORS */}
+        <div style={{ marginTop: '12px', padding: '10px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+          <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            PO TOTAL — ALL OPERATORS
+          </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+            <div>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Completed: </span>
+              <strong style={{ color: '#10B981', fontWeight: 800 }}>{poProgress.totalCompleted}</strong>
+            </div>
+            <div>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Failed: </span>
+              <strong style={{ color: '#EF4444', fontWeight: 800 }}>{poProgress.totalFailed}</strong>
+            </div>
+            <div>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Processed: </span>
+              <strong style={{ color: 'var(--primary-teal)', fontWeight: 800 }}>{poProgress.totalProcessed}</strong>
+            </div>
+          </div>
         </div>
       </div>
 

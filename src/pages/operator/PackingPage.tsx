@@ -182,14 +182,16 @@ export const PackingPage: React.FC = () => {
       };
     }
 
-    // Duplicate check inside active box or ANY packed box
+    // Duplicate check inside active box or ANY packed box for the SAME Production Order
+    const currentPoId = po?.id || po?.dbId;
     const packedInBox: any = Object.values(packingBoxes).find((b: any) =>
+      (!b.productionOrderId || !currentPoId || b.productionOrderId === currentPoId || b.poId === currentPoId) &&
       b.items?.some((i: any) => i.qr.toUpperCase() === code.trim().toUpperCase())
     );
     if (packedInBox) {
       return {
         status:  'duplicate' as const,
-        message: `⚠️ Item ${code} is ALREADY PACKED in Box ${packedInBox.boxNumber}!`,
+        message: `⚠️ Item ${code} is ALREADY PACKED in Box ${packedInBox.boxNumber} for this Production Order!`,
         code,
       };
     }
@@ -215,14 +217,14 @@ export const PackingPage: React.FC = () => {
         }),
       });
     } catch (err: any) {
-      if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED')) {
+      const errMsg = err?.message || String(err);
+      if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED') || err.error === 'ALREADY_PACKED') {
         return {
           status:  'duplicate' as const,
-          message: `⚠️ Item ${code} is ALREADY PACKED in the database!`,
+          message: `⚠️ ${errMsg}`,
           code,
         };
       }
-      const errMsg = err?.message || String(err);
       showToast(errMsg, 'error');
       return {
         status: 'rejected' as const,

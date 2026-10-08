@@ -228,6 +228,24 @@ export const QCTestPage: React.FC = () => {
     setHistoryData(null);
     setStageStatus(null);
 
+    // If currently in Step 1 Pre-QC Assignment, scanned code is a Pre-QC QR item (NOT a product QR)
+    if (qcStep === 'STEP_1_ASSIGN') {
+      if (code === scannedProductQr) {
+        showToast(`Product QR ${code} active — scan or enter Pre-QC items below`, 'info');
+        return {
+          status: 'accepted' as const,
+          message: `Product QR ${code}`,
+          code,
+        };
+      }
+      await handleAddPreQcItem(code);
+      return {
+        status: 'accepted' as const,
+        message: `Pre-QC QR ${code} processed`,
+        code,
+      };
+    }
+
     try {
       const hRes = await apiFetch(`/api/qc/history/${code}`);
       if (hRes) {

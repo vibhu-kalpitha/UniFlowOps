@@ -157,18 +157,32 @@ export async function calculatePreQCProgress(poId: string, reqUser?: any) {
   if (!po) {
     return {
       poId,
+      myCompleted: 0,
+      myFailed: 0,
+      myTotalProcessed: 0,
       completed: 0,
       failed: 0,
       totalProcessed: 0,
+      totalCompleted: 0,
+      totalFailed: 0,
+      poTotalProcessed: 0,
       hasTarget: false,
       target: null,
       operatorStats: {
+        operatorId: null,
         operatorName: reqUser?.full_name || reqUser?.username || 'Operator',
         completed: 0,
         failed: 0,
-        totalProcessed: 0,
+        myCompleted: 0,
+        myFailed: 0,
+        myTotalProcessed: 0,
         passedCount: 0,
         failedCount: 0
+      },
+      poStats: {
+        totalCompleted: 0,
+        totalFailed: 0,
+        totalProcessed: 0
       }
     };
   }
@@ -178,65 +192,94 @@ export async function calculatePreQCProgress(poId: string, reqUser?: any) {
   const operatorUsername = reqUser?.username || null;
   const operatorName = reqUser?.full_name || reqUser?.fullName || operatorUsername || 'Operator';
 
-  let completed = 0;
-  let failed = 0;
+  // 1. My (Logged-in Operator) Pre-QC Stats for this PO
+  let myCompleted = 0;
+  let myFailed = 0;
 
   if (operatorId) {
-    const passRow = await db.prepare(`
+    const myPassRow = await db.prepare(`
       SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
-      JOIN item_units iu ON iu.id = pq.item_id
-      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      LEFT JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (pq.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND (pq.operator_id = ? OR pq.operator_id = ?)
         AND pq.pre_qc_result = 'PASS'
     `).get(targetPoId, targetPoId, targetPoId, operatorId, operatorUsername) as any;
-    completed = passRow?.cnt || 0;
+    myCompleted = myPassRow?.cnt || 0;
 
-    const failRow = await db.prepare(`
+    const myFailRow = await db.prepare(`
       SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
-      JOIN item_units iu ON iu.id = pq.item_id
-      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      LEFT JOIN item_units iu ON iu.id = pq.item_id
+      WHERE (pq.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND (pq.operator_id = ? OR pq.operator_id = ?)
         AND pq.pre_qc_result = 'FAIL'
     `).get(targetPoId, targetPoId, targetPoId, operatorId, operatorUsername) as any;
-    failed = failRow?.cnt || 0;
-  } else {
-    const passRow = await db.prepare(`
-      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
-      JOIN item_units iu ON iu.id = pq.item_id
-      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND pq.pre_qc_result = 'PASS'
-    `).get(targetPoId, targetPoId, targetPoId) as any;
-    completed = passRow?.cnt || 0;
-
-    const failRow = await db.prepare(`
-      SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
-      JOIN item_units iu ON iu.id = pq.item_id
-      WHERE (iu.production_order_id = ? OR pq.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-        AND pq.pre_qc_result = 'FAIL'
-    `).get(targetPoId, targetPoId, targetPoId) as any;
-    failed = failRow?.cnt || 0;
+    myFailed = myFailRow?.cnt || 0;
   }
 
-  const totalProcessed = completed + failed;
+  const myTotalProcessed = myCompleted + myFailed;
+
+  // 2. All-Operator PO Total Pre-QC Stats for this PO
+  const totalPassRow = await db.prepare(`
+    SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+    LEFT JOIN item_units iu ON iu.id = pq.item_id
+    WHERE (pq.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND pq.pre_qc_result = 'PASS'
+  `).get(targetPoId, targetPoId, targetPoId) as any;
+  const totalCompleted = totalPassRow?.cnt || 0;
+
+  const totalFailRow = await db.prepare(`
+    SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+    LEFT JOIN item_units iu ON iu.id = pq.item_id
+    WHERE (pq.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND pq.pre_qc_result = 'FAIL'
+  `).get(targetPoId, targetPoId, targetPoId) as any;
+  const totalFailed = totalFailRow?.cnt || 0;
+
+  const totalProcessed = totalCompleted + totalFailed;
 
   return {
     poId: po.id,
     poNumber: po.po_number || po.id,
-    completed,
-    failed,
+    myCompleted,
+    myFailed,
+    myTotalProcessed,
+    completed: myCompleted,
+    failed: myFailed,
     totalProcessed,
+    totalCompleted,
+    totalFailed,
+    poTotalProcessed: totalProcessed,
     hasTarget: false,
     target: null,
     operatorStats: {
       operatorId,
       operatorName,
-      completed,
-      failed,
-      totalProcessed,
-      passedCount: completed,
-      failedCount: failed
+      completed: myCompleted,
+      failed: myFailed,
+      myCompleted,
+      myFailed,
+      myTotalProcessed,
+      passedCount: myCompleted,
+      failedCount: myFailed
+    },
+    poStats: {
+      totalCompleted,
+      totalFailed,
+      totalProcessed
     }
   };
+}
+
+export async function getPOTargetQuantity(poId: string): Promise<number> {
+  const po = await resolvePO(poId);
+  if (!po) return 0;
+  const configTotal = await db.prepare(`SELECT SUM(quantity) as sumQty FROM production_order_configs WHERE production_order_id = ?`).get(po.id) as any;
+  let targetQuantity = configTotal?.sumQty ? Number(configTotal.sumQty) : 0;
+  if (!targetQuantity) {
+    const soTotal = await db.prepare(`SELECT SUM(order_quantity) as sumQty FROM sales_orders WHERE production_order_id = ?`).get(po.id) as any;
+    targetQuantity = soTotal?.sumQty ? Number(soTotal.sumQty) : 0;
+  }
+  return targetQuantity;
 }
 
 export async function calculatePOProgress(poId: string) {
@@ -583,6 +626,8 @@ router.post('/pre-qc/validate-item', authenticateToken, async (req: AuthRequest,
       return res.status(404).json({ valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
+    // Pre-QC QR MUST NOT be passed through product configuration/prefix validator.
+    // Validate only as a previously captured/eligible Pre-QC item for the same PO.
     const record = await db.prepare(`
       SELECT pqr.*, iu.qr_code as pre_qc_qr
       FROM pre_qc_results pqr
@@ -594,10 +639,27 @@ router.post('/pre-qc/validate-item', authenticateToken, async (req: AuthRequest,
     `).get(po.id, po.id, po.id, cleanPreQcQr) as any;
 
     if (!record) {
+      // Edge case check: Did this Pre-QC QR belong to another PO?
+      const otherPoRecord = await db.prepare(`
+        SELECT pqr.*, iu.qr_code as pre_qc_qr
+        FROM pre_qc_results pqr
+        JOIN item_units iu ON iu.id = pqr.item_id
+        WHERE UPPER(TRIM(iu.qr_code)) = ? AND pqr.pre_qc_result = 'PASS'
+        LIMIT 1
+      `).get(cleanPreQcQr) as any;
+
+      if (otherPoRecord) {
+        return res.status(400).json({
+          valid: false,
+          error: 'PRE_QC_PO_MISMATCH',
+          message: `Pre-QC item ${cleanPreQcQr} belongs to another Production Order.`
+        });
+      }
+
       return res.status(400).json({
         valid: false,
         error: 'INVALID_PRE_QC_QR',
-        message: `Pre-QC QR ${cleanPreQcQr} is not valid for this PO.`
+        message: `Pre-QC QR ${cleanPreQcQr} is not valid or has not been captured for Production Order ${po.po_number || po.id}.`
       });
     }
 
@@ -1266,6 +1328,32 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       isFullyCompleted = nextQcResult === 'PASS' && nextTestResult === 'PASS';
     }
 
+    // QC PASS Limit Rule: PASS count <= PO quantity. FAIL results do NOT consume PO quantity.
+    const isAttemptingPass = (targetStage === 'QC' && nextQcResult === 'PASS') ||
+      (targetStage === 'TEST' && nextTestResult === 'PASS') ||
+      (isCombinedSave && (nextQcResult === 'PASS' || nextTestResult === 'PASS'));
+
+    if (isAttemptingPass) {
+      const poTargetQty = await getPOTargetQuantity(po.id);
+      if (poTargetQty > 0) {
+        const passRow = await db.prepare(`
+          SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+          JOIN item_units iu ON iu.id = qr.item_id
+          WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+            AND qr.qc_result = 'PASS'
+            AND qr.item_id != ?
+        `).get(po.id, po.id, item.id) as any;
+        const currentPassCount = passRow?.cnt || 0;
+
+        if (currentPassCount >= poTargetQty) {
+          return res.status(400).json({
+            error: 'QC_PASS_LIMIT_EXCEEDED',
+            message: 'QC PASS quantity is already complete for this Production Order.'
+          });
+        }
+      }
+    }
+
     const finalItemStatus = isFullyCompleted ? 'QC_PASSED' : (nextQcResult === 'FAIL' || nextTestResult === 'FAIL' ? 'QC_FAILED' : 'CREATED');
 
     const existingFailsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_fail_log WHERE item_id = ?`).get(item.id) as any;
@@ -1273,6 +1361,24 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     let retryCount = 0;
 
     await db.transaction(async (tx) => {
+      // Concurrency check for PASS submissions inside transaction
+      if (isAttemptingPass) {
+        const poTargetQtyTx = await getPOTargetQuantity(po.id);
+        if (poTargetQtyTx > 0) {
+          const passRowTx = await tx.queryOne<{ cnt: number }>(`
+            SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+            JOIN item_units iu ON iu.id = qr.item_id
+            WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+              AND qr.qc_result = 'PASS'
+              AND qr.item_id != ?
+          `, [po.id, po.id, item.id]);
+          const currentPassCountTx = passRowTx?.cnt || 0;
+          if (currentPassCountTx >= poTargetQtyTx) {
+            throw new Error('QC PASS quantity is already complete for this Production Order.');
+          }
+        }
+      }
+
       const stageResultVal = targetStage === 'QC' ? nextQcResult : nextTestResult;
       if (stageResultVal === 'FAIL') {
         failCount += 1;
@@ -1576,36 +1682,39 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
 
     let item = await db.prepare(`
       SELECT * FROM item_units 
-      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ? OR production_order_id IS NULL)
+      WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
         AND UPPER(TRIM(qr_code)) = ?
     `).get(po.id, po.po_number, po.map_po, itemQr.trim().toUpperCase()) as any;
 
     if (!item) {
-      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ITEM_NOT_FOUND', 'Product not found for Production Order');
-      return res.status(400).json({ error: 'ITEM_NOT_FOUND', message: `Product not found for Production Order ${po.po_number || po.id}.` });
+      const unassignedItem = await db.prepare(`
+        SELECT * FROM item_units 
+        WHERE production_order_id IS NULL AND UPPER(TRIM(qr_code)) = ?
+      `).get(itemQr.trim().toUpperCase()) as any;
+
+      if (unassignedItem) {
+        await db.prepare(`UPDATE item_units SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, unassignedItem.id);
+        item = { ...unassignedItem, production_order_id: po.id };
+      } else {
+        const itemId = `itm-${po.id}-${itemQr.trim().toUpperCase()}`;
+        await db.prepare(`
+          INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
+        `).run(itemId, itemQr.trim().toUpperCase(), po.id, configCheck.config?.id || null, configCheck.config?.size || 'L');
+        item = { id: itemId, qr_code: itemQr.trim().toUpperCase(), production_order_id: po.id, status: 'CREATED' };
+      }
     }
 
-    const isPoMatch = !item.production_order_id || 
-      item.production_order_id === po.id || 
-      item.production_order_id === po.po_number || 
-      item.production_order_id === po.map_po;
-
-    if (!isPoMatch) {
-      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'PO_MISMATCH', 'Product belongs to a different Production Order');
-      return res.status(400).json({ error: 'PO_MISMATCH', message: `Product belongs to a different Production Order.` });
-    }
-
-    if (!item.production_order_id) {
-      await db.prepare(`UPDATE item_units SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, item.id);
-      item.production_order_id = po.id;
-    }
-
+    // Duplicate packing check scoped by production_order_id + product QR
     const existingActivePack = await db.prepare(`
-      SELECT bi.*, b.box_code, b.box_number 
+      SELECT bi.*, b.box_code, b.box_number, b.production_order_id as box_po_id
       FROM box_items bi 
       JOIN boxes b ON b.id = bi.box_id 
-      WHERE bi.item_id = ? AND bi.active = 1
-    `).get(item.id) as any;
+      JOIN item_units iu ON iu.id = bi.item_id
+      WHERE (iu.production_order_id = ? OR iu.production_order_id = ? OR b.production_order_id = ? OR b.production_order_id = ?)
+        AND UPPER(TRIM(iu.qr_code)) = ?
+        AND bi.active = 1
+    `).get(po.id, po.po_number, po.id, po.po_number, itemQr.trim().toUpperCase()) as any;
 
     if (existingActivePack) {
       if (existingActivePack.box_id === box.id) {
@@ -1621,7 +1730,7 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
         await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED_OTHER', 'Item already packed in another box');
         return res.status(409).json({
           error: 'ALREADY_PACKED',
-          message: `Item ${itemQr} is currently packed in Box ${existingActivePack.box_code || existingActivePack.box_number}. Use Box Transfer to move items.`
+          message: `Item ${itemQr} is currently packed in Box ${existingActivePack.box_code || existingActivePack.box_number} under Production Order ${po.po_number || po.id}. Use Box Transfer to move items.`
         });
       }
     }
