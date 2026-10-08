@@ -110,14 +110,18 @@ export const PackingPage: React.FC = () => {
   /* ── Phase 1: Box barcode scan ─────────────────────────────── */
   const handleScanBox = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
-    const localBox = packingBoxes[code] || Object.values(packingBoxes).find((b: any) => b.boxNumber?.toUpperCase() === code);
+    const currentPoId = po?.id || po?.dbId;
+    const localBox = packingBoxes[code] || Object.values(packingBoxes).find((b: any) => 
+      b.boxNumber?.toUpperCase() === code && 
+      (!currentPoId || b.productionOrderId === currentPoId || b.poId === currentPoId)
+    );
 
     let dbItems: BoxItem[] = [];
     let dbStatus = 'OPEN';
     let dbCapacity = so?.boxCapacity || 12;
 
     try {
-      const targetPoKey = po?.dbId || po?.id || '';
+      const targetPoKey = currentPoId || '';
       const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
       if (res && res.box) {
         dbCapacity = res.box.capacity || dbCapacity;
@@ -134,14 +138,12 @@ export const PackingPage: React.FC = () => {
       }
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      if (err?.error === 'BOX_PO_MISMATCH' || errMsg.includes('belongs to another Production Order')) {
-        showToast('This box belongs to another Production Order.', 'error');
-        return {
-          status: 'rejected' as const,
-          message: 'This box belongs to another Production Order.',
-          code,
-        };
-      }
+      showToast(errMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: errMsg,
+        code,
+      };
     }
 
     const combinedMap = new Map<string, BoxItem>();
@@ -157,16 +159,17 @@ export const PackingPage: React.FC = () => {
     const finalItems = Array.from(combinedMap.values());
     const isCompleted = finalItems.length >= dbCapacity || dbStatus === 'COMPLETE' || dbStatus === 'COMPLETED';
 
-    const loadedBox: ActiveBox = {
+    const loadedBox: ActiveBox & { productionOrderId?: string } = {
       boxNumber: code,
       capacity: dbCapacity,
       soId: so?.id || 'SO-77201',
+      productionOrderId: currentPoId,
       status: isCompleted ? 'COMPLETED' : 'OPEN',
       items: finalItems,
     };
 
-    setBox(loadedBox);
-    savePackingBox(loadedBox);
+    setBox(loadedBox as any);
+    savePackingBox(loadedBox as any);
     await fetchPackingProgress();
 
     const count = finalItems.length;
@@ -191,13 +194,14 @@ export const PackingPage: React.FC = () => {
       };
     }
 
-    // Duplicate check inside active box or ANY packed box for the SAME Production Order
+    // Duplicate check inside active box or ANY packed box ONLY for the SAME Production Order
     const currentPoId = po?.id || po?.dbId;
     const packedInBox: any = Object.values(packingBoxes).find((b: any) =>
-      (!b.productionOrderId || !currentPoId || b.productionOrderId === currentPoId || b.poId === currentPoId) &&
+      currentPoId &&
+      (b.productionOrderId === currentPoId || b.poId === currentPoId || b.poNumber === po?.poNumber) &&
       b.items?.some((i: any) => i.qr.toUpperCase() === code.trim().toUpperCase())
     );
-    if (packedInBox) {
+    if (packedInBox && packedInBox.boxNumber?.toUpperCase() !== box.boxNumber.toUpperCase()) {
       return {
         status:  'duplicate' as const,
         message: `⚠️ Item ${code} is ALREADY PACKED in Box ${packedInBox.boxNumber} for this Production Order!`,
@@ -247,14 +251,15 @@ export const PackingPage: React.FC = () => {
     const updatedItems = [{ qr: code, scannedAt: timeStr }, ...box.items];
     const isFull = updatedItems.length >= box.capacity;
 
-    const updatedBox: ActiveBox = {
+    const updatedBox: ActiveBox & { productionOrderId?: string } = {
       ...box,
+      productionOrderId: currentPoId,
       items:  updatedItems,
       status: isFull ? 'COMPLETED' : 'OPEN',
     };
 
-    setBox(updatedBox);
-    savePackingBox(updatedBox);
+    setBox(updatedBox as any);
+    savePackingBox(updatedBox as any);
     incrementPacked();
 
     if (scanRes?.progress) {
