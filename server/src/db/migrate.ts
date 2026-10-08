@@ -289,6 +289,52 @@ export async function runSchemaAlignment008(): Promise<void> {
   }
 }
 
+export async function runSchemaAlignment009(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (009 PO-Scoped Box Code Uniqueness)...');
+
+  if (await tableExists('boxes')) {
+    const duplicates = await db.query<{ production_order_id: string; box_code: string; cnt: number }>(`
+      SELECT production_order_id, box_code, COUNT(*) as cnt
+      FROM boxes
+      WHERE production_order_id IS NOT NULL AND box_code IS NOT NULL
+      GROUP BY production_order_id, box_code
+      HAVING cnt > 1
+    `);
+
+    if (duplicates && duplicates.length > 0) {
+      const dupInfo = duplicates.map(d => `${d.production_order_id}:${d.box_code} (${d.cnt})`).join(', ');
+      throw new Error(`Cannot apply composite unique constraint uq_boxes_po_code on boxes table. Duplicate (production_order_id, box_code) pairs exist: ${dupInfo}`);
+    }
+
+    if (await indexExists('boxes', 'box_code')) {
+      try {
+        await db.exec(`ALTER TABLE boxes DROP INDEX box_code;`);
+        console.log('  ✅ Dropped global single-column UNIQUE index box_code from boxes table');
+      } catch (e: any) {
+        console.warn('  ⚠️ Drop box_code index warning (non-fatal):', e?.message);
+      }
+    }
+
+    if (!(await indexExists('boxes', 'idx_boxes_box_code'))) {
+      try {
+        await db.exec(`CREATE INDEX idx_boxes_box_code ON boxes (box_code);`);
+        console.log('  ✅ Created non-unique lookup index idx_boxes_box_code on boxes');
+      } catch (e: any) {
+        console.warn('  ⚠️ Create idx_boxes_box_code warning (non-fatal):', e?.message);
+      }
+    }
+
+    if (!(await indexExists('boxes', 'uq_boxes_po_code')) && !(await constraintExists('boxes', 'uq_boxes_po_code'))) {
+      try {
+        await db.exec(`ALTER TABLE boxes ADD CONSTRAINT uq_boxes_po_code UNIQUE (production_order_id, box_code);`);
+        console.log('  ✅ Added composite unique constraint uq_boxes_po_code (production_order_id, box_code) to boxes table');
+      } catch (e: any) {
+        console.warn('  ⚠️ Add composite unique constraint uq_boxes_po_code warning:', e?.message);
+      }
+    }
+  }
+}
+
 /**
  * runStartupColumnChecks — Runs on EVERY server startup.
  * Adds any missing critical columns that may not exist on servers where
@@ -583,6 +629,7 @@ async function runStartupColumnChecks(): Promise<void> {
     } catch (e: any) { console.warn('  ⚠️ pre_qc_assignments:', e.message); }
 
     await runSchemaAlignment008();
+    await runSchemaAlignment009();
 
     console.log('✅ Startup column checks complete.');
   } catch (outerErr: any) {
@@ -717,6 +764,7 @@ async function runSchemaAlignment007(): Promise<void> {
   console.log(`🎉 Migrations summary: ${applied.length} applied, ${skipped.length} already up-to-date.`);
   await runSchemaAlignment007();
   await runSchemaAlignment008();
+  await runSchemaAlignment009();
   return { applied, skipped };
 }
 

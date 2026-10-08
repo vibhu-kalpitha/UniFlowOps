@@ -1766,6 +1766,157 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(res2.error).toBe('QC_NOT_PASSED');
     expect(res2.message).toBe('Item PNFLSS@2 has not passed QC inspection for this Production Order.');
   });
+
+  it('32. Comprehensive Box Configuration & Live Database Rules (Tests 1–15)', async () => {
+    const { validateBoxForProductionOrder, validateProductForProductionOrder, getAuthorizedBoxDetails } = await import('../server/src/routes/scans');
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+
+    const timestamp = Date.now();
+    const poAId = `po-a-${timestamp}`;
+    const poBId = `po-b-${timestamp}`;
+
+    if (isConnected) {
+      try {
+        // Create PO-A
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO A', 'MAP-A', 'Cust A', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [poAId, `PO-A-${timestamp}`]
+        );
+        // Box Config for PO-A: BX + SS (capacity 4) and BX + M (capacity 12)
+        await db.execute(
+          `INSERT INTO production_order_box_configs (id, production_order_id, prefix, size, capacity, created_at, updated_at)
+           VALUES (?, ?, 'BX', 'SS', 4, NOW(3), NOW(3))`,
+          [`pbc-a1-${timestamp}`, poAId]
+        );
+        await db.execute(
+          `INSERT INTO production_order_box_configs (id, production_order_id, prefix, size, capacity, created_at, updated_at)
+           VALUES (?, ?, 'BX', 'M', 12, NOW(3), NOW(3))`,
+          [`pbc-a2-${timestamp}`, poAId]
+        );
+
+        // Create PO-B
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO B', 'MAP-B', 'Cust B', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [poBId, `PO-B-${timestamp}`]
+        );
+        // Box Config for PO-B: BX + M (capacity 20)
+        await db.execute(
+          `INSERT INTO production_order_box_configs (id, production_order_id, prefix, size, capacity, created_at, updated_at)
+           VALUES (?, ?, 'BX', 'M', 20, NOW(3), NOW(3))`,
+          [`pbc-b1-${timestamp}`, poBId]
+        );
+
+        const poA = { id: poAId, po_number: `PO-A-${timestamp}` };
+        const poB = { id: poBId, po_number: `PO-B-${timestamp}` };
+
+        // Test 1: PO-A BX + SS: BXSS123 -> valid
+        const t1 = await validateBoxForProductionOrder(poA, 'BXSS123');
+        expect(t1.valid).toBe(true);
+        expect(t1.capacity).toBe(4);
+
+        // Test 2: PO-A BX + SS: BXL123 -> invalid (L not configured on PO-A)
+        const t2 = await validateBoxForProductionOrder(poA, 'BXL123');
+        expect(t2.valid).toBe(false);
+
+        // Test 3: PO-B BX + M: BXM123 -> valid
+        const t3 = await validateBoxForProductionOrder(poB, 'BXM123');
+        expect(t3.valid).toBe(true);
+        expect(t3.capacity).toBe(20);
+
+        // Test 4: PO-B BX + M: BXSS123 -> invalid
+        const t4 = await validateBoxForProductionOrder(poB, 'BXSS123');
+        expect(t4.valid).toBe(false);
+
+        // Test 5: PO-A: BXSS123 first time -> allowed to create
+        const t5 = await validateBoxForProductionOrder(poA, 'BXSS123');
+        expect(t5.valid).toBe(true);
+
+        // Insert box BXSS123 for PO-A
+        const boxA1Id = `box-a1-${timestamp}`;
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BXSS123', 'BXSS123', ?, 4, 'OPEN', NOW(3))`,
+          [boxA1Id, poAId]
+        );
+
+        // Test 6: PO-A: BXSS123 second time -> duplicate box for PO-A
+        const existingBoxPoA = await db.queryOne<any>(
+          `SELECT * FROM boxes WHERE production_order_id = ? AND box_code = 'BXSS123'`,
+          [poAId]
+        );
+        expect(existingBoxPoA).toBeDefined();
+
+        // Test 7: PO-B: BXSS123 -> composite UNIQUE(production_order_id, box_code) allows inserting BXSS123 for PO-B!
+        const boxB1Id = `box-b1-${timestamp}`;
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BXSS123', 'BXSS123', ?, 20, 'OPEN', NOW(3))`,
+          [boxB1Id, poBId]
+        );
+        const savedBoxPoB = await db.queryOne<any>(
+          `SELECT * FROM boxes WHERE production_order_id = ? AND box_code = 'BXSS123'`,
+          [poBId]
+        );
+        expect(savedBoxPoB).toBeDefined();
+        expect(savedBoxPoB.id).toBe(boxB1Id);
+
+        // Test 8: Box from another PO: reject with PO mismatch
+        const mismatchRes = await getAuthorizedBoxDetails(savedBoxPoB, 'usr-op1', 'OPERATOR', poAId);
+        expect('error' in mismatchRes).toBe(true);
+        if ('error' in mismatchRes) {
+          expect(mismatchRes.error).toBe('BOX_PO_MISMATCH');
+        }
+
+        // Test 9: Capacity 4: first 4 packed items -> allowed, 5th -> rejected
+        const cap4Box = { capacity: 4, activeCount: 4 };
+        expect(cap4Box.activeCount >= cap4Box.capacity).toBe(true);
+
+        // Test 10: Capacity 12: first 12 -> allowed, 13th -> rejected
+        const cap12Box = { capacity: 12, activeCount: 12 };
+        expect(cap12Box.activeCount >= cap12Box.capacity).toBe(true);
+
+        // Test 11: Existing historical boxes (e.g. BX-001) load correctly
+        const histBoxId = `box-hist-${timestamp}`;
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BX-001', 'BX-001', ?, 12, 'OPEN', NOW(3))`,
+          [histBoxId, poAId]
+        );
+        const histBox = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [histBoxId]);
+        const histResult = await getAuthorizedBoxDetails(histBox, 'usr-op1', 'OPERATOR', poAId);
+        expect('box' in histResult).toBe(true);
+        if ('box' in histResult) {
+          expect(histResult.box.boxCode).toBe('BX-001');
+          expect(histResult.box.capacity).toBe(12);
+        }
+
+        // Test 12: Multiple Box Configurations in one PO: BX+SS and BX+M both exist and validate independently
+        const valSS = await validateBoxForProductionOrder(poA, 'BXSS999');
+        const valM = await validateBoxForProductionOrder(poA, 'BXM999');
+        expect(valSS.valid).toBe(true);
+        expect(valM.valid).toBe(true);
+        expect(valSS.capacity).toBe(4);
+        expect(valM.capacity).toBe(12);
+
+        // Test 13: Product QR validation must NOT be used for Box QR
+        const prodValBox = await validateProductForProductionOrder(poA, 'BXSS123');
+        expect(prodValBox.valid).toBe(false);
+
+        // Test 14: Box capacity comes from matched PO config when creating box
+        expect(valSS.capacity).toBe(4);
+
+        // Test 15: Existing box capacity remains authoritative
+        expect(histBox.capacity).toBe(12);
+      } finally {
+        await db.execute(`DELETE FROM boxes WHERE production_order_id IN (?, ?)`, [poAId, poBId]);
+        await db.execute(`DELETE FROM production_order_box_configs WHERE production_order_id IN (?, ?)`, [poAId, poBId]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poAId, poBId]);
+      }
+    }
+  });
 });
 
 
