@@ -1632,7 +1632,47 @@ router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest
     }
     const boxCode = rawCode.trim().toUpperCase();
 
-    const box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxCode, boxCode) as any;
+    let box: any = null;
+    if (currentPoId) {
+      const targetPo = await resolvePO(currentPoId);
+      if (targetPo) {
+        box = await db.prepare(`
+          SELECT * FROM boxes 
+          WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+            AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+        `).get(boxCode, boxCode, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
+      }
+    }
+
+    if (!box) {
+      if (currentPoId) {
+        const targetPo = await resolvePO(currentPoId);
+        if (targetPo) {
+          const boxVal = await validateBoxForProductionOrder(targetPo, boxCode);
+          if (!boxVal.valid) {
+            return res.status(400).json({ error: boxVal.error, message: boxVal.message });
+          }
+          const capacity = boxVal.capacity || 12;
+          return res.json({
+            box: {
+              id: `new-${boxCode}`,
+              isNew: true,
+              boxCode,
+              boxNumber: boxCode,
+              productionOrderId: targetPo.id,
+              poNumber: targetPo.po_number || targetPo.id,
+              capacity,
+              activeCount: 0,
+              availableSpace: capacity,
+              status: 'NEW',
+              items: []
+            }
+          });
+        }
+      }
+      box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxCode, boxCode) as any;
+    }
+
     if (!box) {
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box with code '${boxCode}' not found.` });
     }
@@ -1669,7 +1709,21 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
     }
     const val = rawVal.trim().toUpperCase();
 
-    const codeMatches = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ?`).all(val) as any[];
+    let codeMatches: any[] = [];
+    if (currentPoId) {
+      const targetPo = await resolvePO(currentPoId);
+      if (targetPo) {
+        codeMatches = await db.prepare(`
+          SELECT * FROM boxes 
+          WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+            AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+        `).all(val, val, targetPo.id, targetPo.po_number, targetPo.map_po) as any[];
+      }
+    }
+    if (codeMatches.length === 0) {
+      codeMatches = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).all(val, val) as any[];
+    }
+
     let box: any = null;
 
     if (codeMatches.length > 1) {
@@ -1679,16 +1733,6 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
       });
     } else if (codeMatches.length === 1) {
       box = codeMatches[0];
-    } else {
-      const numMatches = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_number)) = ?`).all(val) as any[];
-      if (numMatches.length > 1) {
-        return res.status(409).json({
-          error: 'AMBIGUOUS_BOX_IDENTIFIER',
-          message: `Ambiguous identifier '${val}'. Multiple boxes match this box number. Please scan the exact box QR.`
-        });
-      } else if (numMatches.length === 1) {
-        box = numMatches[0];
-      }
     }
 
     if (!box) {
@@ -1801,24 +1845,20 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     const configuredCapacity = boxVal.capacity || 12;
 
     // STEP 2, 3, 4, 5 — IDENTIFY THE BOX & VERIFY BOX PO == CURRENT PO (BEFORE DUPLICATE CHECK)
-    let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
+    let box = await db.prepare(`
+      SELECT * FROM boxes 
+      WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+        AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+    `).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase(), po.id, po.po_number, po.map_po) as any;
+
     if (box) {
-      const boxPoId = box.production_order_id;
-      const isPoMatch = !boxPoId || boxPoId === po.id || boxPoId === po.po_number || boxPoId === po.map_po;
-      if (!isPoMatch) {
-        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'BOX_PO_MISMATCH', 'This box belongs to another Production Order.');
-        return res.status(400).json({
-          error: 'BOX_PO_MISMATCH',
-          message: 'This box belongs to another Production Order.'
-        });
-      }
       if (!box.production_order_id || box.capacity !== configuredCapacity) {
         await db.prepare(`UPDATE boxes SET production_order_id = ?, capacity = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, configuredCapacity, box.id);
         box.production_order_id = po.id;
         box.capacity = configuredCapacity;
       }
     } else {
-      const boxId = `box-${Date.now()}`;
+      const boxId = `box-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const code = boxNumber.trim().toUpperCase();
       await db.prepare(`
         INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
