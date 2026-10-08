@@ -1910,6 +1910,42 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       }
     }
 
+    // STEP 6.5 — VERIFY QC PASS IF QC TEST OPERATION IS REQUIRED ON THIS PO
+    const isQcRequired = await checkOperationEnabledForPO(po.id, 'QC Test');
+    if (isQcRequired) {
+      const qcPassRecord = await db.prepare(`
+        SELECT qr.* FROM qc_results qr
+        JOIN item_units iu ON iu.id = qr.item_id
+        WHERE (iu.production_order_id = ? OR iu.production_order_id = ?)
+          AND UPPER(TRIM(iu.qr_code)) = ?
+          AND qr.qc_result = 'PASS' 
+          AND qr.test_result = 'PASS'
+      `).get(po.id, po.po_number, itemQr.trim().toUpperCase()) as any;
+
+      if (!qcPassRecord) {
+        const qcFailLog = await db.prepare(`
+          SELECT qf.* FROM qc_fail_log qf
+          JOIN item_units iu ON iu.id = qf.item_id
+          WHERE (iu.production_order_id = ? OR iu.production_order_id = ?)
+            AND UPPER(TRIM(iu.qr_code)) = ?
+        `).get(po.id, po.po_number, itemQr.trim().toUpperCase()) as any;
+
+        if (qcFailLog) {
+          await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'QC_FAILED', `Item ${itemQr} failed QC inspection and cannot be packed.`);
+          return res.status(400).json({
+            error: 'QC_FAILED',
+            message: `Item ${itemQr} failed QC inspection and cannot be packed.`
+          });
+        }
+
+        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'QC_NOT_PASSED', `Item ${itemQr} has not passed QC inspection for this Production Order.`);
+        return res.status(400).json({
+          error: 'QC_NOT_PASSED',
+          message: `Item ${itemQr} has not passed QC inspection for this Production Order.`
+        });
+      }
+    }
+
     // STEP 7, 8, 9 — DUPLICATE CHECK SCOPED ONLY TO CURRENT PO (po.id) using authoritative Box -> PO relationship
     const existingActivePack = await db.prepare(`
       SELECT bi.*, b.box_code, b.box_number, b.production_order_id as box_po_id

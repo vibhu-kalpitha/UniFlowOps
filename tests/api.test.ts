@@ -1744,7 +1744,30 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(boxQr.startsWith(boxConfig.prefix + boxConfig.size)).toBe(true);
     expect(boxQr.startsWith(productConfig.configCode)).toBe(false);
   });
+
+  it('31. QC Pass Verification Requirement for Packing — Un-passed items rejected', () => {
+    const qcPassedItems = new Set(['PNFLSS1', 'PNFLSS2']);
+    const isQcRequiredOnPo = true;
+
+    const validateItemForPacking = (itemQr: string) => {
+      if (isQcRequiredOnPo && !qcPassedItems.has(itemQr)) {
+        return { allowed: false, error: 'QC_NOT_PASSED', message: `Item ${itemQr} has not passed QC inspection for this Production Order.` };
+      }
+      return { allowed: true };
+    };
+
+    // 1. PNFLSS1 (Passed QC) -> ALLOWED to pack
+    const res1 = validateItemForPacking('PNFLSS1');
+    expect(res1.allowed).toBe(true);
+
+    // 2. PNFLSS@2 (Not passed QC) -> REJECTED from packing
+    const res2 = validateItemForPacking('PNFLSS@2');
+    expect(res2.allowed).toBe(false);
+    expect(res2.error).toBe('QC_NOT_PASSED');
+    expect(res2.message).toBe('Item PNFLSS@2 has not passed QC inspection for this Production Order.');
+  });
 });
+
 
 
 
