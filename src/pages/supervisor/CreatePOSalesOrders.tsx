@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ProductConfiguration, ShiftAssignment, ProductConfigTypeMaster } from '../../types';
+import { ProductConfiguration, ShiftAssignment, ProductConfigTypeMaster, PoBoxConfiguration } from '../../types';
 import { apiFetch } from '../../services/api';
 import { ManageProductConfigTypesModal } from '../../components/ManageProductConfigTypesModal';
-import { Plus, Trash2, ArrowRight, ArrowLeft, CheckSquare, Square, Layers, Settings } from 'lucide-react';
+import { Plus, Trash2, ArrowRight, ArrowLeft, CheckSquare, Square, Layers, Settings, Package } from 'lucide-react';
 import '../../styles/tokens.css';
 
 interface StyleItem {
@@ -33,6 +33,12 @@ export const CreatePOSalesOrders: React.FC = () => {
 
   // Dynamic Product Configurations List
   const [configs, setConfigs] = useState<ProductConfiguration[]>([]);
+
+  // Dynamic Box Configurations List
+  const [boxConfigs, setBoxConfigs] = useState<PoBoxConfiguration[]>([
+    { prefix: 'BX', size: 'SS', capacity: 12 },
+    { prefix: 'BX', size: 'M', capacity: 12 }
+  ]);
 
   // Shift Allocation State
   const [shifts, setShifts] = useState<ShiftAssignment[]>([
@@ -106,6 +112,16 @@ export const CreatePOSalesOrders: React.FC = () => {
       } catch (e) {
         // Fallback
       }
+    }
+
+    const existingBoxConfigsData = sessionStorage.getItem('uniflow_draft_po_box_configs');
+    if (existingBoxConfigsData) {
+      try {
+        const parsedBoxConfigs = JSON.parse(existingBoxConfigsData);
+        if (Array.isArray(parsedBoxConfigs) && parsedBoxConfigs.length > 0) {
+          setBoxConfigs(parsedBoxConfigs);
+        }
+      } catch (e) {}
     }
 
     fetchMasterConfigTypes();
@@ -227,6 +243,20 @@ export const CreatePOSalesOrders: React.FC = () => {
 
   const totalQuantity = configs.reduce((sum, c) => sum + (c.quantity || 0), 0);
 
+  const updateBoxConfig = (index: number, field: keyof PoBoxConfiguration, val: any) => {
+    const updated = [...boxConfigs];
+    updated[index] = { ...updated[index], [field]: val };
+    setBoxConfigs(updated);
+  };
+
+  const addBoxConfig = () => {
+    setBoxConfigs([...boxConfigs, { prefix: 'BX', size: 'L', capacity: 12 }]);
+  };
+
+  const removeBoxConfig = (index: number) => {
+    setBoxConfigs(boxConfigs.filter((_, i) => i !== index));
+  };
+
   const handleNext = () => {
     if (configs.length === 0) {
       showToast('Please select or create at least one product configuration.', 'warning');
@@ -244,7 +274,28 @@ export const CreatePOSalesOrders: React.FC = () => {
       }
     }
 
+    if (boxConfigs.length === 0) {
+      showToast('Please add at least one box configuration.', 'warning');
+      return;
+    }
+
+    for (const bCfg of boxConfigs) {
+      if (!bCfg.prefix.trim()) {
+        showToast('Box prefix cannot be empty.', 'warning');
+        return;
+      }
+      if (!bCfg.size.trim()) {
+        showToast('Box size cannot be empty.', 'warning');
+        return;
+      }
+      if (!bCfg.capacity || bCfg.capacity <= 0) {
+        showToast('Box capacity must be a positive number.', 'warning');
+        return;
+      }
+    }
+
     sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(configs));
+    sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(boxConfigs));
     sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(shifts));
     navigate('/supervisor/production-orders/new/review');
   };
@@ -481,6 +532,98 @@ export const CreatePOSalesOrders: React.FC = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* BOX CONFIGURATION SECTION */}
+      <div className="card" style={{ backgroundColor: 'var(--bg-surface-2)', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Package size={20} color="var(--primary-teal)" />
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>BOX CONFIGURATION</h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Define PO-scoped Box Prefixes, Sizes, and Packing Capacities.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={addBoxConfig}
+            style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+          >
+            <Plus size={14} /> Add Box Configuration
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {boxConfigs.map((bCfg, bIdx) => (
+            <div
+              key={bIdx}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr auto',
+                gap: '12px',
+                alignItems: 'center',
+                backgroundColor: 'var(--bg-surface-1)',
+                padding: '12px 16px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)'
+              }}
+            >
+              <div>
+                <label style={styles.label}>PREFIX</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={bCfg.prefix}
+                  onChange={(e) => updateBoxConfig(bIdx, 'prefix', e.target.value.toUpperCase())}
+                  placeholder="e.g. BX"
+                  style={{ textTransform: 'uppercase', fontWeight: 700 }}
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>SIZE</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={bCfg.size}
+                  onChange={(e) => updateBoxConfig(bIdx, 'size', e.target.value.toUpperCase())}
+                  placeholder="e.g. SS, M, L"
+                  style={{ textTransform: 'uppercase', fontWeight: 700 }}
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>CAPACITY (ITEMS)</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={bCfg.capacity}
+                  min={1}
+                  onChange={(e) => updateBoxConfig(bIdx, 'capacity', parseInt(e.target.value, 10) || 12)}
+                  style={{ fontWeight: 700 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', paddingTop: '18px' }}>
+                {boxConfigs.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => removeBoxConfig(bIdx)}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-red)', cursor: 'pointer', padding: '6px' }}
+                    title="Remove box config"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                ) : (
+                  <div style={{ width: '30px' }} />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Navigation Buttons */}

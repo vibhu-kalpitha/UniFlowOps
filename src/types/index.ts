@@ -41,6 +41,14 @@ export interface ProductConfiguration {
   quantity: number;           // Auto calculated e.g. 500
 }
 
+export interface PoBoxConfiguration {
+  id?: string;
+  productionOrderId?: string;
+  prefix: string;
+  size: string;
+  capacity: number;
+}
+
 export interface ShiftAssignment {
   id: string;
   productionOrderId?: string;
@@ -119,6 +127,7 @@ export interface ProductionOrder {
   qcStationCount?: 1 | 2;
   qc_station_count?: number;
   productConfigurations?: ProductConfiguration[];
+  boxConfigurations?: PoBoxConfiguration[];
   totalQuantity?: number;
   shifts?: ShiftAssignment[];
   allocations?: any[];

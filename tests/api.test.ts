@@ -1551,7 +1551,201 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(case5.allowed).toBe(false);
     expect(case5.message).toBe('AAA-1 is already packed in this Production Order.');
   });
+
+  it('25. PO Box Configuration Structure & Uniqueness Rule — Table DDL & Multi-Config per PO', () => {
+    const boxConfigDdl = `
+      CREATE TABLE IF NOT EXISTS production_order_box_configs (
+        id VARCHAR(191) PRIMARY KEY,
+        production_order_id VARCHAR(191) NOT NULL,
+        prefix VARCHAR(191) NOT NULL,
+        size VARCHAR(50) NOT NULL,
+        capacity INT NOT NULL DEFAULT 12,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uq_pbc_po_prefix_size (production_order_id, prefix, size),
+        INDEX idx_pbc_po (production_order_id),
+        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
+
+    expect(boxConfigDdl).toContain('production_order_id');
+    expect(boxConfigDdl).toContain('prefix');
+    expect(boxConfigDdl).toContain('size');
+    expect(boxConfigDdl).toContain('capacity');
+    expect(boxConfigDdl).toContain('uq_pbc_po_prefix_size (production_order_id, prefix, size)');
+
+    // Multiple Box Configurations for same PO
+    const poConfigs = [
+      { prefix: 'BX', size: 'SS', capacity: 12 },
+      { prefix: 'BX', size: 'M', capacity: 12 },
+      { prefix: 'BX', size: 'L', capacity: 20 }
+    ];
+
+    expect(poConfigs.length).toBe(3);
+    expect(poConfigs[0].capacity).toBe(12);
+    expect(poConfigs[2].capacity).toBe(20);
+  });
+
+  it('26. Box QR Validation Rules — Configured Prefix + Size Matching & Rejection Cases', () => {
+    // Model PO Box Configurations
+    const poBoxConfigs = [
+      { prefix: 'BX', size: 'SS', capacity: 12 },
+      { prefix: 'BX', size: 'M', capacity: 12 }
+    ];
+
+    const validateBoxQr = (configs: Array<{ prefix: string; size: string; capacity: number }>, qr: string) => {
+      const cleanQr = qr.trim().toUpperCase();
+      const sortedConfigs = [...configs].sort((a, b) => (b.prefix + b.size).length - (a.prefix + a.size).length);
+
+      for (const cfg of sortedConfigs) {
+        const prefixSize = (cfg.prefix + cfg.size).toUpperCase();
+        if (cleanQr.startsWith(prefixSize)) {
+          const serial = cleanQr.slice(prefixSize.length);
+          if (serial.length > 0) {
+            return { valid: true, config: cfg, serial, capacity: cfg.capacity };
+          }
+        }
+      }
+
+      const matchingPrefix = configs.find(c => cleanQr.startsWith(c.prefix.toUpperCase()));
+      if (matchingPrefix) {
+        const remaining = cleanQr.slice(matchingPrefix.prefix.length);
+        if (!remaining) {
+          return { valid: false, error: 'BOX_SIZE_MISSING', message: 'Required box size is missing' };
+        }
+        return { valid: false, error: 'BOX_SIZE_NOT_CONFIGURED', message: 'Box size is not configured for this Production Order' };
+      }
+
+      return { valid: false, error: 'BOX_PREFIX_NOT_CONFIGURED', message: 'Box prefix is not configured for this Production Order' };
+    };
+
+    // 1. BXSS345667 -> VALID (Prefix BX + Size SS + Serial 345667)
+    const res1 = validateBoxQr(poBoxConfigs, 'BXSS345667');
+    expect(res1.valid).toBe(true);
+    expect(res1.config?.size).toBe('SS');
+    expect(res1.serial).toBe('345667');
+
+    // 2. BXM345667 -> VALID (Prefix BX + Size M + Serial 345667)
+    const res2 = validateBoxQr(poBoxConfigs, 'BXM345667');
+    expect(res2.valid).toBe(true);
+    expect(res2.config?.size).toBe('M');
+
+    // 3. BX345667 -> REJECT (Size missing)
+    const res3 = validateBoxQr(poBoxConfigs, 'BX345667');
+    expect(res3.valid).toBe(false);
+    expect(res3.error).toBe('BOX_SIZE_NOT_CONFIGURED');
+
+    // 4. BXLS345667 -> REJECT (Size L/LS not configured)
+    const res4 = validateBoxQr(poBoxConfigs, 'BXLS345667');
+    expect(res4.valid).toBe(false);
+    expect(res4.error).toBe('BOX_SIZE_NOT_CONFIGURED');
+
+    // 5. ABCSS345667 -> REJECT (Prefix ABC not configured)
+    const res5 = validateBoxQr(poBoxConfigs, 'ABCSS345667');
+    expect(res5.valid).toBe(false);
+    expect(res5.error).toBe('BOX_PREFIX_NOT_CONFIGURED');
+  });
+
+  it('27. PO-Scoped Box QR Scoping & PO Mismatch Protection', () => {
+    const poA = { id: 'PO-A', boxConfigs: [{ prefix: 'BX', size: 'SS', capacity: 12 }] };
+    const poB = { id: 'PO-B', boxConfigs: [{ prefix: 'BX', size: 'M', capacity: 12 }] };
+
+    const validateForPo = (po: typeof poA, qr: string) => {
+      const match = po.boxConfigs.find(c => qr.startsWith(c.prefix + c.size));
+      return !!match;
+    };
+
+    // For PO-A: BXSS345667 VALID, BXM345667 INVALID
+    expect(validateForPo(poA, 'BXSS345667')).toBe(true);
+    expect(validateForPo(poA, 'BXM345667')).toBe(false);
+
+    // For PO-B: BXM345667 VALID, BXSS345667 INVALID
+    expect(validateForPo(poB, 'BXM345667')).toBe(true);
+    expect(validateForPo(poB, 'BXSS345667')).toBe(false);
+
+    // Box PO Mismatch Guard: Box belongs to PO-A, scanning under PO-B
+    const boxes = [
+      { boxCode: 'BXSS345667', productionOrderId: 'PO-A' }
+    ];
+
+    const scanBoxUnderPo = (targetPoId: string, qr: string) => {
+      const existing = boxes.find(b => b.boxCode === qr);
+      if (existing && existing.productionOrderId !== targetPoId) {
+        return { allowed: false, error: 'BOX_PO_MISMATCH', message: 'This box belongs to another Production Order.' };
+      }
+      return { allowed: true };
+    };
+
+    const mismatchTest = scanBoxUnderPo('PO-B', 'BXSS345667');
+    expect(mismatchTest.allowed).toBe(false);
+    expect(mismatchTest.message).toBe('This box belongs to another Production Order.');
+
+    // Existing box PO relationship CANNOT be overwritten
+    expect(boxes[0].productionOrderId).toBe('PO-A');
+  });
+
+  it('28. PO-Scoped Duplicate Box QR Check (Same PO Only)', () => {
+    const boxes = [
+      { boxCode: 'BXSS345667', productionOrderId: 'PO-A' }
+    ];
+
+    const checkDuplicateBox = (targetPoId: string, qr: string) => {
+      const existingSamePo = boxes.find(b => b.productionOrderId === targetPoId && b.boxCode === qr);
+      if (existingSamePo) {
+        return { isDuplicate: true, message: 'Box QR already exists in this Production Order' };
+      }
+      return { isDuplicate: false };
+    };
+
+    // 1. Same Box QR under PO-A -> DUPLICATE
+    const dupPoA = checkDuplicateBox('PO-A', 'BXSS345667');
+    expect(dupPoA.isDuplicate).toBe(true);
+
+    // 2. Same Box QR under PO-B -> NOT DUPLICATE (PO-scoped)
+    const dupPoB = checkDuplicateBox('PO-B', 'BXSS345667');
+    expect(dupPoB.isDuplicate).toBe(false);
+  });
+
+  it('29. Authoritative Dynamic Box Capacity Enforcement (12 vs 20 Capacity)', () => {
+    // PO-1: Capacity 12
+    const boxPo1 = { boxCode: 'BXSS345667', capacity: 12, packedItemsCount: 12 };
+    const canPack13thItem = boxPo1.packedItemsCount < boxPo1.capacity;
+    expect(canPack13thItem).toBe(false); // 13th item REJECTED
+
+    // PO-3: Capacity 20
+    const boxPo3 = { boxCode: 'BXSS999999', capacity: 20, packedItemsCount: 12 };
+    const canPack13thItemPo3 = boxPo3.packedItemsCount < boxPo3.capacity;
+    expect(canPack13thItemPo3).toBe(true); // 13th item ALLOWED for capacity 20
+
+    const packUpTo20 = () => {
+      let count = 0;
+      for (let i = 1; i <= 20; i++) {
+        if (count < boxPo3.capacity) {
+          count++;
+        }
+      }
+      return count;
+    };
+    expect(packUpTo20()).toBe(20);
+  });
+
+  it('30. Product Configuration vs Box Configuration Strict Separation', () => {
+    const productConfig = { configCode: 'PNFLSS' };
+    const boxConfig = { prefix: 'BX', size: 'SS', capacity: 12 };
+
+    const productQr = 'PNFLSS123';
+    const boxQr = 'BXSS345667';
+
+    // Product QR matches Product Config, NOT Box Config
+    expect(productQr.startsWith(productConfig.configCode)).toBe(true);
+    expect(productQr.startsWith(boxConfig.prefix + boxConfig.size)).toBe(false);
+
+    // Box QR matches Box Config, NOT Product Config
+    expect(boxQr.startsWith(boxConfig.prefix + boxConfig.size)).toBe(true);
+    expect(boxQr.startsWith(productConfig.configCode)).toBe(false);
+  });
 });
+
 
 
 

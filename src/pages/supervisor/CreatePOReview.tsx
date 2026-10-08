@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ProductionOrder, ProductConfiguration, ShiftAssignment } from '../../types';
-import { CheckCircle2, ArrowLeft, CheckSquare, Square, Edit3 } from 'lucide-react';
+import { ProductionOrder, ProductConfiguration, ShiftAssignment, PoBoxConfiguration } from '../../types';
+import { CheckCircle2, ArrowLeft, CheckSquare, Square, Edit3, Package } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -12,6 +12,7 @@ export const CreatePOReview: React.FC = () => {
 
   const [draftPoGeneral, setDraftPoGeneral] = useState<any>(null);
   const [draftConfigs, setDraftConfigs] = useState<ProductConfiguration[]>([]);
+  const [draftBoxConfigs, setDraftBoxConfigs] = useState<PoBoxConfiguration[]>([]);
   const [draftShifts, setDraftShifts] = useState<ShiftAssignment[]>([]);
   const [makeCurrent, setMakeCurrent] = useState(true);
   const [isCreated, setIsCreated] = useState(false);
@@ -20,10 +21,12 @@ export const CreatePOReview: React.FC = () => {
   useEffect(() => {
     const genData = sessionStorage.getItem('uniflow_draft_po_general');
     const configsData = sessionStorage.getItem('uniflow_draft_po_configs');
+    const boxConfigsData = sessionStorage.getItem('uniflow_draft_po_box_configs');
     const shiftsData = sessionStorage.getItem('uniflow_draft_po_shifts');
 
     if (genData) setDraftPoGeneral(JSON.parse(genData));
     if (configsData) setDraftConfigs(JSON.parse(configsData));
+    if (boxConfigsData) setDraftBoxConfigs(JSON.parse(boxConfigsData));
     if (shiftsData) setDraftShifts(JSON.parse(shiftsData));
   }, []);
 
@@ -62,6 +65,7 @@ export const CreatePOReview: React.FC = () => {
       qcTestMode: draftPoGeneral.qcTestMode,
       qcStationCount: draftPoGeneral.qcStationCount || 1,
       productConfigurations: draftConfigs,
+      boxConfigurations: draftBoxConfigs,
       shifts: draftShifts
     };
 
@@ -113,6 +117,7 @@ export const CreatePOReview: React.FC = () => {
     // Clear session storage drafts ONLY after success
     sessionStorage.removeItem('uniflow_draft_po_general');
     sessionStorage.removeItem('uniflow_draft_po_configs');
+    sessionStorage.removeItem('uniflow_draft_po_box_configs');
     sessionStorage.removeItem('uniflow_draft_po_shifts');
     sessionStorage.removeItem('uniflow_draft_po_sos');
     sessionStorage.removeItem('uniflow_draft_po_style_id');
@@ -312,6 +317,51 @@ export const CreatePOReview: React.FC = () => {
               </div>
               <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
                 {cfg.quantity} Pcs
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Box Configurations Summary */}
+      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={styles.cardSubTitle}>BOX CONFIGURATIONS ({draftBoxConfigs.length})</span>
+            <h4 style={{ fontSize: '16px', fontWeight: 800 }}>Box QR & Packing Rules</h4>
+          </div>
+          <button
+            style={styles.editLinkBtn}
+            onClick={() => navigate('/supervisor/production-orders/new/sales-orders')}
+          >
+            <Edit3 size={14} /> Edit
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+          {draftBoxConfigs.map((bCfg, bIdx) => (
+            <div
+              key={bIdx}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 14px',
+                borderRadius: '10px',
+                backgroundColor: 'var(--bg-surface-2)',
+                border: '1px solid var(--border-color)'
+              }}
+            >
+              <div>
+                <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                  {bCfg.prefix} + {bCfg.size} ({bCfg.prefix}{bCfg.size})
+                </span>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                  Prefix: {bCfg.prefix} • Size: {bCfg.size}
+                </span>
+              </div>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                Capacity: {bCfg.capacity} Items
               </span>
             </div>
           ))}

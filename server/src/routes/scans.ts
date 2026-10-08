@@ -138,6 +138,92 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
   };
 }
 
+// Shared Backend Box QR Validation Engine (PO-Scoped)
+export async function validateBoxForProductionOrder(
+  poOrPoId: any,
+  rawBoxCode: string
+): Promise<{
+  valid: boolean;
+  config?: any;
+  prefix?: string;
+  size?: string;
+  capacity?: number;
+  serial?: string;
+  error?: string;
+  message?: string;
+}> {
+  if (!poOrPoId) {
+    return { valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' };
+  }
+  const po = typeof poOrPoId === 'string' ? await resolvePO(poOrPoId) : poOrPoId;
+  if (!po) {
+    return { valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' };
+  }
+
+  const code = rawBoxCode.trim().toUpperCase();
+  if (!code) {
+    return { valid: false, error: 'INVALID_BOX_QR', message: 'Box QR cannot be empty.' };
+  }
+
+  const configs = await db.prepare(`
+    SELECT * FROM production_order_box_configs
+    WHERE production_order_id = ?
+    ORDER BY CHAR_LENGTH(CONCAT(prefix, size)) DESC
+  `).all(po.id) as any[];
+
+  // Fallback for legacy POs with no box configuration rows defined
+  if (configs.length === 0) {
+    return { valid: true, capacity: 12 };
+  }
+
+  // Check prefix + size matches
+  for (const cfg of configs) {
+    const prefix = (cfg.prefix || '').trim().toUpperCase();
+    const size = (cfg.size || '').trim().toUpperCase();
+    const prefixSize = `${prefix}${size}`;
+
+    if (prefixSize && code.startsWith(prefixSize)) {
+      const serial = code.slice(prefixSize.length);
+      if (serial.length > 0) {
+        return {
+          valid: true,
+          config: cfg,
+          prefix,
+          size,
+          capacity: Number(cfg.capacity) || 12,
+          serial
+        };
+      }
+    }
+  }
+
+  // If no prefix + size matched, check if prefix matches to provide specific error message
+  const matchingPrefixes = configs.map(c => (c.prefix || '').trim().toUpperCase()).filter(Boolean);
+  const matchedPrefix = matchingPrefixes.find(p => code.startsWith(p));
+
+  if (matchedPrefix) {
+    const afterPrefix = code.slice(matchedPrefix.length);
+    if (!afterPrefix) {
+      return {
+        valid: false,
+        error: 'BOX_SIZE_MISSING',
+        message: `Invalid Box QR '${code}'. Required box size is missing for Production Order ${po.po_number || po.id}.`
+      };
+    }
+    return {
+      valid: false,
+      error: 'BOX_SIZE_NOT_CONFIGURED',
+      message: `Invalid Box QR '${code}'. Box size is not configured for Production Order ${po.po_number || po.id}.`
+    };
+  }
+
+  return {
+    valid: false,
+    error: 'BOX_PREFIX_NOT_CONFIGURED',
+    message: `Invalid Box QR '${code}'. Box prefix is not configured for Production Order ${po.po_number || po.id}.`
+  };
+}
+
 export async function validateProductQrRangeForPO(po: any, rawCode: string) {
   return validateProductForProductionOrder(po, rawCode);
 }
@@ -1478,14 +1564,30 @@ export type AuthorizedBoxResult =
 
 // Helper to format and check authorized box details
 export async function getAuthorizedBoxDetails(box: any, operatorId: string, role: string, currentPoId?: string | null): Promise<AuthorizedBoxResult> {
-  if (currentPoId && box.production_order_id) {
+  let po = box.production_order_id ? await db.prepare(`SELECT id, po_number FROM production_orders WHERE id = ?`).get(box.production_order_id) as any : null;
+
+  if (currentPoId) {
     const targetPo = await resolvePO(currentPoId);
-    if (targetPo && box.production_order_id !== targetPo.id && box.production_order_id !== targetPo.po_number && box.production_order_id !== targetPo.map_po) {
-      return {
-        error: 'BOX_PO_MISMATCH',
-        status: 400,
-        message: 'This box belongs to another Production Order.'
-      };
+    if (targetPo) {
+      if (box.production_order_id && box.production_order_id !== targetPo.id && box.production_order_id !== targetPo.po_number && box.production_order_id !== targetPo.map_po) {
+        return {
+          error: 'BOX_PO_MISMATCH',
+          status: 400,
+          message: 'This box belongs to another Production Order.'
+        };
+      }
+      const boxVal = await validateBoxForProductionOrder(targetPo, box.box_code || box.box_number);
+      if (!boxVal.valid) {
+        return {
+          error: boxVal.error || 'INVALID_BOX_QR',
+          status: 400,
+          message: boxVal.message || 'Invalid box QR for this Production Order.'
+        };
+      }
+      if (boxVal.capacity) {
+        box.capacity = boxVal.capacity;
+      }
+      po = targetPo;
     }
   }
 
@@ -1493,8 +1595,6 @@ export async function getAuthorizedBoxDetails(box: any, operatorId: string, role
   if (poId && !(await checkOperatorAllocationForPO(operatorId, role, poId))) {
     return { error: 'OPERATOR_UNAUTHORIZED', status: 403, message: 'Operator is not authorized to access boxes for this Production Order.' };
   }
-
-  const po = box.production_order_id ? await db.prepare(`SELECT id, po_number FROM production_orders WHERE id = ?`).get(box.production_order_id) as any : null;
 
   const activeItems = await db.prepare(`
     SELECT bi.id as box_item_id, bi.packed_at, u.id as item_id, u.qr_code, u.size, u.status
@@ -1511,7 +1611,7 @@ export async function getAuthorizedBoxDetails(box: any, operatorId: string, role
       id: box.id,
       boxCode: box.box_code || box.box_number,
       boxNumber: box.box_number || box.box_code,
-      productionOrderId: box.production_order_id,
+      productionOrderId: box.production_order_id || po?.id,
       poNumber: po?.po_number || '',
       capacity: box.capacity,
       activeCount,
@@ -1592,6 +1692,32 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
     }
 
     if (!box) {
+      if (currentPoId) {
+        const targetPo = await resolvePO(currentPoId);
+        if (targetPo) {
+          const boxVal = await validateBoxForProductionOrder(targetPo, val);
+          if (!boxVal.valid) {
+            return res.status(400).json({ error: boxVal.error, message: boxVal.message });
+          }
+          const capacity = boxVal.capacity || 12;
+          return res.json({
+            box: {
+              id: `new-${val}`,
+              isNew: true,
+              boxCode: val,
+              boxNumber: val,
+              productionOrderId: targetPo.id,
+              poNumber: targetPo.po_number || targetPo.id,
+              capacity,
+              activeCount: 0,
+              availableSpace: capacity,
+              status: 'NEW',
+              items: []
+            }
+          });
+        }
+      }
+
       if (parsed.isDestination && (parsed.sourceBoxCode || parsed.sourceBoxNumber)) {
         const srcCode = (parsed.sourceBoxCode || parsed.sourceBoxNumber)!.trim().toUpperCase();
         const srcBox = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(srcCode, srcCode) as any;
@@ -1663,6 +1789,17 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Packing operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
+    // STEP 1.5 — VALIDATE BOX QR AGAINST CURRENT PO'S BOX CONFIGURATIONS
+    const boxVal = await validateBoxForProductionOrder(po, boxNumber);
+    if (!boxVal.valid) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', boxVal.error, boxVal.message);
+      return res.status(400).json({
+        error: boxVal.error,
+        message: boxVal.message
+      });
+    }
+    const configuredCapacity = boxVal.capacity || 12;
+
     // STEP 2, 3, 4, 5 — IDENTIFY THE BOX & VERIFY BOX PO == CURRENT PO (BEFORE DUPLICATE CHECK)
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
     if (box) {
@@ -1675,18 +1812,19 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
           message: 'This box belongs to another Production Order.'
         });
       }
-      if (!box.production_order_id) {
-        await db.prepare(`UPDATE boxes SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, box.id);
+      if (!box.production_order_id || box.capacity !== configuredCapacity) {
+        await db.prepare(`UPDATE boxes SET production_order_id = ?, capacity = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, configuredCapacity, box.id);
         box.production_order_id = po.id;
+        box.capacity = configuredCapacity;
       }
     } else {
       const boxId = `box-${Date.now()}`;
       const code = boxNumber.trim().toUpperCase();
       await db.prepare(`
         INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
-        VALUES (?, ?, ?, ?, 12, 'OPEN', NOW(3))
-      `).run(boxId, code, code, po.id);
-      box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: 12, status: 'OPEN' };
+        VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3))
+      `).run(boxId, code, code, po.id, configuredCapacity);
+      box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: configuredCapacity, status: 'OPEN' };
     }
 
     // STEP 6 — Check Box Capacity
@@ -1732,16 +1870,16 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       }
     }
 
-    // STEP 7, 8, 9 — DUPLICATE CHECK SCOPED ONLY TO CURRENT PO (po.id)
+    // STEP 7, 8, 9 — DUPLICATE CHECK SCOPED ONLY TO CURRENT PO (po.id) using authoritative Box -> PO relationship
     const existingActivePack = await db.prepare(`
       SELECT bi.*, b.box_code, b.box_number, b.production_order_id as box_po_id
       FROM box_items bi 
       JOIN boxes b ON b.id = bi.box_id 
       JOIN item_units iu ON iu.id = bi.item_id
-      WHERE (iu.production_order_id = ? OR iu.production_order_id = ? OR b.production_order_id = ? OR b.production_order_id = ?)
+      WHERE (b.production_order_id = ? OR b.production_order_id = ?)
         AND UPPER(TRIM(iu.qr_code)) = ?
         AND bi.active = 1
-    `).get(po.id, po.po_number, po.id, po.po_number, itemQr.trim().toUpperCase()) as any;
+    `).get(po.id, po.po_number, itemQr.trim().toUpperCase()) as any;
 
     if (existingActivePack) {
       if (existingActivePack.box_id === box.id) {

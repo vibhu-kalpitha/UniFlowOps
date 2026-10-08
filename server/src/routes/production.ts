@@ -148,6 +148,19 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     quantity: c.quantity
   }));
 
+  // Load PO Box Configurations
+  const boxConfigRows = await db.prepare(`
+    SELECT * FROM production_order_box_configs WHERE production_order_id = ? ORDER BY prefix ASC, size ASC
+  `).all(po.id) as any[];
+
+  const boxConfigurations = boxConfigRows.map(c => ({
+    id: c.id,
+    productionOrderId: c.production_order_id,
+    prefix: c.prefix,
+    size: c.size,
+    capacity: Number(c.capacity)
+  }));
+
   const totalQuantity = productConfigurations.length > 0
     ? productConfigurations.reduce((sum, c) => sum + c.quantity, 0)
     : 0;
@@ -290,6 +303,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     qc_station_count: qcStationCount,
     stationCount: qcStationCount,
     productConfigurations,
+    boxConfigurations,
     totalQuantity: calcTotalQty,
     allocations: poAllocations,
     shifts,
@@ -364,6 +378,12 @@ const createPoProductConfigSchema = z.object({
   quantity: z.number().optional()
 });
 
+const createPoBoxConfigSchema = z.object({
+  prefix: z.string().min(1),
+  size: z.string().min(1),
+  capacity: z.number().int().positive()
+});
+
 const createPoSchema = z.object({
   id: z.string().min(1),
   poName: z.string().optional(),
@@ -387,6 +407,7 @@ const createPoSchema = z.object({
   shiftId: z.string().optional(),
   shift_id: z.string().optional(),
   productConfigurations: z.array(createPoProductConfigSchema).optional(),
+  boxConfigurations: z.array(createPoBoxConfigSchema).optional(),
   shifts: z.array(z.any()).optional(),
   allocations: z.array(z.any()).optional(),
   salesOrders: z.array(z.any()).optional()
@@ -541,6 +562,21 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
             INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, product_qr_prefix, product_serial_start, product_serial_end, quantity, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
           `).run(pocId, poDbId, code, pType, sz, prefix, start, end, qty);
+        }
+      }
+
+      if (body.boxConfigurations && body.boxConfigurations.length > 0) {
+        for (const bCfg of body.boxConfigurations) {
+          const pbcId = `pbc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+          const prefix = (bCfg.prefix || 'BX').trim().toUpperCase();
+          const size = (bCfg.size || '').trim().toUpperCase();
+          const capacity = Number(bCfg.capacity) || 12;
+
+          await tx.prepare(`
+            INSERT INTO production_order_box_configs (id, production_order_id, prefix, size, capacity, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3))
+            ON DUPLICATE KEY UPDATE capacity = VALUES(capacity), updated_at = NOW(3)
+          `).run(pbcId, poDbId, prefix, size, capacity);
         }
       }
 

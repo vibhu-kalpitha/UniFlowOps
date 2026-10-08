@@ -267,6 +267,28 @@ async function runSchemaAlignment005(): Promise<void> {
   }
 }
 
+export async function runSchemaAlignment008(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (008 PO Box Configurations)...');
+
+  if (!(await tableExists('production_order_box_configs'))) {
+    await db.exec(`
+      CREATE TABLE production_order_box_configs (
+        id VARCHAR(191) PRIMARY KEY,
+        production_order_id VARCHAR(191) NOT NULL,
+        prefix VARCHAR(191) NOT NULL,
+        size VARCHAR(50) NOT NULL,
+        capacity INT NOT NULL DEFAULT 12,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        UNIQUE KEY uq_pbc_po_prefix_size (production_order_id, prefix, size),
+        INDEX idx_pbc_po (production_order_id),
+        FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('  ✅ Created production_order_box_configs table');
+  }
+}
+
 /**
  * runStartupColumnChecks — Runs on EVERY server startup.
  * Adds any missing critical columns that may not exist on servers where
@@ -560,6 +582,8 @@ async function runStartupColumnChecks(): Promise<void> {
       }
     } catch (e: any) { console.warn('  ⚠️ pre_qc_assignments:', e.message); }
 
+    await runSchemaAlignment008();
+
     console.log('✅ Startup column checks complete.');
   } catch (outerErr: any) {
     // NEVER crash the server — just log and continue
@@ -692,6 +716,7 @@ async function runSchemaAlignment007(): Promise<void> {
 
   console.log(`🎉 Migrations summary: ${applied.length} applied, ${skipped.length} already up-to-date.`);
   await runSchemaAlignment007();
+  await runSchemaAlignment008();
   return { applied, skipped };
 }
 
