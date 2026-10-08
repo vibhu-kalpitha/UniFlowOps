@@ -1491,31 +1491,65 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     expect(isPreQcQr(validProductQr)).toBe(false);
   });
 
-  it('24. Packing Duplicate Check — Scoped by production_order_id + product QR', async () => {
-    // Model packing records across different POs
-    const packedRecords = [
-      { poId: 'PO-A', productQr: 'AAA-1', boxNumber: 'BX-000' },
-      { poId: 'PO-B', productQr: 'BBB-1', boxNumber: 'BX-001' },
+  it('24. Packing Box PO Relationship & Duplicate Validation — Scoped by production_order_id + product QR', async () => {
+    // Model boxes and packing records across POs
+    const boxes = [
+      { boxNumber: 'BX-000', productionOrderId: 'PO-A' },
+      { boxNumber: 'BX-001', productionOrderId: 'PO-B' },
+      { boxNumber: 'BX-010', productionOrderId: 'PO-B' },
     ];
 
-    const isAlreadyPackedInPo = (targetPoId: string, qr: string) => {
-      return packedRecords.some(r => r.poId === targetPoId && r.productQr === qr);
+    const packingRecords = [
+      { productionOrderId: 'PO-A', boxNumber: 'BX-000', productQr: 'AAA-1' }
+    ];
+
+    const validatePackingScan = (currentPoId: string, boxNumber: string, productQr: string) => {
+      // 1. Identify Box & Resolve Box -> PO Relationship
+      const box = boxes.find(b => b.boxNumber === boxNumber);
+      if (box && box.productionOrderId !== currentPoId) {
+        return { allowed: false, error: 'BOX_PO_MISMATCH', message: 'This box belongs to another Production Order.' };
+      }
+
+      // 2. Check Product QR duplicate ONLY inside current PO
+      const existingInPo = packingRecords.find(r => r.productionOrderId === currentPoId && r.productQr === productQr);
+      if (existingInPo) {
+        return { allowed: false, error: 'ALREADY_PACKED', message: `${productQr} is already packed in this Production Order.` };
+      }
+
+      return { allowed: true };
     };
 
-    // 1. PO-A has AAA-1 packed
-    expect(isAlreadyPackedInPo('PO-A', 'AAA-1')).toBe(true);
+    // CASE 1: PO-A, BX-000 belongs to PO-A, AAA-1 packed in BX-000. Scan AAA-1 under PO-B into BX-001 (belongs to PO-B).
+    // Expected: ALLOW because AAA-1 exists only under PO-A
+    const case1 = validatePackingScan('PO-B', 'BX-001', 'AAA-1');
+    expect(case1.allowed).toBe(true);
 
-    // 2. PO-B DOES NOT have AAA-1 packed -> ALLOWED!
-    expect(isAlreadyPackedInPo('PO-B', 'AAA-1')).toBe(false);
+    // CASE 2: PO-A, BX-000 belongs to PO-A, AAA-1 packed in BX-000. Scan AAA-1 under PO-A into BX-000 / BX-002 (belongs to PO-A).
+    // Expected: REJECT because AAA-1 is already packed in PO-A
+    const case2 = validatePackingScan('PO-A', 'BX-000', 'AAA-1');
+    expect(case2.allowed).toBe(false);
+    expect(case2.message).toBe('AAA-1 is already packed in this Production Order.');
 
-    // 3. PO-A scanning AAA-1 again -> REJECTED (already packed in PO-A)
-    expect(isAlreadyPackedInPo('PO-A', 'AAA-1')).toBe(true);
+    // CASE 3: Current PO = PO-B. Selected Box = BX-000 (belongs to PO-A).
+    // Expected: REJECT BEFORE QR DUPLICATE CHECK. Message: "This box belongs to another Production Order."
+    const case3 = validatePackingScan('PO-B', 'BX-000', 'AAA-1');
+    expect(case3.allowed).toBe(false);
+    expect(case3.error).toBe('BOX_PO_MISMATCH');
+    expect(case3.message).toBe('This box belongs to another Production Order.');
 
-    // 4. Pack AAA-1 under PO-B
-    packedRecords.push({ poId: 'PO-B', productQr: 'AAA-1', boxNumber: 'BX-01' });
+    // CASE 4: Current PO = PO-B. Selected Box = BX-001 (belongs to PO-B). AAA-1 exists packed under PO-A only.
+    // Expected: ALLOW
+    const case4 = validatePackingScan('PO-B', 'BX-001', 'AAA-1');
+    expect(case4.allowed).toBe(true);
 
-    // Now PO-B has AAA-1 packed into BX-01
-    expect(isAlreadyPackedInPo('PO-B', 'AAA-1')).toBe(true);
+    // Record AAA-1 as packed under PO-B in BX-001
+    packingRecords.push({ productionOrderId: 'PO-B', boxNumber: 'BX-001', productQr: 'AAA-1' });
+
+    // CASE 5: Current PO = PO-B. Selected Box = BX-010 (belongs to PO-B). AAA-1 already exists packed under PO-B in BX-001.
+    // Expected: REJECT. Message: "AAA-1 is already packed in this Production Order."
+    const case5 = validatePackingScan('PO-B', 'BX-010', 'AAA-1');
+    expect(case5.allowed).toBe(false);
+    expect(case5.message).toBe('AAA-1 is already packed in this Production Order.');
   });
 });
 

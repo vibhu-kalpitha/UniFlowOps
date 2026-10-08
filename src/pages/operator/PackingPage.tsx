@@ -117,7 +117,8 @@ export const PackingPage: React.FC = () => {
     let dbCapacity = so?.boxCapacity || 12;
 
     try {
-      const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}`);
+      const targetPoKey = po?.dbId || po?.id || '';
+      const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
       if (res && res.box) {
         dbCapacity = res.box.capacity || dbCapacity;
         dbStatus = res.box.status || 'OPEN';
@@ -131,8 +132,16 @@ export const PackingPage: React.FC = () => {
           });
         }
       }
-    } catch {
-      /* offline or box not in DB yet */
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (err?.error === 'BOX_PO_MISMATCH' || errMsg.includes('belongs to another Production Order')) {
+        showToast('This box belongs to another Production Order.', 'error');
+        return {
+          status: 'rejected' as const,
+          message: 'This box belongs to another Production Order.',
+          code,
+        };
+      }
     }
 
     const combinedMap = new Map<string, BoxItem>();

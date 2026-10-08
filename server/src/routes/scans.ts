@@ -1477,7 +1477,18 @@ export type AuthorizedBoxResult =
   | { box: any };
 
 // Helper to format and check authorized box details
-export async function getAuthorizedBoxDetails(box: any, operatorId: string, role: string): Promise<AuthorizedBoxResult> {
+export async function getAuthorizedBoxDetails(box: any, operatorId: string, role: string, currentPoId?: string | null): Promise<AuthorizedBoxResult> {
+  if (currentPoId && box.production_order_id) {
+    const targetPo = await resolvePO(currentPoId);
+    if (targetPo && box.production_order_id !== targetPo.id && box.production_order_id !== targetPo.po_number && box.production_order_id !== targetPo.map_po) {
+      return {
+        error: 'BOX_PO_MISMATCH',
+        status: 400,
+        message: 'This box belongs to another Production Order.'
+      };
+    }
+  }
+
   const poId = box.production_order_id || box.sales_order_id;
   if (poId && !(await checkOperatorAllocationForPO(operatorId, role, poId))) {
     return { error: 'OPERATOR_UNAUTHORIZED', status: 403, message: 'Operator is not authorized to access boxes for this Production Order.' };
@@ -1515,6 +1526,7 @@ export async function getAuthorizedBoxDetails(box: any, operatorId: string, role
 router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const rawCode = req.params.boxCode;
+    const currentPoId = (req.query.productionOrderId || req.query.poId) as string | undefined;
     if (!rawCode) {
       return res.status(400).json({ error: 'INVALID_CODE', message: 'Box code is required' });
     }
@@ -1525,7 +1537,7 @@ router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box with code '${boxCode}' not found.` });
     }
 
-    const result = await getAuthorizedBoxDetails(box, req.user!.id, req.user!.role);
+    const result = await getAuthorizedBoxDetails(box, req.user!.id, req.user!.role, currentPoId);
     if ('error' in result) {
       return res.status(result.status).json({ error: result.error, message: result.message });
     }
@@ -1543,12 +1555,14 @@ const resolveBoxSchema = z.object({
   boxNumber: z.string().optional(),
   isDestination: z.boolean().optional(),
   sourceBoxCode: z.string().optional(),
-  sourceBoxNumber: z.string().optional()
+  sourceBoxNumber: z.string().optional(),
+  productionOrderId: z.string().optional()
 });
 
 router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const parsed = resolveBoxSchema.parse(req.body);
+    const currentPoId = parsed.productionOrderId || (req.body as any).poId;
     const rawVal = parsed.value || parsed.boxCode || parsed.boxNumber;
     if (!rawVal || typeof rawVal !== 'string' || !rawVal.trim()) {
       return res.status(400).json({ error: 'INVALID_INPUT', message: 'Box code or box number is required' });
@@ -1605,7 +1619,7 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box '${val}' not found.` });
     }
 
-    const result = await getAuthorizedBoxDetails(box, req.user!.id, req.user!.role);
+    const result = await getAuthorizedBoxDetails(box, req.user!.id, req.user!.role, currentPoId);
     if ('error' in result) {
       return res.status(result.status).json({ error: result.error, message: result.message });
     }
@@ -1631,6 +1645,7 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     const { idempotencyKey, boxNumber, itemQr, productionOrderNumber, productionOrderId, salesOrderNumber } = packItemSchema.parse(req.body);
     const operatorId = req.user!.id;
 
+    // STEP 1 — IDENTIFY THE CURRENT PO
     const poKey = productionOrderId || productionOrderNumber || salesOrderNumber;
     let po = await resolvePO(poKey);
 
@@ -1648,17 +1663,23 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Packing operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
-    const configCheck = await validateProductForProductionOrder(po, itemQr);
-    if (!configCheck.valid) {
-      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', configCheck.error, configCheck.message);
-      return res.status(400).json({
-        error: configCheck.error,
-        message: configCheck.message
-      });
-    }
-
+    // STEP 2, 3, 4, 5 — IDENTIFY THE BOX & VERIFY BOX PO == CURRENT PO (BEFORE DUPLICATE CHECK)
     let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
-    if (!box) {
+    if (box) {
+      const boxPoId = box.production_order_id;
+      const isPoMatch = !boxPoId || boxPoId === po.id || boxPoId === po.po_number || boxPoId === po.map_po;
+      if (!isPoMatch) {
+        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'BOX_PO_MISMATCH', 'This box belongs to another Production Order.');
+        return res.status(400).json({
+          error: 'BOX_PO_MISMATCH',
+          message: 'This box belongs to another Production Order.'
+        });
+      }
+      if (!box.production_order_id) {
+        await db.prepare(`UPDATE boxes SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, box.id);
+        box.production_order_id = po.id;
+      }
+    } else {
       const boxId = `box-${Date.now()}`;
       const code = boxNumber.trim().toUpperCase();
       await db.prepare(`
@@ -1666,18 +1687,24 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
         VALUES (?, ?, ?, ?, 12, 'OPEN', NOW(3))
       `).run(boxId, code, code, po.id);
       box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: 12, status: 'OPEN' };
-    } else {
-      if (!box.production_order_id || box.production_order_id !== po.id) {
-        await db.prepare(`UPDATE boxes SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, box.id);
-        box.production_order_id = po.id;
-      }
     }
 
+    // STEP 6 — Check Box Capacity
     const currentItemsCountRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND active = 1`).get(box.id) as any;
     const currentItemsCount = currentItemsCountRow?.cnt || 0;
     if (currentItemsCount >= box.capacity) {
       await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'BOX_FULL', 'Box capacity reached');
       return res.status(400).json({ error: 'BOX_FULL', message: `Box ${boxNumber} is already full (${box.capacity}/${box.capacity}).` });
+    }
+
+    // Validate product configuration for current PO
+    const configCheck = await validateProductForProductionOrder(po, itemQr);
+    if (!configCheck.valid) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', configCheck.error, configCheck.message);
+      return res.status(400).json({
+        error: configCheck.error,
+        message: configCheck.message
+      });
     }
 
     let item = await db.prepare(`
@@ -1705,7 +1732,7 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       }
     }
 
-    // Duplicate packing check scoped by production_order_id + product QR
+    // STEP 7, 8, 9 — DUPLICATE CHECK SCOPED ONLY TO CURRENT PO (po.id)
     const existingActivePack = await db.prepare(`
       SELECT bi.*, b.box_code, b.box_number, b.production_order_id as box_po_id
       FROM box_items bi 
@@ -1727,10 +1754,10 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
           isDuplicate: true
         });
       } else {
-        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED_OTHER', 'Item already packed in another box');
-        return res.status(409).json({
+        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED', `${itemQr} is already packed in this Production Order.`);
+        return res.status(400).json({
           error: 'ALREADY_PACKED',
-          message: `Item ${itemQr} is currently packed in Box ${existingActivePack.box_code || existingActivePack.box_number} under Production Order ${po.po_number || po.id}. Use Box Transfer to move items.`
+          message: `${itemQr} is already packed in this Production Order.`
         });
       }
     }
