@@ -208,13 +208,24 @@ export const CreatePOSalesOrders: React.FC = () => {
 
   const updateConfig = (index: number, field: keyof ProductConfiguration, val: any) => {
     const updated = [...configs];
-    const cfg = { ...updated[index], [field]: val };
+    const cfg = { ...updated[index] };
 
     if (field === 'quantity') {
-      const q = Math.max(1, parseInt(val, 10) || 0);
-      cfg.quantity = q;
-      cfg.productSerialStart = 1;
-      cfg.productSerialEnd = q;
+      if (val === '' || val === null || val === undefined) {
+        (cfg as any).quantity = '';
+        cfg.productSerialStart = 1;
+        cfg.productSerialEnd = 0;
+      } else {
+        const cleanVal = String(val).replace(/[^0-9]/g, '');
+        (cfg as any).quantity = cleanVal;
+        const q = parseInt(cleanVal, 10);
+        if (!isNaN(q)) {
+          cfg.productSerialStart = 1;
+          cfg.productSerialEnd = q;
+        }
+      }
+    } else {
+      (cfg as any)[field] = val;
     }
 
     updated[index] = cfg;
@@ -241,11 +252,27 @@ export const CreatePOSalesOrders: React.FC = () => {
     setConfigs(configs.filter((_, i) => i !== index));
   };
 
-  const totalQuantity = configs.reduce((sum, c) => sum + (c.quantity || 0), 0);
+  const totalQuantity = configs.reduce((sum, c) => {
+    const q = typeof c.quantity === 'number' ? c.quantity : (parseInt(String(c.quantity), 10) || 0);
+    return sum + q;
+  }, 0);
 
   const updateBoxConfig = (index: number, field: keyof PoBoxConfiguration, val: any) => {
     const updated = [...boxConfigs];
-    updated[index] = { ...updated[index], [field]: val };
+    const item = { ...updated[index] };
+
+    if (field === 'capacity') {
+      if (val === '' || val === null || val === undefined) {
+        (item as any).capacity = '';
+      } else {
+        const cleanVal = String(val).replace(/[^0-9]/g, '');
+        (item as any).capacity = cleanVal;
+      }
+    } else {
+      (item as any)[field] = val;
+    }
+
+    updated[index] = item;
     setBoxConfigs(updated);
   };
 
@@ -263,7 +290,17 @@ export const CreatePOSalesOrders: React.FC = () => {
       return;
     }
 
-    for (const cfg of configs) {
+    const normalizedConfigs: ProductConfiguration[] = configs.map(c => {
+      const qNum = typeof c.quantity === 'number' ? c.quantity : (parseInt(String(c.quantity || '0'), 10) || 0);
+      return {
+        ...c,
+        quantity: qNum,
+        productSerialStart: 1,
+        productSerialEnd: qNum
+      };
+    });
+
+    for (const cfg of normalizedConfigs) {
       if (!cfg.configCode.trim()) {
         showToast('Configuration code cannot be empty.', 'warning');
         return;
@@ -279,7 +316,15 @@ export const CreatePOSalesOrders: React.FC = () => {
       return;
     }
 
-    for (const bCfg of boxConfigs) {
+    const normalizedBoxConfigs: PoBoxConfiguration[] = boxConfigs.map(b => {
+      const capNum = typeof b.capacity === 'number' ? b.capacity : (parseInt(String(b.capacity || '0'), 10) || 0);
+      return {
+        ...b,
+        capacity: capNum
+      };
+    });
+
+    for (const bCfg of normalizedBoxConfigs) {
       if (!bCfg.prefix.trim()) {
         showToast('Box prefix cannot be empty.', 'warning');
         return;
@@ -294,8 +339,8 @@ export const CreatePOSalesOrders: React.FC = () => {
       }
     }
 
-    sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(configs));
-    sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(boxConfigs));
+    sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(normalizedConfigs));
+    sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(normalizedBoxConfigs));
     sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(shifts));
     navigate('/supervisor/production-orders/new/review');
   };
@@ -521,11 +566,13 @@ export const CreatePOSalesOrders: React.FC = () => {
               <div>
                 <label style={styles.label}>Quantity (Pcs)</label>
                 <input
-                  type="number"
-                  min="1"
-                  className="input-field"
-                  value={cfg.quantity}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="input-field no-spinner"
+                  value={cfg.quantity !== undefined && cfg.quantity !== null ? cfg.quantity : ''}
                   onChange={e => updateConfig(idx, 'quantity', e.target.value)}
+                  placeholder="e.g. 500, 2500, 10000"
                   style={{ fontWeight: 800, color: 'var(--primary-teal)' }}
                 />
               </div>
@@ -598,11 +645,13 @@ export const CreatePOSalesOrders: React.FC = () => {
               <div>
                 <label style={styles.label}>CAPACITY (ITEMS)</label>
                 <input
-                  type="number"
-                  className="input-field"
-                  value={bCfg.capacity}
-                  min={1}
-                  onChange={(e) => updateBoxConfig(bIdx, 'capacity', parseInt(e.target.value, 10) || 12)}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="input-field no-spinner"
+                  value={bCfg.capacity !== undefined && bCfg.capacity !== null ? bCfg.capacity : ''}
+                  onChange={(e) => updateBoxConfig(bIdx, 'capacity', e.target.value)}
+                  placeholder="e.g. 12, 24, 48"
                   style={{ fontWeight: 700 }}
                 />
               </div>
