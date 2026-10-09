@@ -1706,13 +1706,8 @@ router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest
           WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
             AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
         `).get(boxCode, boxCode, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
-      }
-    }
 
-    if (!box) {
-      if (currentPoId) {
-        const targetPo = await resolvePO(currentPoId);
-        if (targetPo) {
+        if (!box) {
           const boxVal = await validateBoxForProductionOrder(targetPo, boxCode);
           if (!boxVal.valid) {
             return res.status(400).json({ error: boxVal.error, message: boxVal.message });
@@ -1735,6 +1730,7 @@ router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest
           });
         }
       }
+    } else {
       box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxCode, boxCode) as any;
     }
 
@@ -1784,8 +1780,7 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
             AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
         `).all(val, val, targetPo.id, targetPo.po_number, targetPo.map_po) as any[];
       }
-    }
-    if (codeMatches.length === 0) {
+    } else {
       codeMatches = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).all(val, val) as any[];
     }
 

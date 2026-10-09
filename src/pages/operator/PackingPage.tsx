@@ -111,10 +111,12 @@ export const PackingPage: React.FC = () => {
   const handleScanBox = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
     const currentPoId = po?.id || po?.dbId;
-    const localBox = packingBoxes[code] || Object.values(packingBoxes).find((b: any) => 
-      b.boxNumber?.toUpperCase() === code && 
-      (!currentPoId || b.productionOrderId === currentPoId || b.poId === currentPoId)
+    const rawLocalBox = packingBoxes[code] || Object.values(packingBoxes).find((b: any) => 
+      b.boxNumber?.toUpperCase() === code
     );
+    const localBox = (rawLocalBox && (!currentPoId || (rawLocalBox as any).productionOrderId === currentPoId || (rawLocalBox as any).poId === currentPoId))
+      ? rawLocalBox
+      : null;
 
     let dbItems: BoxItem[] = [];
     let dbStatus = 'OPEN';
