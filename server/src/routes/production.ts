@@ -620,15 +620,34 @@ router.post('/production-orders/:id/allocations', authenticateToken, requireRole
     const shift = await db.prepare(`SELECT id FROM shifts WHERE id = ? OR code = ?`).get(shiftId, shiftId) as any;
     const targetShiftId = shift ? shift.id : shiftId;
 
-    const workAssignId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    let targetOp = operation || 'ALL';
+    if (targetOp === 'AQL Checker' || targetOp === 'Normal AQL' || targetOp === 'NORMAL_AQL') targetOp = 'AQL';
+    else if (targetOp === 'FINAL AQL' || targetOp === 'Final AQL') targetOp = 'FINAL_AQL';
+    else if (targetOp === 'QC Test' || targetOp === 'QC') targetOp = 'QC_TEST';
+    else if (targetOp === 'Pre QC' || targetOp === 'PREQC') targetOp = 'PRE_QC';
+    else if (targetOp === 'Packing' || targetOp === 'PACK') targetOp = 'PACKING';
 
-    await db.prepare(`
-      INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
-      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
-    `).run(workAssignId, po.id, targetShiftId, opUser.id, operation || 'ALL', req.user!.id);
+    const existingAlloc = await db.prepare(`
+      SELECT * FROM operator_work_assignments 
+      WHERE production_order_id = ? AND operator_id = ? AND UPPER(TRIM(operation)) = UPPER(TRIM(?))
+    `).get(po.id, opUser.id, targetOp) as any;
 
-    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR_PO', 'operator_work_assignments', workAssignId, { poId: po.id, operatorId: opUser.id, shiftId: targetShiftId });
+    let workAssignId = existingAlloc ? existingAlloc.id : `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+
+    if (existingAlloc) {
+      await db.prepare(`
+        UPDATE operator_work_assignments 
+        SET shift_id = ?, active = 1, updated_at = NOW(3) 
+        WHERE id = ?
+      `).run(targetShiftId, existingAlloc.id);
+    } else {
+      await db.prepare(`
+        INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
+      `).run(workAssignId, po.id, targetShiftId, opUser.id, targetOp, req.user!.id);
+    }
+
+    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR_PO', 'operator_work_assignments', workAssignId, { poId: po.id, operatorId: opUser.id, shiftId: targetShiftId, operation: targetOp });
 
     const allocs = await db.prepare(`
       SELECT owa.id, owa.production_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
@@ -639,8 +658,8 @@ router.post('/production-orders/:id/allocations', authenticateToken, requireRole
     `).all(po.id);
 
     return res.status(201).json({
-      message: `Operator ${opUser.full_name} allocated to PO ${po.po_number}`,
-      allocation: { id: workAssignId, productionOrderId: po.id, operatorId: opUser.id, shiftId: targetShiftId },
+      message: `Operator ${opUser.full_name} allocated to PO ${po.po_number} for ${targetOp}`,
+      allocation: { id: workAssignId, productionOrderId: po.id, operatorId: opUser.id, shiftId: targetShiftId, operation: targetOp },
       allocations: allocs
     });
   } catch (err) {

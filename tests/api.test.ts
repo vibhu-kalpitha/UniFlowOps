@@ -2115,6 +2115,79 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 30000);
+
+  it('35. Independent Stage Assignment Creation & Authorization Isolation (Tests 1–5)', async () => {
+    const { checkOperatorAllocationForPO } = await import('../server/src/routes/scans');
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    const poPkId = `po-1791448847979-${timestamp}`;
+    const poNumber = `PO-2026-9077-${timestamp}`;
+    const opId = `usr-001`; // Chamika
+
+    if (isConnected) {
+      try {
+        // 1. Create Production Order using PK id
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO Test Independent Allocs', 'MAP-IND', 'Cust Ind', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [poPkId, poNumber]
+        );
+
+        // 2. Supervisor assigns PACKING operation only
+        const allocPackId = `owa-pk-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, 'shift-c', ?, 'PACKING', 1, NOW(3))`,
+          [allocPackId, poPkId, opId]
+        );
+
+        // Verify: PACKING authorized, AQL rejected, FINAL_AQL rejected
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PACKING')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'AQL')).toBe(false);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'FINAL_AQL')).toBe(false);
+
+        // 3. Supervisor independently adds AQL (Normal AQL) operation
+        const allocAqlId = `owa-aql-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, 'shift-c', ?, 'AQL', 1, NOW(3))`,
+          [allocAqlId, poPkId, opId]
+        );
+
+        // Verify: PACKING authorized, Normal AQL authorized, FINAL_AQL STILL rejected
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PACKING')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'AQL')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'FINAL_AQL')).toBe(false);
+
+        // 4. Supervisor independently adds FINAL_AQL operation
+        const allocFaqlId = `owa-faql-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, 'shift-c', ?, 'FINAL_AQL', 1, NOW(3))`,
+          [allocFaqlId, poPkId, opId]
+        );
+
+        // Verify: ALL THREE authorized independently
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PACKING')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'AQL')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'FINAL_AQL')).toBe(true);
+
+        // 5. Verify records in DB carry the exact PK production_order_id
+        const savedRows = await db.query<any>(
+          `SELECT * FROM operator_work_assignments WHERE production_order_id = ? AND operator_id = ? AND active = 1 ORDER BY operation ASC`,
+          [poPkId, opId]
+        );
+        expect(savedRows.length).toBe(3);
+        expect(savedRows.map(r => r.operation)).toEqual(['AQL', 'FINAL_AQL', 'PACKING']);
+        expect(savedRows[0].production_order_id).toBe(poPkId);
+      } finally {
+        await db.execute(`DELETE FROM operator_work_assignments WHERE production_order_id = ?`, [poPkId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poPkId]);
+      }
+    }
+  }, 30000);
 });
 
 
