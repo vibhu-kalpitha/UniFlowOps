@@ -1903,6 +1903,7 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
 // POST /api/packing/items/scan
 const packItemSchema = z.object({
   idempotencyKey: z.string().optional(),
+  boxId: z.string().optional(),
   boxNumber: z.string().min(1),
   itemQr: z.string().min(1),
   productionOrderNumber: z.string().optional(),
@@ -1912,7 +1913,7 @@ const packItemSchema = z.object({
 
 router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const { idempotencyKey, boxNumber, itemQr, productionOrderNumber, productionOrderId, salesOrderNumber } = packItemSchema.parse(req.body);
+    const { idempotencyKey, boxId, boxNumber, itemQr, productionOrderNumber, productionOrderId, salesOrderNumber } = packItemSchema.parse(req.body);
     const operatorId = req.user!.id;
 
     // STEP 1 — IDENTIFY THE CURRENT PO
@@ -1945,11 +1946,21 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     const configuredCapacity = boxVal.capacity || 12;
 
     // STEP 2, 3, 4, 5 — IDENTIFY THE BOX & VERIFY BOX PO == CURRENT PO (BEFORE DUPLICATE CHECK)
-    let box = await db.prepare(`
-      SELECT * FROM boxes 
-      WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
-        AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
-    `).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase(), po.id, po.po_number, po.map_po) as any;
+    let box: any = null;
+    if (boxId && !boxId.startsWith('new-')) {
+      box = await db.prepare(`
+        SELECT * FROM boxes
+        WHERE id = ? AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+      `).get(boxId, po.id, po.po_number, po.map_po) as any;
+    }
+
+    if (!box) {
+      box = await db.prepare(`
+        SELECT * FROM boxes 
+        WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+          AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+      `).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase(), po.id, po.po_number, po.map_po) as any;
+    }
 
     if (box) {
       if (!box.production_order_id || box.capacity !== configuredCapacity) {

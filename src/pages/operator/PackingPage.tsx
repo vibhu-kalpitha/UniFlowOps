@@ -18,6 +18,7 @@ interface BoxItem {
 }
 
 interface ActiveBox {
+  boxId?: string;
   boxNumber: string;
   capacity: number;
   soId: string;
@@ -86,6 +87,7 @@ export const PackingPage: React.FC = () => {
   };
 
   React.useEffect(() => {
+    setBox(null);
     if (po) {
       const target = po.totalQuantity || 500;
       const packed = po.progress?.packed || 0;
@@ -123,11 +125,13 @@ export const PackingPage: React.FC = () => {
     let dbItems: BoxItem[] = [];
     let dbStatus = 'OPEN';
     let dbCapacity = so?.boxCapacity || 12;
+    let apiBoxId: string | undefined = undefined;
 
     try {
       const targetPoKey = currentPoId || '';
       const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
       if (res && res.box) {
+        apiBoxId = res.box.id;
         dbCapacity = res.box.capacity || dbCapacity;
         dbStatus = res.box.status || 'OPEN';
         if (Array.isArray(res.box.items)) {
@@ -164,6 +168,7 @@ export const PackingPage: React.FC = () => {
     const isCompleted = finalItems.length >= dbCapacity || dbStatus === 'COMPLETE' || dbStatus === 'COMPLETED';
 
     const loadedBox: ActiveBox & { productionOrderId?: string } = {
+      boxId: apiBoxId,
       boxNumber: code,
       capacity: dbCapacity,
       soId: so?.id || 'SO-77201',
@@ -206,6 +211,7 @@ export const PackingPage: React.FC = () => {
       scanRes = await apiFetch('/api/packing/items/scan', {
         method: 'POST',
         body: JSON.stringify({
+          boxId:                  box.boxId,
           boxNumber:              box.boxNumber,
           itemQr:                 code,
           productionOrderId:     po?.dbId || po?.id,
@@ -310,6 +316,7 @@ export const PackingPage: React.FC = () => {
           selectedPoId={po?.id || po?.dbId}
           onClose={po ? () => setShowPoSelector(false) : undefined}
           onSelectPo={(selectedPo) => {
+            setBox(null);
             setActiveJob({ productionOrder: selectedPo });
             setShowPoSelector(false);
           }}
