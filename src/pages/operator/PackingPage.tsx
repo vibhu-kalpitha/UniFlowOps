@@ -111,8 +111,10 @@ export const PackingPage: React.FC = () => {
   const handleScanBox = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
     const currentPoId = po?.id || po?.dbId;
-    const rawLocalBox = packingBoxes[code] || Object.values(packingBoxes).find((b: any) => 
-      b.boxNumber?.toUpperCase() === code
+    const poKey = currentPoId ? `${currentPoId}_${code}` : code;
+    const rawLocalBox = packingBoxes[poKey] || Object.values(packingBoxes).find((b: any) => 
+      b.boxNumber?.toUpperCase() === code && 
+      (!currentPoId || b.productionOrderId === currentPoId || b.poId === currentPoId)
     );
     const localBox = (rawLocalBox && (!currentPoId || (rawLocalBox as any).productionOrderId === currentPoId || (rawLocalBox as any).poId === currentPoId))
       ? rawLocalBox
