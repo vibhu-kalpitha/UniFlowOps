@@ -169,8 +169,9 @@ export const repository = {
     const poKey = (box as any).productionOrderId || (box as any).poId;
     if (poKey) {
       boxes[`${poKey}_${box.boxNumber.toUpperCase()}`] = box;
+    } else {
+      boxes[box.boxNumber.toUpperCase()] = box;
     }
-    boxes[box.boxNumber.toUpperCase()] = box;
     localStorage.setItem(KEYS.PACKING_BOXES, JSON.stringify(boxes));
   },
 
