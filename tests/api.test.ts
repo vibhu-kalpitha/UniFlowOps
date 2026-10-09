@@ -2210,10 +2210,34 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
           expect(qrCodes).not.toContain('PNFLSS1');
           expect(qrCodes).not.toContain('PNFLSS2');
         }
+
+        // Test 3: Create new box for PO-2026-2222 with unique box code BXNEW1
+        const po2222Row = await db.queryOne<any>(`SELECT * FROM production_orders WHERE id = ?`, [po2222Id]);
+        expect(po2222Row).toBeTruthy();
+
+        // Ensure box BXNEW1 does not exist yet
+        const beforeBox = await db.queryOne<any>(`SELECT * FROM boxes WHERE box_code = 'BXNEW1' AND production_order_id = ?`, [po2222Id]);
+        expect(beforeBox).toBeNull();
+
+        // Create box via DB insert mimicking API creation
+        const newBoxId = `box-new1-${timestamp}`;
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BXNEW1', 'BXNEW1', ?, 12, 'OPEN', NOW(3))`,
+          [newBoxId, po2222Id]
+        );
+
+        const createdBox = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [newBoxId]);
+        expect(createdBox).toBeTruthy();
+        expect(createdBox.production_order_id).toBe(po2222Id);
+
+        // Repeated lookup/scans for BXNEW1 inside PO-2026-2222 retrieve the exact created box
+        const repeatBox = await db.queryOne<any>(`SELECT * FROM boxes WHERE box_code = 'BXNEW1' AND production_order_id = ?`, [po2222Id]);
+        expect(repeatBox.id).toBe(newBoxId);
       } finally {
         await db.execute(`DELETE FROM box_items WHERE id IN (?, ?, ?, ?)`, [`bi-1111-1-${timestamp}`, `bi-1111-2-${timestamp}`, `bi-2222-1-${timestamp}`, `bi-2222-2-${timestamp}`]);
         await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?, ?)`, [item1111_1, item1111_2, item2222_1, item2222_2]);
-        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [box1111Id, box2222Id]);
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?) OR box_code = 'BXNEW1'`, [box1111Id, box2222Id]);
         await db.execute(`DELETE FROM operator_work_assignments WHERE id IN (?, ?)`, [`owa-1111-${timestamp}`, `owa-2222-${timestamp}`]);
         await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1111Id, po2222Id]);
       }

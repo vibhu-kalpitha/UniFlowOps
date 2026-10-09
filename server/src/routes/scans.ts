@@ -1708,27 +1708,48 @@ router.get('/boxes/by-code/:boxCode', authenticateToken, async (req: AuthRequest
         `).get(boxCode, boxCode, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
 
         if (!box) {
+          const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, targetPo.id);
+          if (!isAllocated) {
+            return res.status(403).json({
+              error: 'OPERATOR_UNAUTHORIZED',
+              message: `Operator is not authorized for Production Order ${targetPo.po_number || targetPo.id}.`
+            });
+          }
+
           const boxVal = await validateBoxForProductionOrder(targetPo, boxCode);
           if (!boxVal.valid) {
             return res.status(400).json({ error: boxVal.error, message: boxVal.message });
           }
           const capacity = boxVal.capacity || 12;
-          return res.json({
-            box: {
-              id: `new-${boxCode}`,
-              isNew: true,
-              boxCode,
-              boxNumber: boxCode,
-              productionOrderId: targetPo.id,
-              poNumber: targetPo.po_number || targetPo.id,
+          const newBoxId = `box-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          try {
+            await db.prepare(`
+              INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+              VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3))
+            `).run(newBoxId, boxCode, boxCode, targetPo.id, capacity);
+
+            box = {
+              id: newBoxId,
+              box_code: boxCode,
+              box_number: boxCode,
+              production_order_id: targetPo.id,
               capacity,
-              activeCount: 0,
-              availableSpace: capacity,
-              status: 'NEW',
-              items: []
+              status: 'OPEN'
+            };
+          } catch (insertErr: any) {
+            box = await db.prepare(`
+              SELECT * FROM boxes 
+              WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+                AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+            `).get(boxCode, boxCode, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
+
+            if (!box) {
+              return res.status(500).json({ error: 'BOX_CREATION_FAILED', message: 'Failed to create box for Production Order.' });
             }
-          });
+          }
         }
+      } else {
+        return res.status(404).json({ error: 'PO_NOT_FOUND', message: `Production Order '${currentPoId}' not found.` });
       }
     } else {
       box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxCode, boxCode) as any;
@@ -1799,26 +1820,45 @@ router.post('/boxes/resolve', authenticateToken, async (req: AuthRequest, res, n
       if (currentPoId) {
         const targetPo = await resolvePO(currentPoId);
         if (targetPo) {
+          const isAllocated = await checkOperatorAllocationForPO(req.user!.id, req.user!.role, targetPo.id);
+          if (!isAllocated) {
+            return res.status(403).json({
+              error: 'OPERATOR_UNAUTHORIZED',
+              message: `Operator is not authorized for Production Order ${targetPo.po_number || targetPo.id}.`
+            });
+          }
+
           const boxVal = await validateBoxForProductionOrder(targetPo, val);
           if (!boxVal.valid) {
             return res.status(400).json({ error: boxVal.error, message: boxVal.message });
           }
           const capacity = boxVal.capacity || 12;
-          return res.json({
-            box: {
-              id: `new-${val}`,
-              isNew: true,
-              boxCode: val,
-              boxNumber: val,
-              productionOrderId: targetPo.id,
-              poNumber: targetPo.po_number || targetPo.id,
+          const newBoxId = `box-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          try {
+            await db.prepare(`
+              INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+              VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3))
+            `).run(newBoxId, val, val, targetPo.id, capacity);
+
+            box = {
+              id: newBoxId,
+              box_code: val,
+              box_number: val,
+              production_order_id: targetPo.id,
               capacity,
-              activeCount: 0,
-              availableSpace: capacity,
-              status: 'NEW',
-              items: []
+              status: 'OPEN'
+            };
+          } catch (insertErr: any) {
+            box = await db.prepare(`
+              SELECT * FROM boxes 
+              WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+                AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+            `).get(val, val, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
+
+            if (!box) {
+              return res.status(500).json({ error: 'BOX_CREATION_FAILED', message: 'Failed to create box for Production Order.' });
             }
-          });
+          }
         }
       }
 
@@ -1920,11 +1960,23 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     } else {
       const boxId = `box-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const code = boxNumber.trim().toUpperCase();
-      await db.prepare(`
-        INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3))
-      `).run(boxId, code, code, po.id, configuredCapacity);
-      box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: configuredCapacity, status: 'OPEN' };
+      try {
+        await db.prepare(`
+          INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+          VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3))
+        `).run(boxId, code, code, po.id, configuredCapacity);
+        box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: configuredCapacity, status: 'OPEN' };
+      } catch (insertErr: any) {
+        box = await db.prepare(`
+          SELECT * FROM boxes 
+          WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+            AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+        `).get(code, code, po.id, po.po_number, po.map_po) as any;
+
+        if (!box) {
+          throw insertErr;
+        }
+      }
     }
 
     // STEP 6 — Check Box Capacity
