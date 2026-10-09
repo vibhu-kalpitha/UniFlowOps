@@ -2129,6 +2129,96 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 30000);
+
+  it('36. Cross-PO Same Box-Code Item Isolation Verification (PO-2026-1111 vs PO-2026-2222)', async () => {
+    const { getAuthorizedBoxDetails } = await import('../server/src/routes/scans');
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    const po1111Id = `po-1111-${timestamp}`;
+    const po2222Id = `po-2222-${timestamp}`;
+    const box1111Id = `box-1111-${timestamp}`;
+    const box2222Id = `box-2222-${timestamp}`;
+    const item1111_1 = `itm-1111-1-${timestamp}`;
+    const item1111_2 = `itm-1111-2-${timestamp}`;
+    const item2222_1 = `itm-2222-1-${timestamp}`;
+    const item2222_2 = `itm-2222-2-${timestamp}`;
+
+    if (isConnected) {
+      try {
+        // Create PO-2026-1111 and PO-2026-2222
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, 'PO-2026-1111', 'PO 1111 Test', 'MAP-1111', 'Cust 1111', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [po1111Id]
+        );
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, 'PO-2026-2222', 'PO 2222 Test', 'MAP-2222', 'Cust 2222', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [po2222Id]
+        );
+
+        // Assign operator usr-001 to both POs
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, 'usr-001', 'ALL', 1, NOW(3))`, [`owa-1111-${timestamp}`, po1111Id]);
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, 'usr-001', 'ALL', 1, NOW(3))`, [`owa-2222-${timestamp}`, po2222Id]);
+
+        // Create box BXSS1 under PO-2026-1111
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BXSS1', 'BXSS1', ?, 12, 'OPEN', NOW(3))`,
+          [box1111Id, po1111Id]
+        );
+
+        // Create box BXSS1 under PO-2026-2222
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BXSS1', 'BXSS1', ?, 12, 'OPEN', NOW(3))`,
+          [box2222Id, po2222Id]
+        );
+
+        // Insert items for PO-2026-1111
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'PNFLSS1', ?, 'PACKED', NOW(3), NOW(3))`, [item1111_1, po1111Id]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'PNFLSS2', ?, 'PACKED', NOW(3), NOW(3))`, [item1111_2, po1111Id]);
+        await db.execute(`INSERT INTO box_items (id, box_id, item_id, active, packed_at) VALUES (?, ?, ?, 1, NOW(3))`, [`bi-1111-1-${timestamp}`, box1111Id, item1111_1]);
+        await db.execute(`INSERT INTO box_items (id, box_id, item_id, active, packed_at) VALUES (?, ?, ?, 1, NOW(3))`, [`bi-1111-2-${timestamp}`, box1111Id, item1111_2]);
+
+        // Insert items for PO-2026-2222
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'PNFLSM1', ?, 'PACKED', NOW(3), NOW(3))`, [item2222_1, po2222Id]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, 'PNFLSM2', ?, 'PACKED', NOW(3), NOW(3))`, [item2222_2, po2222Id]);
+        await db.execute(`INSERT INTO box_items (id, box_id, item_id, active, packed_at) VALUES (?, ?, ?, 1, NOW(3))`, [`bi-2222-1-${timestamp}`, box2222Id, item2222_1]);
+        await db.execute(`INSERT INTO box_items (id, box_id, item_id, active, packed_at) VALUES (?, ?, ?, 1, NOW(3))`, [`bi-2222-2-${timestamp}`, box2222Id, item2222_2]);
+
+        // Query 1: Fetch box BXSS1 for PO-2026-1111
+        const box1111Row = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [box1111Id]);
+        const res1111 = await getAuthorizedBoxDetails(box1111Row, 'usr-001', 'OPERATOR', po1111Id);
+        expect('box' in res1111).toBe(true);
+        if ('box' in res1111) {
+          const qrCodes = res1111.box.items.map((i: any) => i.qr_code);
+          expect(qrCodes.sort()).toEqual(['PNFLSS1', 'PNFLSS2']);
+          expect(qrCodes).not.toContain('PNFLSM1');
+          expect(qrCodes).not.toContain('PNFLSM2');
+        }
+
+        // Query 2: Fetch box BXSS1 for PO-2026-2222
+        const box2222Row = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [box2222Id]);
+        const res2222 = await getAuthorizedBoxDetails(box2222Row, 'usr-001', 'OPERATOR', po2222Id);
+        expect('box' in res2222).toBe(true);
+        if ('box' in res2222) {
+          const qrCodes = res2222.box.items.map((i: any) => i.qr_code);
+          expect(qrCodes.sort()).toEqual(['PNFLSM1', 'PNFLSM2']);
+          expect(qrCodes).not.toContain('PNFLSS1');
+          expect(qrCodes).not.toContain('PNFLSS2');
+        }
+      } finally {
+        await db.execute(`DELETE FROM box_items WHERE id IN (?, ?, ?, ?)`, [`bi-1111-1-${timestamp}`, `bi-1111-2-${timestamp}`, `bi-2222-1-${timestamp}`, `bi-2222-2-${timestamp}`]);
+        await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?, ?)`, [item1111_1, item1111_2, item2222_1, item2222_2]);
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [box1111Id, box2222Id]);
+        await db.execute(`DELETE FROM operator_work_assignments WHERE id IN (?, ?)`, [`owa-1111-${timestamp}`, `owa-2222-${timestamp}`]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1111Id, po2222Id]);
+      }
+    }
+  }, 30000);
 });
 
 
