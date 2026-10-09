@@ -194,28 +194,7 @@ export const PackingPage: React.FC = () => {
       };
     }
 
-    // Duplicate check inside active box or ANY packed box ONLY for the SAME Production Order
-    const currentPoId = po?.id || po?.dbId;
-    const packedInBox: any = Object.values(packingBoxes).find((b: any) =>
-      currentPoId &&
-      (b.productionOrderId === currentPoId || b.poId === currentPoId || b.poNumber === po?.poNumber) &&
-      b.items?.some((i: any) => i.qr.toUpperCase() === code.trim().toUpperCase())
-    );
-    if (packedInBox && packedInBox.boxNumber?.toUpperCase() !== box.boxNumber.toUpperCase()) {
-      return {
-        status:  'duplicate' as const,
-        message: `⚠️ Item ${code} is ALREADY PACKED in Box ${packedInBox.boxNumber} for this Production Order!`,
-        code,
-      };
-    }
 
-    if (box.items.some(i => i.qr.toUpperCase() === code.trim().toUpperCase())) {
-      return {
-        status:  'duplicate' as const,
-        message: `⚠️ Item ${code} is ALREADY PACKED in this Box (${box.boxNumber})!`,
-        code,
-      };
-    }
 
     let scanRes: any = null;
     // Try API
@@ -229,6 +208,13 @@ export const PackingPage: React.FC = () => {
           productionOrderNumber: po?.id || 'PO-2026-0184',
         }),
       });
+      if (scanRes?.isDuplicate) {
+        return {
+          status: 'duplicate' as const,
+          message: `⚠️ ${scanRes.message}`,
+          code,
+        };
+      }
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED') || err.error === 'ALREADY_PACKED') {
@@ -246,6 +232,7 @@ export const PackingPage: React.FC = () => {
       };
     }
 
+    const currentPoId = po?.id || po?.dbId;
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
     const updatedItems = [{ qr: code, scannedAt: timeStr }, ...box.items];

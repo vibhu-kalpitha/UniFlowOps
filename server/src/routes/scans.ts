@@ -1952,26 +1952,28 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       FROM box_items bi 
       JOIN boxes b ON b.id = bi.box_id 
       JOIN item_units iu ON iu.id = bi.item_id
-      WHERE (b.production_order_id = ? OR b.production_order_id = ?)
+      WHERE (b.production_order_id = ? OR b.production_order_id = ? OR b.production_order_id = ?)
         AND UPPER(TRIM(iu.qr_code)) = ?
         AND bi.active = 1
-    `).get(po.id, po.po_number, itemQr.trim().toUpperCase()) as any;
+    `).get(po.id, po.po_number, po.map_po, itemQr.trim().toUpperCase()) as any;
 
     if (existingActivePack) {
+      const existingBoxCode = existingActivePack.box_code || existingActivePack.box_number || 'another box';
       if (existingActivePack.box_id === box.id) {
         await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'DUPLICATE', 'ALREADY_PACKED', 'Item already packed in this box');
         return res.status(200).json({
-          message: `Item ${itemQr} is already packed in box ${boxNumber}`,
-          boxNumber,
+          message: `Item ${itemQr} is already packed in box ${existingBoxCode}`,
+          boxNumber: existingBoxCode,
           itemCount: currentItemsCount,
           capacity: box.capacity,
           isDuplicate: true
         });
       } else {
-        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED', `${itemQr} is already packed in this Production Order.`);
+        const dupMessage = `Item ${itemQr} is ALREADY PACKED in Box ${existingBoxCode} for this Production Order.`;
+        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED', dupMessage);
         return res.status(400).json({
           error: 'ALREADY_PACKED',
-          message: `${itemQr} is already packed in this Production Order.`
+          message: dupMessage
         });
       }
     }

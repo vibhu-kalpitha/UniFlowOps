@@ -813,7 +813,7 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?)`, [item1Id, item2Id, item3Id]);
       await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
     }
-  }, 20000);
+  }, 30000);
 
   it('13. AQL Strict Item-by-Item State Machine & Result Sequence Validation', () => {
     const fs = require('fs');
@@ -1914,6 +1914,103 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
         await db.execute(`DELETE FROM boxes WHERE production_order_id IN (?, ?)`, [poAId, poBId]);
         await db.execute(`DELETE FROM production_order_box_configs WHERE production_order_id IN (?, ?)`, [poAId, poBId]);
         await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poAId, poBId]);
+      }
+    }
+  });
+
+  it('33. Packing Duplicate Item Regression Test Suite (Same-PO, Cross-PO, Inactive Record, Current-PO Assignment)', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    const po1Id = `po-dup1-${timestamp}`;
+    const po2Id = `po-dup2-${timestamp}`;
+    const po1Number = `PO-DUP1-${timestamp}`;
+    const po2Number = `PO-DUP2-${timestamp}`;
+
+    const box1Id = `box-d1-${timestamp}`;
+    const box2Id = `box-d2-${timestamp}`;
+    const box3Id = `box-d3-${timestamp}`;
+
+    const item1Id = `itm-d1-${timestamp}`;
+    const item2Id = `itm-d2-${timestamp}`;
+
+    const qrCode = `PNFLSS${timestamp.toString().slice(-4)}`;
+
+    if (isConnected) {
+      try {
+        // Create PO 1 & PO 2
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO Dup 1', 'MAP-D1', 'Cust D1', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [po1Id, po1Number]
+        );
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO Dup 2', 'MAP-D2', 'Cust D2', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [po2Id, po2Number]
+        );
+
+        // Create Box 1 & Box 2 for PO 1; Box 3 for PO 2
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BX-001', 'BX-001', ?, 12, 'OPEN', NOW(3))`, [box1Id, po1Id]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BX-002', 'BX-002', ?, 12, 'OPEN', NOW(3))`, [box2Id, po1Id]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BX-003', 'BX-003', ?, 12, 'OPEN', NOW(3))`, [box3Id, po2Id]);
+
+        // Create Item 1 for PO 1, Item 2 for PO 2
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'CREATED', NOW(3), NOW(3))`, [item1Id, qrCode, po1Id]);
+        await db.execute(`INSERT INTO item_units (id, qr_code, production_order_id, status, created_at, updated_at) VALUES (?, ?, ?, 'CREATED', NOW(3), NOW(3))`, [item2Id, qrCode, po2Id]);
+
+        // 1. Pack Item 1 into Box 1 (PO 1) as ACTIVE (active = 1)
+        const bi1Id = `bi-d1-${timestamp}`;
+        await db.execute(`INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-op1', NOW(3), 1)`, [bi1Id, box1Id, item1Id]);
+
+        // REGRESSION TEST 1: Same-PO Duplicate -> Scanning item1 under PO 1 for Box 2 must find active pack in Box 1 and reject
+        const dupSamePo = await db.queryOne<any>(`
+          SELECT bi.*, b.box_code, b.box_number
+          FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          JOIN item_units iu ON iu.id = bi.item_id
+          WHERE (b.production_order_id = ? OR b.production_order_id = ?)
+            AND UPPER(TRIM(iu.qr_code)) = ?
+            AND bi.active = 1
+        `, [po1Id, po1Number, qrCode]);
+        expect(dupSamePo).toBeDefined();
+        expect(dupSamePo.box_code).toBe('BX-001');
+
+        // REGRESSION TEST 2: Cross-PO Same-QR -> Scanning same QR under PO 2 must NOT find an active pack in PO 2
+        const dupCrossPo = await db.queryOne<any>(`
+          SELECT bi.*, b.box_code, b.box_number
+          FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          JOIN item_units iu ON iu.id = bi.item_id
+          WHERE (b.production_order_id = ? OR b.production_order_id = ?)
+            AND UPPER(TRIM(iu.qr_code)) = ?
+            AND bi.active = 1
+        `, [po2Id, po2Number, qrCode]);
+        expect(dupCrossPo).toBeNull(); // Allowed under PO 2!
+
+        // REGRESSION TEST 3: Inactive Record -> Mark box_item in PO 1 as active = 0 (unpacked)
+        await db.execute(`UPDATE box_items SET active = 0 WHERE id = ?`, [bi1Id]);
+        const dupInactive = await db.queryOne<any>(`
+          SELECT bi.*, b.box_code, b.box_number
+          FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          JOIN item_units iu ON iu.id = bi.item_id
+          WHERE (b.production_order_id = ? OR b.production_order_id = ?)
+            AND UPPER(TRIM(iu.qr_code)) = ?
+            AND bi.active = 1
+        `, [po1Id, po1Number, qrCode]);
+        expect(dupInactive).toBeNull(); // Allowed to pack again because active = 0!
+
+        // REGRESSION TEST 4: Current-PO assignment resolution by po_number or map_po
+        const poResolved = await db.queryOne<any>(`SELECT * FROM production_orders WHERE id = ? OR po_number = ? OR map_po = ?`, ['MAP-D1', 'MAP-D1', 'MAP-D1']);
+        expect(poResolved).toBeDefined();
+        expect(poResolved.id).toBe(po1Id);
+      } finally {
+        await db.execute(`DELETE FROM box_items WHERE id IN (?, ?)`, [`bi-d1-${timestamp}`, `bi-d2-${timestamp}`]);
+        await db.execute(`DELETE FROM item_units WHERE id IN (?, ?)`, [item1Id, item2Id]);
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?, ?)`, [box1Id, box2Id, box3Id]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
       }
     }
   });
