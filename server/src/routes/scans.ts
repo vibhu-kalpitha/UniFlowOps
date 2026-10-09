@@ -50,27 +50,68 @@ export async function resolveSO(soKey?: string | null) {
 }
 
 // Helper for operator allocation check on PO level with stage support
-export async function checkOperatorAllocationForPO(operatorId: string, role: string, poId: string, stage?: 'QC' | 'TEST' | 'PRE_QC' | 'PACKING' | 'AQL' | 'FINAL_AQL' | 'BOX_TRANSFER'): Promise<boolean> {
+export async function checkOperatorAllocationForPO(
+  operatorId: string,
+  role: string,
+  poId: string,
+  stage?: 'QC' | 'TEST' | 'PRE_QC' | 'PACKING' | 'AQL' | 'FINAL_AQL' | 'BOX_TRANSFER'
+): Promise<boolean> {
   if (role === 'SUPERVISOR' || role === 'ADMIN') return true;
+
+  if (!poId || !operatorId) {
+    console.warn(`[Auth Check Warning] Missing poId (${poId}) or operatorId (${operatorId})`);
+    return false;
+  }
+
+  const po = await resolvePO(poId);
+  const targetPoId = po ? po.id : poId;
+  const targetPoNumber = po ? po.po_number : poId;
+  const targetMapPo = po ? po.map_po : poId;
+
+  // Resolve user row to check both user.id and user.username
+  const user = await db.prepare(`SELECT id, username FROM users WHERE id = ? OR username = ?`).get(operatorId, operatorId) as any;
+  const userId = user ? user.id : operatorId;
+  const username = user ? user.username : operatorId;
 
   let opCondition = ``;
   if (stage === 'QC') {
-    opCondition = `AND (operation = 'ALL' OR operation = 'QC_TEST' OR operation = 'QC' OR operation = 'QC Test')`;
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'QC_TEST', 'QC', 'QC TEST')`;
   } else if (stage === 'TEST') {
-    opCondition = `AND (operation = 'ALL' OR operation = 'QC_TEST' OR operation = 'TEST' OR operation = 'QC Test')`;
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'QC_TEST', 'TEST', 'QC TEST')`;
   } else if (stage === 'AQL') {
-    opCondition = `AND (operation = 'ALL' OR operation = 'AQL' OR operation = 'AQL Checker')`;
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'AQL', 'AQL CHECKER', 'AQL_CHECKER', 'NORMAL AQL', 'NORMAL_AQL')`;
   } else if (stage === 'FINAL_AQL') {
-    opCondition = `AND (operation = 'ALL' OR operation = 'FINAL_AQL' OR operation = 'FINAL AQL' OR operation = 'Final AQL')`;
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'FINAL_AQL', 'FINAL AQL')`;
+  } else if (stage === 'PRE_QC') {
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'PRE_QC', 'PRE QC', 'PREQC')`;
+  } else if (stage === 'PACKING') {
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'PACKING', 'PACK')`;
+  } else if (stage === 'BOX_TRANSFER') {
+    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'BOX_TRANSFER', 'BOX TRANSFER')`;
   }
 
   const row = await db.prepare(`
     SELECT COUNT(*) as cnt FROM operator_work_assignments
-    WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-      AND operator_id = ? AND active = 1 ${opCondition}
-  `).get(poId, poId, operatorId) as any;
+    WHERE (
+        production_order_id = ? OR production_order_id = ? OR production_order_id = ?
+        OR sales_order_id = ? OR sales_order_id = ?
+        OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ? OR production_order_id = ?)
+      )
+      AND (operator_id = ? OR operator_id = ?)
+      AND active = 1 ${opCondition}
+  `).get(
+    targetPoId, targetPoNumber, targetMapPo,
+    targetPoId, targetPoNumber,
+    targetPoId, targetPoNumber,
+    userId, username
+  ) as any;
 
-  return !!(row && row.cnt > 0);
+  const isAllocated = !!(row && row.cnt > 0);
+  if (!isAllocated) {
+    console.log(`[AQL Allocation Check Failed] operatorId=${operatorId} (user=${userId}/${username}), role=${role}, poId=${poId} (target=${targetPoId}), stage=${stage}`);
+  }
+
+  return isAllocated;
 }
 
 // Backward-compatible allocation helper
@@ -80,19 +121,35 @@ export async function checkOperatorAllocation(operatorId: string, role: string, 
 
 // Helper to check if operation is enabled on PO level
 export async function checkOperationEnabledForPO(poId: string, opName: string): Promise<boolean> {
+  if (!poId) return false;
+
+  const po = await resolvePO(poId);
+  const targetPoId = po ? po.id : poId;
+
   let dbOp = opName;
   if (opName === 'QC Test' || opName === 'QC' || opName === 'TEST') dbOp = 'QC_TEST';
   else if (opName === 'Pre QC' || opName === 'PRE_QC' || opName === 'PREQC') dbOp = 'PRE_QC';
   else if (opName === 'Packing' || opName === 'PACKING') dbOp = 'PACKING';
-  else if (opName === 'AQL Checker' || opName === 'AQL') dbOp = 'AQL';
+  else if (opName === 'AQL Checker' || opName === 'AQL' || opName === 'Normal AQL' || opName === 'NORMAL_AQL') dbOp = 'AQL';
   else if (opName === 'FINAL AQL' || opName === 'FINAL_AQL' || opName === 'Final AQL') dbOp = 'FINAL_AQL';
 
   const row = await db.prepare(`
     SELECT COUNT(*) as cnt FROM production_order_operations
-    WHERE production_order_id = ? AND (operation = ? OR operation = ?)
-  `).get(poId, opName, dbOp) as any;
+    WHERE (production_order_id = ? OR production_order_id = ?)
+      AND (
+        UPPER(TRIM(operation)) = UPPER(TRIM(?)) 
+        OR UPPER(TRIM(operation)) = UPPER(TRIM(?))
+        OR (UPPER(TRIM(?)) IN ('AQL', 'AQL CHECKER', 'NORMAL AQL', 'NORMAL_AQL') AND UPPER(TRIM(operation)) IN ('AQL', 'AQL CHECKER', 'NORMAL AQL', 'NORMAL_AQL'))
+        OR (UPPER(TRIM(?)) IN ('FINAL AQL', 'FINAL_AQL') AND UPPER(TRIM(operation)) IN ('FINAL AQL', 'FINAL_AQL'))
+      )
+  `).get(targetPoId, poId, opName, dbOp, opName, opName) as any;
 
-  return !!(row && row.cnt > 0);
+  const isEnabled = !!(row && row.cnt > 0);
+  if (!isEnabled) {
+    console.log(`[AQL Operation Enabled Check Failed] poId=${poId} (target=${targetPoId}), opName=${opName}`);
+  }
+
+  return isEnabled;
 }
 
 // Shared Backend Product Validation Engine

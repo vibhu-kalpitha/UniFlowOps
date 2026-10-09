@@ -2014,6 +2014,107 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   });
+
+  it('34. AQL Authorization & Stage Separation Regression Test Suite (Tests 1–8)', async () => {
+    const { checkOperatorAllocationForPO, checkOperationEnabledForPO } = await import('../server/src/routes/scans');
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    const po1Id = `po-aql-auth1-${timestamp}`;
+    const po2Id = `po-aql-auth2-${timestamp}`;
+    const opId = `usr-op-aql-${timestamp}`;
+
+    if (isConnected) {
+      try {
+        // Create PO 1 & PO 2
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO AQL Auth 1', 'MAP-AQL1', 'Cust AQL', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [po1Id, `PO-AQL1-${timestamp}`]
+        );
+        await db.execute(
+          `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
+           VALUES (?, ?, 'PO AQL Auth 2', 'MAP-AQL2', 'Cust AQL', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+          [po2Id, `PO-AQL2-${timestamp}`]
+        );
+
+        // Enable AQL operations on PO 1
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'AQL')`, [po1Id]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'FINAL_AQL')`, [po1Id]);
+
+        // TEST 1: Correct Normal AQL assignment on the box's actual PO -> authorized
+        const owa1Id = `owa-aql1-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, ?, 'AQL Checker', 1, NOW(3))`,
+          [owa1Id, po1Id, opId]
+        );
+        const t1 = await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'AQL');
+        expect(t1).toBe(true);
+
+        // TEST 2: Packing assignment only, without AQL assignment -> rejected for AQL
+        const owaPackId = `owa-pack-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, 'usr-op-pack-only', 'PACKING', 1, NOW(3))`,
+          [owaPackId, po1Id]
+        );
+        const t2 = await checkOperatorAllocationForPO('usr-op-pack-only', 'OPERATOR', po1Id, 'AQL');
+        expect(t2).toBe(false);
+
+        // TEST 3: AQL assignment on another PO -> rejected for PO 2
+        const t3 = await checkOperatorAllocationForPO(opId, 'OPERATOR', po2Id, 'AQL');
+        expect(t3).toBe(false);
+
+        // TEST 4: Final AQL assignment only -> must not authorize Normal AQL
+        const owaFinalOnlyId = `owa-faql-only-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, 'usr-op-faql-only', 'FINAL_AQL', 1, NOW(3))`,
+          [owaFinalOnlyId, po1Id]
+        );
+        const t4 = await checkOperatorAllocationForPO('usr-op-faql-only', 'OPERATOR', po1Id, 'AQL');
+        expect(t4).toBe(false);
+
+        // TEST 5: Normal AQL assignment only -> must not authorize Final AQL
+        const t5 = await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'FINAL_AQL');
+        expect(t5).toBe(false);
+
+        // TEST 6: Box from another PO -> authorize using the box's actual PO (po1Id)
+        const boxId = `box-aql-${timestamp}`;
+        await db.execute(
+          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
+           VALUES (?, 'BXSS1-TEST', 'BXSS1-TEST', ?, 12, 'OPEN', NOW(3))`,
+          [boxId, po1Id]
+        );
+        const boxRow = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [boxId]);
+        const t6 = await checkOperatorAllocationForPO(opId, 'OPERATOR', boxRow.production_order_id, 'AQL');
+        expect(t6).toBe(true);
+
+        // TEST 7: Inactive AQL assignment -> rejected
+        const owaInactiveId = `owa-inact-${timestamp}`;
+        await db.execute(
+          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
+           VALUES (?, ?, 'usr-op-inact', 'AQL', 0, NOW(3))`,
+          [owaInactiveId, po1Id]
+        );
+        const t7 = await checkOperatorAllocationForPO('usr-op-inact', 'OPERATOR', po1Id, 'AQL');
+        expect(t7).toBe(false);
+
+        // TEST 8: Operation enabled helper check for Normal AQL vs Final AQL
+        const t8a = await checkOperationEnabledForPO(po1Id, 'AQL Checker');
+        const t8b = await checkOperationEnabledForPO(po1Id, 'FINAL AQL');
+        expect(t8a).toBe(true);
+        expect(t8b).toBe(true);
+      } finally {
+        await db.execute(`DELETE FROM operator_work_assignments WHERE id IN (?, ?, ?, ?)`, [`owa-aql1-${timestamp}`, `owa-pack-${timestamp}`, `owa-faql-only-${timestamp}`, `owa-inact-${timestamp}`]);
+        await db.execute(`DELETE FROM production_order_operations WHERE production_order_id IN (?, ?)`, [po1Id, po2Id]);
+        await db.execute(`DELETE FROM boxes WHERE id = ?`, [`box-aql-${timestamp}`]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
+      }
+    }
+  }, 30000);
 });
 
 
