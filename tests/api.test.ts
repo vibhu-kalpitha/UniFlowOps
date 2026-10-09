@@ -2015,7 +2015,7 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     }
   });
 
-  it('34. AQL Authorization & Stage Separation Regression Test Suite (Tests 1–8)', async () => {
+  it('34. PO-Level Operator Assignment & Enabled Operation Authorization Test Suite', async () => {
     const { checkOperatorAllocationForPO, checkOperationEnabledForPO } = await import('../server/src/routes/scans');
     const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
@@ -2039,151 +2039,92 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
           [po2Id, `PO-AQL2-${timestamp}`]
         );
 
-        // Enable AQL operations on PO 1
+        // Enable AQL and PACKING operations on PO 1
         await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'AQL')`, [po1Id]);
-        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'FINAL_AQL')`, [po1Id]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'PACKING')`, [po1Id]);
 
-        // TEST 1: Correct Normal AQL assignment on the box's actual PO -> authorized
+        // Assign operator to PO 1
         const owa1Id = `owa-aql1-${timestamp}`;
         await db.execute(
           `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
-           VALUES (?, ?, ?, 'AQL Checker', 1, NOW(3))`,
+           VALUES (?, ?, ?, 'ALL', 1, NOW(3))`,
           [owa1Id, po1Id, opId]
         );
-        const t1 = await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'AQL');
-        expect(t1).toBe(true);
 
-        // TEST 2: Packing assignment only, without AQL assignment -> rejected for AQL
-        const owaPackId = `owa-pack-${timestamp}`;
-        await db.execute(
-          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
-           VALUES (?, ?, 'usr-op-pack-only', 'PACKING', 1, NOW(3))`,
-          [owaPackId, po1Id]
-        );
-        const t2 = await checkOperatorAllocationForPO('usr-op-pack-only', 'OPERATOR', po1Id, 'AQL');
-        expect(t2).toBe(false);
+        // TEST 1: Assigned operator can perform enabled operation AQL
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'AQL')).toBe(true);
 
-        // TEST 3: AQL assignment on another PO -> rejected for PO 2
-        const t3 = await checkOperatorAllocationForPO(opId, 'OPERATOR', po2Id, 'AQL');
-        expect(t3).toBe(false);
+        // TEST 2: Assigned operator can perform enabled operation PACKING
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'PACKING')).toBe(true);
 
-        // TEST 4: Final AQL assignment only -> must not authorize Normal AQL
-        const owaFinalOnlyId = `owa-faql-only-${timestamp}`;
-        await db.execute(
-          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
-           VALUES (?, ?, 'usr-op-faql-only', 'FINAL_AQL', 1, NOW(3))`,
-          [owaFinalOnlyId, po1Id]
-        );
-        const t4 = await checkOperatorAllocationForPO('usr-op-faql-only', 'OPERATOR', po1Id, 'AQL');
-        expect(t4).toBe(false);
+        // TEST 3: Assigned operator is REJECTED for operation not enabled on PO (e.g. FINAL_AQL)
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'FINAL_AQL')).toBe(false);
 
-        // TEST 5: Normal AQL assignment only -> must not authorize Final AQL
-        const t5 = await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'FINAL_AQL');
-        expect(t5).toBe(false);
+        // TEST 4: Assigned operator on PO 1 is REJECTED on unassigned PO 2
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', po2Id, 'AQL')).toBe(false);
 
-        // TEST 6: Box from another PO -> authorize using the box's actual PO (po1Id)
-        const boxId = `box-aql-${timestamp}`;
-        await db.execute(
-          `INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
-           VALUES (?, 'BXSS1-TEST', 'BXSS1-TEST', ?, 12, 'OPEN', NOW(3))`,
-          [boxId, po1Id]
-        );
-        const boxRow = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [boxId]);
-        const t6 = await checkOperatorAllocationForPO(opId, 'OPERATOR', boxRow.production_order_id, 'AQL');
-        expect(t6).toBe(true);
-
-        // TEST 7: Inactive AQL assignment -> rejected
-        const owaInactiveId = `owa-inact-${timestamp}`;
-        await db.execute(
-          `INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at)
-           VALUES (?, ?, 'usr-op-inact', 'AQL', 0, NOW(3))`,
-          [owaInactiveId, po1Id]
-        );
-        const t7 = await checkOperatorAllocationForPO('usr-op-inact', 'OPERATOR', po1Id, 'AQL');
-        expect(t7).toBe(false);
-
-        // TEST 8: Operation enabled helper check for Normal AQL vs Final AQL
-        const t8a = await checkOperationEnabledForPO(po1Id, 'AQL Checker');
-        const t8b = await checkOperationEnabledForPO(po1Id, 'FINAL AQL');
-        expect(t8a).toBe(true);
-        expect(t8b).toBe(true);
+        // TEST 5: Inactive assignment is REJECTED
+        await db.execute(`UPDATE operator_work_assignments SET active = 0 WHERE id = ?`, [owa1Id]);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', po1Id, 'AQL')).toBe(false);
       } finally {
-        await db.execute(`DELETE FROM operator_work_assignments WHERE id IN (?, ?, ?, ?)`, [`owa-aql1-${timestamp}`, `owa-pack-${timestamp}`, `owa-faql-only-${timestamp}`, `owa-inact-${timestamp}`]);
+        await db.execute(`DELETE FROM operator_work_assignments WHERE id = ?`, [`owa-aql1-${timestamp}`]);
         await db.execute(`DELETE FROM production_order_operations WHERE production_order_id IN (?, ?)`, [po1Id, po2Id]);
-        await db.execute(`DELETE FROM boxes WHERE id = ?`, [`box-aql-${timestamp}`]);
         await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
       }
     }
   }, 30000);
 
-  it('35. Independent Stage Assignment Creation & Authorization Isolation (Tests 1–5)', async () => {
-    const { checkOperatorAllocationForPO } = await import('../server/src/routes/scans');
+  it('35. Comprehensive PO Operator Assignment & Multi-Stage Access Verification', async () => {
+    const { checkOperatorAllocationForPO, checkOperationEnabledForPO } = await import('../server/src/routes/scans');
     const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     const timestamp = Date.now();
 
-    const poPkId = `po-1791448847979-${timestamp}`;
-    const poNumber = `PO-2026-9077-${timestamp}`;
+    const poPkId = `po-full-auth-${timestamp}`;
+    const poNumber = `PO-2026-FULL-${timestamp}`;
     const opId = `usr-001`; // Chamika
 
     if (isConnected) {
       try {
-        // 1. Create Production Order using PK id
+        // 1. Create Production Order with 5 enabled operations (excluding FINAL_AQL)
         await db.execute(
           `INSERT INTO production_orders (id, po_number, po_name, map_po, customer, start_date, due_date, status, created_at, updated_at)
-           VALUES (?, ?, 'PO Test Independent Allocs', 'MAP-IND', 'Cust Ind', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
+           VALUES (?, ?, 'PO Full Auth Test', 'MAP-FULL', 'Cust Full', '2026-09-01', '2026-10-01', 'CURRENT', NOW(3), NOW(3))`,
           [poPkId, poNumber]
         );
 
-        // 2. Supervisor assigns PACKING operation only
-        const allocPackId = `owa-pk-${timestamp}`;
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'QC_TEST')`, [poPkId]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'PRE_QC')`, [poPkId]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'PACKING')`, [poPkId]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'AQL')`, [poPkId]);
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'BOX_TRANSFER')`, [poPkId]);
+
+        // 2. Assign operator to PO
+        const allocId = `owa-full-${timestamp}`;
         await db.execute(
           `INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, active, created_at)
            VALUES (?, ?, 'shift-c', ?, 'PACKING', 1, NOW(3))`,
-          [allocPackId, poPkId, opId]
+          [allocId, poPkId, opId]
         );
 
-        // Verify: PACKING authorized, AQL rejected, FINAL_AQL rejected
-        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PACKING')).toBe(true);
-        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'AQL')).toBe(false);
-        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'FINAL_AQL')).toBe(false);
-
-        // 3. Supervisor independently adds AQL (Normal AQL) operation
-        const allocAqlId = `owa-aql-${timestamp}`;
-        await db.execute(
-          `INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, active, created_at)
-           VALUES (?, ?, 'shift-c', ?, 'AQL', 1, NOW(3))`,
-          [allocAqlId, poPkId, opId]
-        );
-
-        // Verify: PACKING authorized, Normal AQL authorized, FINAL_AQL STILL rejected
+        // 3. Confirm operator can use ALL 5 enabled operations on this PO without separate manual assignments!
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'QC')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'TEST')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PRE_QC')).toBe(true);
         expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PACKING')).toBe(true);
         expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'AQL')).toBe(true);
+        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'BOX_TRANSFER')).toBe(true);
+
+        // 4. Confirm disabled operation (FINAL_AQL) is REJECTED
         expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'FINAL_AQL')).toBe(false);
 
-        // 4. Supervisor independently adds FINAL_AQL operation
-        const allocFaqlId = `owa-faql-${timestamp}`;
-        await db.execute(
-          `INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, active, created_at)
-           VALUES (?, ?, 'shift-c', ?, 'FINAL_AQL', 1, NOW(3))`,
-          [allocFaqlId, poPkId, opId]
-        );
-
-        // Verify: ALL THREE authorized independently
-        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'PACKING')).toBe(true);
-        expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'AQL')).toBe(true);
+        // 5. Enable FINAL_AQL on PO and verify it becomes accessible immediately
+        await db.execute(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, 'FINAL_AQL')`, [poPkId]);
         expect(await checkOperatorAllocationForPO(opId, 'OPERATOR', poPkId, 'FINAL_AQL')).toBe(true);
 
-        // 5. Verify records in DB carry the exact PK production_order_id
-        const savedRows = await db.query<any>(
-          `SELECT * FROM operator_work_assignments WHERE production_order_id = ? AND operator_id = ? AND active = 1 ORDER BY operation ASC`,
-          [poPkId, opId]
-        );
-        expect(savedRows.length).toBe(3);
-        expect(savedRows.map(r => r.operation)).toEqual(['AQL', 'FINAL_AQL', 'PACKING']);
-        expect(savedRows[0].production_order_id).toBe(poPkId);
       } finally {
         await db.execute(`DELETE FROM operator_work_assignments WHERE production_order_id = ?`, [poPkId]);
+        await db.execute(`DELETE FROM production_order_operations WHERE production_order_id = ?`, [poPkId]);
         await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poPkId]);
       }
     }

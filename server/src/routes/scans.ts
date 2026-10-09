@@ -64,32 +64,18 @@ export async function checkOperatorAllocationForPO(
   }
 
   const po = await resolvePO(poId);
-  const targetPoId = po ? po.id : poId;
-  const targetPoNumber = po ? po.po_number : poId;
-  const targetMapPo = po ? po.map_po : poId;
+  if (!po) return false;
+
+  const targetPoId = po.id;
+  const targetPoNumber = po.po_number;
+  const targetMapPo = po.map_po;
 
   // Resolve user row to check both user.id and user.username
   const user = await db.prepare(`SELECT id, username FROM users WHERE id = ? OR username = ?`).get(operatorId, operatorId) as any;
   const userId = user ? user.id : operatorId;
   const username = user ? user.username : operatorId;
 
-  let opCondition = ``;
-  if (stage === 'QC') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'QC_TEST', 'QC', 'QC TEST')`;
-  } else if (stage === 'TEST') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'QC_TEST', 'TEST', 'QC TEST')`;
-  } else if (stage === 'AQL') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'AQL', 'AQL CHECKER', 'AQL_CHECKER', 'NORMAL AQL', 'NORMAL_AQL')`;
-  } else if (stage === 'FINAL_AQL') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'FINAL_AQL', 'FINAL AQL')`;
-  } else if (stage === 'PRE_QC') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'PRE_QC', 'PRE QC', 'PREQC')`;
-  } else if (stage === 'PACKING') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'PACKING', 'PACK')`;
-  } else if (stage === 'BOX_TRANSFER') {
-    opCondition = `AND UPPER(TRIM(operation)) IN ('ALL', 'BOX_TRANSFER', 'BOX TRANSFER')`;
-  }
-
+  // 1. Verify operator has an active assignment for this Production Order
   const row = await db.prepare(`
     SELECT COUNT(*) as cnt FROM operator_work_assignments
     WHERE (
@@ -98,7 +84,7 @@ export async function checkOperatorAllocationForPO(
         OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ? OR production_order_id = ?)
       )
       AND (operator_id = ? OR operator_id = ?)
-      AND active = 1 ${opCondition}
+      AND active = 1
   `).get(
     targetPoId, targetPoNumber, targetMapPo,
     targetPoId, targetPoNumber,
@@ -106,12 +92,22 @@ export async function checkOperatorAllocationForPO(
     userId, username
   ) as any;
 
-  const isAllocated = !!(row && row.cnt > 0);
-  if (!isAllocated) {
-    console.log(`[AQL Allocation Check Failed] operatorId=${operatorId} (user=${userId}/${username}), role=${role}, poId=${poId} (target=${targetPoId}), stage=${stage}`);
+  const isAssignedToPO = !!(row && row.cnt > 0);
+  if (!isAssignedToPO) {
+    console.log(`[PO Allocation Check Failed] Operator ${operatorId} (${userId}/${username}) is NOT assigned to PO ${poId} (target=${targetPoId})`);
+    return false;
   }
 
-  return isAllocated;
+  // 2. If a specific operation stage is requested, verify that the operation is enabled for this Production Order
+  if (stage) {
+    const isOperationEnabled = await checkOperationEnabledForPO(targetPoId, stage);
+    if (!isOperationEnabled) {
+      console.log(`[Operation Enabled Check Failed] Operation ${stage} is NOT enabled for PO ${poId} (target=${targetPoId})`);
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // Backward-compatible allocation helper
@@ -124,29 +120,41 @@ export async function checkOperationEnabledForPO(poId: string, opName: string): 
   if (!poId) return false;
 
   const po = await resolvePO(poId);
-  const targetPoId = po ? po.id : poId;
+  if (!po) return false;
 
-  let dbOp = opName;
-  if (opName === 'QC Test' || opName === 'QC' || opName === 'TEST') dbOp = 'QC_TEST';
-  else if (opName === 'Pre QC' || opName === 'PRE_QC' || opName === 'PREQC') dbOp = 'PRE_QC';
-  else if (opName === 'Packing' || opName === 'PACKING') dbOp = 'PACKING';
-  else if (opName === 'AQL Checker' || opName === 'AQL' || opName === 'Normal AQL' || opName === 'NORMAL_AQL') dbOp = 'AQL';
-  else if (opName === 'FINAL AQL' || opName === 'FINAL_AQL' || opName === 'Final AQL') dbOp = 'FINAL_AQL';
+  const targetPoId = po.id;
+  const targetPoNumber = po.po_number;
+  const targetMapPo = po.map_po;
+
+  let opCandidates: string[] = [opName];
+  const norm = opName.trim().toUpperCase();
+
+  if (['QC', 'TEST', 'QC_TEST', 'QC TEST'].includes(norm)) {
+    opCandidates = ['QC_TEST', 'QC TEST', 'QC', 'TEST'];
+  } else if (['PRE_QC', 'PRE QC', 'PREQC'].includes(norm)) {
+    opCandidates = ['PRE_QC', 'PRE QC', 'PREQC'];
+  } else if (['PACKING', 'PACK'].includes(norm)) {
+    opCandidates = ['PACKING', 'PACK'];
+  } else if (['AQL', 'AQL CHECKER', 'AQL_CHECKER', 'NORMAL AQL', 'NORMAL_AQL'].includes(norm)) {
+    opCandidates = ['AQL', 'AQL CHECKER', 'AQL_CHECKER', 'NORMAL AQL', 'NORMAL_AQL'];
+  } else if (['FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER'].includes(norm)) {
+    opCandidates = ['FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER'];
+  } else if (['BOX_TRANSFER', 'BOX TRANSFER'].includes(norm)) {
+    opCandidates = ['BOX_TRANSFER', 'BOX TRANSFER'];
+  }
+
+  const upperCandidates = opCandidates.map(c => c.toUpperCase());
+  const placeholders = upperCandidates.map(() => '?').join(',');
 
   const row = await db.prepare(`
     SELECT COUNT(*) as cnt FROM production_order_operations
-    WHERE (production_order_id = ? OR production_order_id = ?)
-      AND (
-        UPPER(TRIM(operation)) = UPPER(TRIM(?)) 
-        OR UPPER(TRIM(operation)) = UPPER(TRIM(?))
-        OR (UPPER(TRIM(?)) IN ('AQL', 'AQL CHECKER', 'NORMAL AQL', 'NORMAL_AQL') AND UPPER(TRIM(operation)) IN ('AQL', 'AQL CHECKER', 'NORMAL AQL', 'NORMAL_AQL'))
-        OR (UPPER(TRIM(?)) IN ('FINAL AQL', 'FINAL_AQL') AND UPPER(TRIM(operation)) IN ('FINAL AQL', 'FINAL_AQL'))
-      )
-  `).get(targetPoId, poId, opName, dbOp, opName, opName) as any;
+    WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+      AND UPPER(TRIM(operation)) IN (${placeholders})
+  `).get(targetPoId, targetPoNumber, targetMapPo, ...upperCandidates) as any;
 
   const isEnabled = !!(row && row.cnt > 0);
   if (!isEnabled) {
-    console.log(`[AQL Operation Enabled Check Failed] poId=${poId} (target=${targetPoId}), opName=${opName}`);
+    console.log(`[Operation Enabled Check Failed] poId=${poId} (target=${targetPoId}), opName=${opName}`);
   }
 
   return isEnabled;
