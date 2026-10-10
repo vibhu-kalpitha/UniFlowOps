@@ -452,11 +452,12 @@ async function syncPoAllocations(
     // Map frontend operation names to DB codes
     for (const opName of rawOpsArray) {
       let opCode = opName;
-      if (opName === 'Pre QC') opCode = 'PRE_QC';
-      else if (opName === 'QC Test') opCode = 'QC_TEST';
-      else if (opName === 'Packing') opCode = 'PACKING';
-      else if (opName === 'AQL Checker') opCode = 'AQL';
-      else if (opName === 'Box Transfer') opCode = 'BOX_TRANSFER';
+      if (opName === 'Pre QC' || opName === 'PRE_QC') opCode = 'PRE_QC';
+      else if (opName === 'QC Test' || opName === 'QC_TEST' || opName === 'QC') opCode = 'QC_TEST';
+      else if (opName === 'Packing' || opName === 'PACKING') opCode = 'PACKING';
+      else if (opName === 'AQL Checker' || opName === 'AQL' || opName === 'Normal AQL') opCode = 'AQL';
+      else if (opName === 'FINAL AQL' || opName === 'Final AQL' || opName === 'FINAL_AQL') opCode = 'FINAL_AQL';
+      else if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') opCode = 'BOX_TRANSFER';
 
       activeOpAssignments.push({ operatorId: opUser.id, shiftId, operation: opCode });
     }
@@ -480,12 +481,37 @@ async function syncPoAllocations(
   }
 
   for (const assign of activeOpAssignments) {
-    const owaId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    await tx.prepare(`
-      INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
-      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
-    `).run(owaId, poDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
+    const existing = await tx.prepare(`
+      SELECT id FROM operator_work_assignments 
+      WHERE production_order_id = ? AND operator_id = ? AND operation = ?
+    `).get(poDbId, assign.operatorId, assign.operation) as any;
+
+    if (existing) {
+      await tx.prepare(`
+        UPDATE operator_work_assignments 
+        SET shift_id = ?, active = 1, updated_at = NOW(3)
+        WHERE id = ?
+      `).run(assign.shiftId, existing.id);
+    } else {
+      const owaId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      await tx.prepare(`
+        INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
+        ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
+      `).run(owaId, poDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
+    }
+  }
+
+  for (const opId of activeOpIds) {
+    const activeOpsForUser = activeOpAssignments.filter(a => a.operatorId === opId).map(a => a.operation);
+    if (activeOpsForUser.length > 0) {
+      const ph = activeOpsForUser.map(() => '?').join(',');
+      await tx.prepare(`
+        UPDATE operator_work_assignments
+        SET active = 0, updated_at = NOW(3)
+        WHERE production_order_id = ? AND operator_id = ? AND active = 1 AND operation NOT IN (${ph})
+      `).run(poDbId, opId, ...activeOpsForUser);
+    }
   }
 }
 

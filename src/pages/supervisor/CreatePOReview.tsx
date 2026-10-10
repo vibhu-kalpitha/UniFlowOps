@@ -66,7 +66,8 @@ export const CreatePOReview: React.FC = () => {
       qcStationCount: draftPoGeneral.qcStationCount || 1,
       productConfigurations: draftConfigs,
       boxConfigurations: draftBoxConfigs,
-      shifts: draftShifts
+      shifts: draftShifts,
+      allocations: draftPoGeneral.allocations || draftShifts
     };
 
     let serverPo: ProductionOrder | null = null;

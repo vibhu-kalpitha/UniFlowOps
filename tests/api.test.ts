@@ -2481,6 +2481,71 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 30000);
+
+  it('40. Multi-Operator Multi-Operation Allocation & Authorization Test Suite', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const ts = Date.now();
+
+    if (isConnected) {
+      const testPoId = `po-test-2525-${ts}`;
+      const shiftId = `shift-a-${ts}`;
+      const op1Id = `usr-001`; // Chamika Silva
+      const op2Id = `usr-004`; // Kavindu Perera
+      const unauthOpId = `usr-999-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO shifts (id, code, name, active, created_at, updated_at) VALUES (?, 'SHIFT-A', 'Shift A', 1, NOW(3), NOW(3))`, [shiftId]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-2026-2525', 'PO 2525 Test', 'CURRENT', NOW(3), NOW(3))`, [testPoId]);
+
+        const opsToTest = ['PRE_QC', 'QC_TEST', 'PACKING', 'AQL', 'FINAL_AQL', 'BOX_TRANSFER'];
+
+        // Assign both op1 and op2 to all 6 operations for PO-2026-2525
+        for (const opCode of opsToTest) {
+          await db.execute(`
+            INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', 1, NOW(3), NOW(3))
+          `, [`owa-${op1Id}-${opCode}-${ts}`, testPoId, shiftId, op1Id, opCode]);
+
+          await db.execute(`
+            INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', 1, NOW(3), NOW(3))
+          `, [`owa-${op2Id}-${opCode}-${ts}`, testPoId, shiftId, op2Id, opCode]);
+        }
+
+        // Verify all 12 rows exist and are active
+        const activeRows = await db.query<any>(`
+          SELECT operator_id, operation FROM operator_work_assignments
+          WHERE production_order_id = ? AND active = 1
+        `, [testPoId]);
+
+        expect(activeRows.length).toBe(12);
+
+        const op1Ops = activeRows.filter((r: any) => r.operator_id === op1Id).map((r: any) => r.operation);
+        const op2Ops = activeRows.filter((r: any) => r.operator_id === op2Id).map((r: any) => r.operation);
+
+        expect(op1Ops.sort()).toEqual(opsToTest.sort());
+        expect(op2Ops.sort()).toEqual(opsToTest.sort());
+
+        // Verify checkOperatorAllocationForPO returns true for both operators on all stages
+        for (const stage of ['PRE_QC', 'QC', 'TEST', 'PACKING', 'AQL', 'FINAL_AQL', 'BOX_TRANSFER'] as const) {
+          const auth1 = await checkOperatorAllocationForPO(op1Id, 'OPERATOR', testPoId, stage);
+          const auth2 = await checkOperatorAllocationForPO(op2Id, 'OPERATOR', testPoId, stage);
+          expect(auth1).toBe(true);
+          expect(auth2).toBe(true);
+        }
+
+        // Verify unauthorized operator is rejected
+        const authUnauth = await checkOperatorAllocationForPO(unauthOpId, 'OPERATOR', testPoId, 'PACKING');
+        expect(authUnauth).toBe(false);
+
+      } finally {
+        await db.execute(`DELETE FROM operator_work_assignments WHERE production_order_id = ?`, [testPoId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [testPoId]);
+        await db.execute(`DELETE FROM shifts WHERE id = ?`, [shiftId]);
+      }
+    }
+  }, 30000);
 });
 
 

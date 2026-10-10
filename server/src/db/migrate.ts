@@ -335,6 +335,30 @@ export async function runSchemaAlignment009(): Promise<void> {
   }
 }
 
+export async function runSchemaAlignment010(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (010 Operator Work Assignments Composite Unique Index)...');
+
+  if (await tableExists('operator_work_assignments')) {
+    if (await indexExists('operator_work_assignments', 'uq_owa_po_shift_operator')) {
+      try {
+        await db.exec(`ALTER TABLE operator_work_assignments DROP INDEX uq_owa_po_shift_operator;`);
+        console.log('  ✅ Dropped obsolete index uq_owa_po_shift_operator from operator_work_assignments');
+      } catch (e: any) {
+        console.warn('  ⚠️ Drop uq_owa_po_shift_operator index warning (non-fatal):', e?.message);
+      }
+    }
+
+    if (!(await indexExists('operator_work_assignments', 'uq_owa_po_shift_op')) && !(await constraintExists('operator_work_assignments', 'uq_owa_po_shift_op'))) {
+      try {
+        await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT uq_owa_po_shift_op UNIQUE (production_order_id, shift_id, operator_id, operation);`);
+        console.log('  ✅ Created composite unique constraint uq_owa_po_shift_op on operator_work_assignments');
+      } catch (e: any) {
+        console.warn('  ⚠️ Create uq_owa_po_shift_op constraint warning (non-fatal):', e?.message);
+      }
+    }
+  }
+}
+
 /**
  * runStartupColumnChecks — Runs on EVERY server startup.
  * Adds any missing critical columns that may not exist on servers where
@@ -765,6 +789,7 @@ async function runSchemaAlignment007(): Promise<void> {
   await runSchemaAlignment007();
   await runSchemaAlignment008();
   await runSchemaAlignment009();
+  await runSchemaAlignment010();
   return { applied, skipped };
 }
 

@@ -75,7 +75,37 @@ export async function checkOperatorAllocationForPO(
   const userId = user ? user.id : operatorId;
   const username = user ? user.username : operatorId;
 
-  // 1. Verify operator has an active assignment for this Production Order
+  let opFilterSql = '';
+  const queryParams: any[] = [
+    targetPoId, targetPoNumber, targetMapPo,
+    targetPoId, targetPoNumber,
+    targetPoId, targetPoNumber,
+    userId, username
+  ];
+
+  if (stage) {
+    let stageCandidates: string[] = [stage];
+    const normStage = stage.trim().toUpperCase();
+    if (['QC', 'TEST', 'QC_TEST', 'QC TEST'].includes(normStage)) {
+      stageCandidates = ['QC_TEST', 'QC TEST', 'QC', 'TEST', 'ALL'];
+    } else if (['PRE_QC', 'PRE QC', 'PREQC'].includes(normStage)) {
+      stageCandidates = ['PRE_QC', 'PRE QC', 'PREQC', 'ALL'];
+    } else if (['PACKING', 'PACK'].includes(normStage)) {
+      stageCandidates = ['PACKING', 'PACK', 'ALL'];
+    } else if (['AQL', 'AQL CHECKER', 'AQL_CHECKER', 'NORMAL AQL', 'NORMAL_AQL'].includes(normStage)) {
+      stageCandidates = ['AQL', 'AQL CHECKER', 'AQL_CHECKER', 'NORMAL AQL', 'NORMAL_AQL', 'ALL'];
+    } else if (['FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER'].includes(normStage)) {
+      stageCandidates = ['FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER', 'ALL'];
+    } else if (['BOX_TRANSFER', 'BOX TRANSFER'].includes(normStage)) {
+      stageCandidates = ['BOX_TRANSFER', 'BOX TRANSFER', 'ALL'];
+    }
+
+    const placeholders = stageCandidates.map(() => '?').join(',');
+    opFilterSql = ` AND (UPPER(TRIM(operation)) IN (${placeholders}) OR operation = 'ALL')`;
+    queryParams.push(...stageCandidates.map(s => s.toUpperCase()));
+  }
+
+  // 1. Verify operator has an active assignment for this Production Order (and stage if specified)
   const row = await db.prepare(`
     SELECT COUNT(*) as cnt FROM operator_work_assignments
     WHERE (
@@ -85,16 +115,12 @@ export async function checkOperatorAllocationForPO(
       )
       AND (operator_id = ? OR operator_id = ?)
       AND active = 1
-  `).get(
-    targetPoId, targetPoNumber, targetMapPo,
-    targetPoId, targetPoNumber,
-    targetPoId, targetPoNumber,
-    userId, username
-  ) as any;
+      ${opFilterSql}
+  `).get(...queryParams) as any;
 
   const isAssignedToPO = !!(row && row.cnt > 0);
   if (!isAssignedToPO) {
-    console.log(`[PO Allocation Check Failed] Operator ${operatorId} (${userId}/${username}) is NOT assigned to PO ${poId} (target=${targetPoId})`);
+    console.log(`[PO Allocation Check Failed] Operator ${operatorId} (${userId}/${username}) is NOT assigned to PO ${poId} (target=${targetPoId}) ${stage ? `for stage ${stage}` : ''}`);
     return false;
   }
 
