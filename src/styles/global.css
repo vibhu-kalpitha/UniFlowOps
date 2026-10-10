@@ -371,3 +371,11 @@ button:disabled {
     align-items: center;
   }
 }
+
+/* ── Operator Home Mobile Layout ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .op-metrics-wrapper > div {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+  }
+}

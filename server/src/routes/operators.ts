@@ -54,9 +54,9 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
     const operatorUsername = req.user!.username || operatorId;
     const reqOp = (req.query.operation || '').toString().trim();
 
-    const matchOp = (assignedOp: string, targetOp: string) => {
-      if (!assignedOp || assignedOp.toUpperCase() === 'ALL') return true;
-      const a = assignedOp.toUpperCase().replace(/[^A-Z]/g, '');
+    const isMatch = (singleAssigned: string, targetOp: string) => {
+      if (!singleAssigned || singleAssigned.toUpperCase() === 'ALL') return true;
+      const a = singleAssigned.toUpperCase().replace(/[^A-Z]/g, '');
       const t = targetOp.toUpperCase().replace(/[^A-Z]/g, '');
       if (a === t) return true;
       if (a.includes('PRE') || t.includes('PRE')) return a.includes('PRE') && t.includes('PRE');
@@ -70,6 +70,19 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
       if (a.includes('PACK') && t.includes('PACK')) return true;
       if (a.includes('TRANSFER') && t.includes('TRANSFER')) return true;
       return false;
+    };
+
+    const matchOp = (assignedOp: string, targetOp: string) => {
+      if (!assignedOp || assignedOp.toUpperCase() === 'ALL') return true;
+      let opList: string[] = [];
+      try {
+        const parsed = JSON.parse(assignedOp);
+        if (Array.isArray(parsed)) opList = parsed;
+        else opList = [assignedOp];
+      } catch {
+        opList = assignedOp.split(',').map(s => s.trim());
+      }
+      return opList.some(op => isMatch(op, targetOp));
     };
 
     // 1. Fetch all active assignments for this operator
