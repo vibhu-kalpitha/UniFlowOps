@@ -37,7 +37,7 @@ export const AdminOrders: React.FC = () => {
 
   const openEditModal = (po: any) => {
     setSelectedOrder(po);
-    setEditTotalQty(po.total_quantity || 500);
+    setEditTotalQty(po.configuredQuantity || po.total_quantity || 500);
     setEditConfigs(
       (po.configs || []).map((c: any) => ({
         id: c.id,
@@ -71,7 +71,7 @@ export const AdminOrders: React.FC = () => {
         body: JSON.stringify(payload)
       });
 
-      showToast(`Updated planned quantity for PO ${selectedOrder.po_number}`, 'success');
+      showToast(`Updated planned quantity for PO ${selectedOrder.poNumber || selectedOrder.po_number}`, 'success');
       setSelectedOrder(null);
       fetchOrders();
     } catch (err: any) {
@@ -112,8 +112,8 @@ export const AdminOrders: React.FC = () => {
       ) : (
         <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '14px' }}>
           {orders.map(po => {
-            const packedQty = Number(po.packed_count || 0);
-            const targetQty = Number(po.total_quantity || 500);
+            const packedQty = Number(po.packedCount || po.packed_count || 0);
+            const targetQty = Number(po.configuredQuantity || po.total_quantity || 500);
             const configs: any[] = po.configs || [];
             const percent = targetQty > 0 ? Math.min(100, Math.round((packedQty / targetQty) * 100)) : 0;
 
@@ -124,15 +124,15 @@ export const AdminOrders: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Box size={16} color="var(--color-teal)" />
                       <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-teal)' }}>
-                        {po.po_number}
+                        {po.poNumber || po.po_number}
                       </h3>
                     </div>
-                    {po.po_name && (
+                    {(po.poName || po.po_name) && (
                       <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginTop: '2px' }}>
-                        🏷️ {po.po_name}
+                        🏷️ {po.poName || po.po_name}
                       </span>
                     )}
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.style_name || 'Standard Style'}</strong></span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
                     <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />

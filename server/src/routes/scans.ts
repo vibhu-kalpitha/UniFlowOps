@@ -1033,6 +1033,7 @@ router.get('/qc/progress/:poId', authenticateToken, async (req: AuthRequest, res
       JOIN item_units iu ON iu.id = qf.item_id
       WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND (qf.operator_id = ? OR qf.operator_id = ?)
+        AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
     `).get(targetPoId, targetPoId, operatorId, operatorUsername) as any;
     const operatorFailedCount = opFailedRow?.cnt || 0;
 
@@ -1090,7 +1091,7 @@ export async function calculatePackingProgress(poParam: string, reqUser: any) {
     WHERE (
       iu.production_order_id IN (${placeholders}) 
       OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
-    )
+    ) AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
   `).get(...poKeys, ...poKeys) as any;
   const totalFailCount = failRow?.cnt || 0;
 
@@ -1121,7 +1122,7 @@ export async function calculatePackingProgress(poParam: string, reqUser: any) {
       OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
     ) AND (
       qf.operator_id = ? OR qf.operator_id = ? OR qf.operator_id = ?
-    )
+    ) AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
   `).get(...poKeys, ...poKeys, operatorId, operatorUsername, operatorFullName) as any;
   const operatorFailCount = opFailRow?.cnt || 0;
 
@@ -2426,10 +2427,10 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     const isCompletedStatus = ['COMPLETE', 'COMPLETED', 'SEALED', 'CLOSED', 'FULL', 'AQL_PASSED', 'AQL_FAILED', 'FINAL_AQL_PASSED', 'FINAL_AQL_FAILED', 'TRANSFERRED'].includes((box.status || '').toUpperCase());
     const requiredCapacity = box.capacity || 12;
 
-    if (!isCompletedStatus && totalItems < requiredCapacity) {
+    if (totalItems < requiredCapacity) {
       return res.status(400).json({
         error: 'BOX_NOT_COMPLETED',
-        message: `Box ${boxNumber} is not fully packed / completed (${totalItems}/${requiredCapacity} items). Only fully packed boxes can undergo ${isFinalAql ? 'Final AQL' : 'AQL'} inspection.`
+        message: `Box ${boxNumber} is not fully packed (${totalItems}/${requiredCapacity} items). A fully filled box is required for ${isFinalAql ? 'Final AQL' : 'AQL'} inspection.`
       });
     }
 

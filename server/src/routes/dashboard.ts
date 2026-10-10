@@ -101,7 +101,8 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
       const qcFailRow = await db.prepare(`
         SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
         LEFT JOIN item_units iu ON iu.id = qf.item_id
-        WHERE iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        WHERE (iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+          AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
       `).get(poId, poId, poId) as any;
       qcFailedCount = Number(qcFailRow?.cnt || 0);
     }
@@ -512,7 +513,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
     let qcFailedQuery = `
       SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
       LEFT JOIN item_units iu ON iu.id = qf.item_id
-      WHERE 1=1
+      WHERE (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
     `;
 
     if (filterActive) {
@@ -787,7 +788,8 @@ router.get('/reports/production', authenticateToken, async (req, res, next) => {
       const qcFailRow = await db.prepare(`
         SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
         LEFT JOIN item_units iu ON iu.id = qf.item_id
-        WHERE iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+        WHERE (iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+          AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
       `).get(p.id, p.id, p.id) as any;
       const qcFailed = Number(qcFailRow?.cnt || 0);
 

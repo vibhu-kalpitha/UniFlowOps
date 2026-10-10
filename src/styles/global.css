@@ -376,7 +376,7 @@ button:disabled {
 @media (max-width: 768px) {
   .op-metrics-wrapper > div {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: repeat(3, 1fr) !important;
   }
 }
 

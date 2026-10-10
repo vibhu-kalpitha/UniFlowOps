@@ -207,6 +207,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log qf
     JOIN item_units iu ON iu.id = qf.item_id
     WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
   `).get(po.id, po.id) as any;
   const qcFailed = qcFailedRow?.cnt || 0;
 
