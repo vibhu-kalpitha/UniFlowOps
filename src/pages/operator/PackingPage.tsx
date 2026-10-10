@@ -112,25 +112,37 @@ export const PackingPage: React.FC = () => {
   /* ── Phase 1: Box barcode scan ─────────────────────────────── */
   const handleScanBox = async (rawCode: string) => {
     const code = rawCode.trim().toUpperCase();
-    const currentPoId = po?.id || po?.dbId;
+    const poDbId = po?.dbId || po?.id;
+    const poDisplayNumber = po?.id || (po as any)?.poNumber;
+    const currentPoId = poDbId || poDisplayNumber;
+
+    const isMatchingPo = (b: any) => {
+      if (!b) return false;
+      const boxPo = b.productionOrderId || b.poId;
+      if (!boxPo) return false;
+      return (
+        (poDbId && boxPo === poDbId) ||
+        (poDisplayNumber && boxPo === poDisplayNumber)
+      );
+    };
+
     const poKey = currentPoId ? `${currentPoId}_${code}` : code;
     const rawLocalBox = packingBoxes[poKey] || Object.values(packingBoxes).find((b: any) => 
-      b.boxNumber?.toUpperCase() === code && 
-      (!currentPoId || b.productionOrderId === currentPoId || b.poId === currentPoId)
+      b.boxNumber?.toUpperCase() === code && isMatchingPo(b)
     );
-    const localBox = (rawLocalBox && (!currentPoId || (rawLocalBox as any).productionOrderId === currentPoId || (rawLocalBox as any).poId === currentPoId))
-      ? rawLocalBox
-      : null;
+    const localBox = isMatchingPo(rawLocalBox) ? rawLocalBox : null;
 
     let dbItems: BoxItem[] = [];
     let dbStatus = 'OPEN';
     let dbCapacity = so?.boxCapacity || 12;
     let apiBoxId: string | undefined = undefined;
+    let isApiSuccess = false;
 
     try {
       const targetPoKey = currentPoId || '';
       const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
       if (res && res.box) {
+        isApiSuccess = true;
         apiBoxId = res.box.id;
         dbCapacity = res.box.capacity || dbCapacity;
         dbStatus = res.box.status || 'OPEN';
@@ -154,21 +166,13 @@ export const PackingPage: React.FC = () => {
       };
     }
 
-    const combinedMap = new Map<string, BoxItem>();
-    if (localBox?.items) {
-      localBox.items.forEach((item: BoxItem) => {
-        if (item.qr) combinedMap.set(item.qr.trim().toUpperCase(), item);
-      });
-    }
-    dbItems.forEach((item: BoxItem) => {
-      if (item.qr) combinedMap.set(item.qr.trim().toUpperCase(), item);
-    });
-
-    const finalItems = Array.from(combinedMap.values());
+    // When API succeeds, the API response is authoritative for box items on the active PO.
+    // Only fall back to localBox items when offline or API call failed.
+    const finalItems: BoxItem[] = isApiSuccess ? dbItems : (localBox?.items || []);
     const isCompleted = finalItems.length >= dbCapacity || dbStatus === 'COMPLETE' || dbStatus === 'COMPLETED';
 
     const loadedBox: ActiveBox & { productionOrderId?: string } = {
-      boxId: apiBoxId,
+      boxId: apiBoxId || (localBox as any)?.boxId,
       boxNumber: code,
       capacity: dbCapacity,
       soId: so?.id || 'SO-77201',
