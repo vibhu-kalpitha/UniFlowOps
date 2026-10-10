@@ -84,6 +84,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
   };
 
   React.useEffect(() => {
+    setScannedBox(null);
     if (po) {
       const target = po.totalQuantity || 500;
       const passed = po.progress?.aqlPassed || 0;
@@ -110,7 +111,26 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
 
   /* ── Scan box handler ─────────────────────────────────────── */
   const handleScanBox = async (code: string) => {
-    const localBox = packingBoxes[code];
+    const poDbId = po?.dbId || po?.id;
+    const poDisplayNumber = po?.id || (po as any)?.poNumber;
+    const currentPoId = poDbId || poDisplayNumber;
+
+    const isMatchingPo = (b: any) => {
+      if (!b) return false;
+      const boxPo = b.productionOrderId || b.poId;
+      if (!boxPo) return false;
+      return (
+        (poDbId && boxPo === poDbId) ||
+        (poDisplayNumber && boxPo === poDisplayNumber)
+      );
+    };
+
+    const poKey = currentPoId ? `${currentPoId}_${code}` : code;
+    const rawLocalBox = packingBoxes[poKey] || Object.values(packingBoxes).find((b: any) => 
+      b.boxNumber?.toUpperCase() === code && isMatchingPo(b)
+    );
+    const localBox = isMatchingPo(rawLocalBox) ? rawLocalBox : null;
+
     if (localBox && localBox.status !== 'COMPLETED' && localBox.items.length < localBox.capacity) {
       return {
         status: 'rejected' as const,
@@ -127,12 +147,18 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
     let sampleRequirement = 12;
     let previousPassedSamples: any[] = [];
     let permanentlyRemovedQrs: string[] = [];
+    let isApiSuccess = false;
 
     try {
       const res = await apiFetch('/api/aql/boxes/scan', {
         method: 'POST',
-        body: JSON.stringify({ boxNumber: code, stage: stageCode }),
+        body: JSON.stringify({
+          boxNumber: code,
+          stage: stageCode,
+          productionOrderId: currentPoId
+        }),
       });
+      isApiSuccess = true;
       serverItems = res.box?.items?.map((i: any) => i.qr_code) || [];
       inspectionId = res.inspectionId;
       totalItems = res.box?.item_count || serverItems.length || totalItems;
@@ -151,7 +177,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
 
     const combinedSet = new Set<string>();
     serverItems.forEach(qr => { if (qr && !permRemovedSet.has(qr.trim().toUpperCase())) combinedSet.add(qr.trim().toUpperCase()); });
-    if (serverItems.length === 0) {
+    if (!isApiSuccess && serverItems.length === 0) {
       localItems.forEach(qr => { if (qr && !permRemovedSet.has(qr.trim().toUpperCase())) combinedSet.add(qr.trim().toUpperCase()); });
     }
 
@@ -213,6 +239,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
           selectedPoId={po?.id || po?.dbId}
           onClose={po ? () => setShowPoSelector(false) : undefined}
           onSelectPo={(selectedPo) => {
+            setScannedBox(null);
             setActiveJob({ productionOrder: selectedPo });
             setShowPoSelector(false);
           }}

@@ -2243,6 +2243,39 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 30000);
+
+  it('37. AQL & Final AQL PO-Scoped Box Resolution Verification', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    if (isConnected) {
+      const poA = `po-aql-a-${timestamp}`;
+      const poB = `po-aql-b-${timestamp}`;
+      const boxA = `box-aql-a-${timestamp}`;
+      const boxB = `box-aql-b-${timestamp}`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-AQL-A', 'AQL PO A', 'CURRENT', NOW(3), NOW(3))`, [poA]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-AQL-B', 'AQL PO B', 'CURRENT', NOW(3), NOW(3))`, [poB]);
+
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSS1', 'BXSS1', ?, 4, 'COMPLETE', NOW(3))`, [boxA, poA]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSS1', 'BXSS1', ?, 4, 'OPEN', NOW(3))`, [boxB, poB]);
+
+        // Query box for PO A
+        const rowA = await db.queryOne<any>(`SELECT * FROM boxes WHERE box_code = 'BXSS1' AND production_order_id = ?`, [poA]);
+        expect(rowA.id).toBe(boxA);
+
+        // Query box for PO B
+        const rowB = await db.queryOne<any>(`SELECT * FROM boxes WHERE box_code = 'BXSS1' AND production_order_id = ?`, [poB]);
+        expect(rowB.id).toBe(boxB);
+        expect(rowB.id).not.toBe(boxA);
+      } finally {
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [boxA, boxB]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poA, poB]);
+      }
+    }
+  });
 });
 
 

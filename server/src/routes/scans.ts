@@ -2329,15 +2329,36 @@ router.get('/box-transfers', authenticateToken, async (req: AuthRequest, res, ne
 router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { boxNumber, stage } = req.body;
+    const currentPoKey = req.body.productionOrderId || req.body.poId || req.body.productionOrderNumber || null;
     const operatorId = req.user!.id;
     const isFinalAql = stage === 'FINAL_AQL' || stage === 'FINAL AQL' || stage === 'Final AQL';
     const targetStage = isFinalAql ? 'FINAL_AQL' : 'AQL';
     const opCheckStage = isFinalAql ? 'FINAL_AQL' : 'AQL';
     const opCheckName = isFinalAql ? 'FINAL AQL' : 'AQL Checker';
 
-    let box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any;
+    let targetPo: any = null;
+    if (currentPoKey) {
+      targetPo = await resolvePO(currentPoKey);
+      if (!targetPo) {
+        return res.status(404).json({ error: 'PO_NOT_FOUND', message: `Production Order '${currentPoKey}' not found.` });
+      }
+    }
+
+    let box: any = null;
+    const code = boxNumber.trim().toUpperCase();
+
+    if (targetPo) {
+      box = await db.prepare(`
+        SELECT * FROM boxes 
+        WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+          AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+      `).get(code, code, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
+    } else {
+      box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(code, code) as any;
+    }
+
     if (!box) {
-      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box ${boxNumber} not found.` });
+      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: `Box ${boxNumber} not found for this Production Order.` });
     }
 
     if (box.production_order_id) {
