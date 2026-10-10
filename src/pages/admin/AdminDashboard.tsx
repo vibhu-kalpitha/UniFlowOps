@@ -150,7 +150,48 @@ export const AdminDashboard: React.FC = () => {
   const isFiltered = Boolean(selectedStyle || selectedPoId || selectedYear || fromDate || toDate);
 
   return (
-    <div className="desktop-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="dashboard-layout desktop-container">
+      {/* ── Sidebar Navigation ──────────────────────────────── */}
+      <div className="dashboard-sidebar">
+        <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px', paddingLeft: '4px' }}>
+          Admin Panel
+        </h3>
+        
+        <button
+          onClick={() => navigate('/admin/sessions')}
+          style={styles.navCard('#0F2942', '#1E4650')}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>🔐 User Sessions & Activity</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Inspect login history</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/admin/users')}
+          style={styles.navCard('#1A1C38', '#2D3055')}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Members & Operators</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage operator allocations</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/admin/reports')}
+          style={styles.navCard('#0B2D27', '#174E45')}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Production Reports</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Export PDF/Excel stats</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/admin/orders')}
+          style={styles.navCard('#2D1A25', '#4A2A3B')}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#EC4899' }}>📦 Production Orders Config</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Configure PO QR ranges</span>
+        </button>
+      </div>
+
+      {/* ── Main Dashboard Content ──────────────────────────── */}
+      <div className="dashboard-content">
       {/* ── Top Header & Executive Control Bar ─────────────────── */}
       <div style={{
         display: 'flex',
@@ -947,45 +988,6 @@ export const AdminDashboard: React.FC = () => {
         )}
       </div>
 
-      {/* ── Admin Navigation Footer Bar ──────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '12px',
-        marginTop: '10px'
-      }}>
-        <button
-          onClick={() => navigate('/admin/sessions')}
-          style={styles.navCard('#0F2942', '#1E4650')}
-        >
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>🔐 User Sessions & Activity</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Inspect login history</span>
-        </button>
-
-        <button
-          onClick={() => navigate('/admin/users')}
-          style={styles.navCard('#1A1C38', '#2D3055')}
-        >
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Members & Operators</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage operator allocations</span>
-        </button>
-
-        <button
-          onClick={() => navigate('/admin/reports')}
-          style={styles.navCard('#0B2D27', '#174E45')}
-        >
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Production Reports</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Export PDF/Excel stats</span>
-        </button>
-
-        <button
-          onClick={() => navigate('/admin/orders')}
-          style={styles.navCard('#2D1A25', '#4A2A3B')}
-        >
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#EC4899' }}>📦 Production Orders Config</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Configure PO QR ranges</span>
-        </button>
-      </div>
 
       {/* ── Box Detail Modal ───────────────────────────── */}
       {selectedBoxModal && (
@@ -1096,6 +1098,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

@@ -26,6 +26,7 @@ export const SupervisorHome: React.FC = () => {
   });
   const [supervisorBoxes, setSupervisorBoxes] = useState<any[]>([]);
   const [selectedBoxForModal, setSelectedBoxForModal] = useState<any>(null);
+  const [showBoxOverview, setShowBoxOverview] = useState<boolean>(false);
 
   const fetchSupervisorData = async (poIdStr = selectedPoId) => {
     setLoading(true);
@@ -58,7 +59,65 @@ export const SupervisorHome: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+    <div className="dashboard-layout desktop-container">
+      {/* ── Supervisor Sidebar Navigation ─────────────────────── */}
+      <div className="dashboard-sidebar">
+        <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px', paddingLeft: '4px' }}>
+          Supervisor Tools
+        </h3>
+        
+        <button
+          onClick={() => setShowBoxOverview(!showBoxOverview)}
+          style={{
+            backgroundColor: showBoxOverview ? 'var(--primary-teal)' : '#0F2942',
+            border: `1px solid ${showBoxOverview ? 'var(--primary-teal)' : '#1E4650'}`,
+            borderRadius: '12px',
+            padding: '14px 16px',
+            textAlign: 'left',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            cursor: 'pointer'
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: showBoxOverview ? '#000' : '#3B82F6' }}>📦 Box Overview</span>
+          <span style={{ fontSize: '11px', color: showBoxOverview ? '#000' : 'var(--text-secondary)', marginTop: '2px' }}>View packed boxes & QRs</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/supervisor/shifts')}
+          style={{ backgroundColor: '#1A1C38', border: '1px solid #2D3055', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Allocation</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage shift members</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/admin/dashboard')}
+          style={{ backgroundColor: '#0B2D27', border: '1px solid #174E45', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Factory Dashboard</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Live metrics & KPIs</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/admin/users')}
+          style={{ backgroundColor: '#2D1A25', border: '1px solid #4A2A3B', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#EC4899' }}>👤 Manage Users</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Add/edit factory users</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/admin/reports')}
+          style={{ backgroundColor: '#0F2942', border: '1px solid #1E4650', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>📄 Production Reports</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Generate PDF exports</span>
+        </button>
+      </div>
+
+      <div className="dashboard-content">
       {/* Supervisor Header */}
       <div style={styles.headerRow}>
         <div>
@@ -195,7 +254,8 @@ export const SupervisorHome: React.FC = () => {
       </div>
 
       {/* ── PART 3: BOX OVERVIEW FOR SUPERVISOR HOME ────────────── */}
-      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0 }}>
+      {showBoxOverview && (
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <div>
             <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
@@ -290,6 +350,8 @@ export const SupervisorHome: React.FC = () => {
           </div>
         )}
       </div>
+      )}
+
 
       {/* ── Box Detail Modal ─────────────────────────────────────── */}
       {selectedBoxForModal && (
@@ -345,6 +407,7 @@ export const SupervisorHome: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

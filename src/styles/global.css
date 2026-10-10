@@ -284,9 +284,6 @@ button:disabled {
 /* ── Mobile Operator Home Responsive Enhancements (<= 640px) ──────────────── */
 @media (max-width: 640px) {
   .op-metrics-wrapper {
-    display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 6px !important;
     margin-top: 10px !important;
     padding-top: 10px !important;
     border-top: 1px solid var(--border-color) !important;
@@ -376,7 +373,9 @@ button:disabled {
 @media (max-width: 768px) {
   .op-metrics-wrapper > div {
     display: grid !important;
-    grid-template-columns: repeat(3, 1fr) !important;
+    width: 100% !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
   }
 }
 
@@ -405,3 +404,33 @@ button:disabled {
   }
 }
 
+
+/* ── Dashboard Sidebar Layout ────────────────────────────────────────── */
+.dashboard-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.dashboard-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dashboard-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-layout {
+    flex-direction: column;
+  }
+  .dashboard-sidebar {
+    width: 100%;
+  }
+}

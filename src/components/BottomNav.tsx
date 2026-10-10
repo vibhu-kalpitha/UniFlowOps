@@ -74,13 +74,7 @@ export const BottomNav: React.FC = () => {
           <span>Home</span>
         </button>
 
-        <button
-          style={isActive('/admin/dashboard') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/admin/dashboard')}
-        >
-          <BarChart size={20} />
-          <span>Dashboard</span>
-        </button>
+
 
         <button
           style={isActive('/supervisor/orders') || isActive('/admin/orders') ? styles.navItemActive : styles.navItem}

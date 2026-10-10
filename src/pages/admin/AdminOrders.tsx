@@ -61,9 +61,9 @@ export const AdminOrders: React.FC = () => {
           id: c.id,
           quantity: Number(c.quantity)
         }));
-        payload.totalQuantity = editConfigs.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
+        payload.newQuantity = editConfigs.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
       } else {
-        payload.totalQuantity = Number(editTotalQty);
+        payload.newQuantity = Number(editTotalQty);
       }
 
       await apiFetch(`/api/admin/orders/${selectedOrder.id}/quantity`, {
