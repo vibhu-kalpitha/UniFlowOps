@@ -5,7 +5,7 @@ import { apiFetch } from '../../services/api';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { formatPoDisplayName } from '../../utils/formatters';
-import { PlusCircle, Clock, AlertTriangle, Box, Package, CheckCircle2, Search, Filter, X, ChevronRight, Eye } from 'lucide-react';
+import { PlusCircle, Clock, AlertTriangle, Box, Package, CheckCircle2, Search, Filter, X, ChevronRight, Eye, Menu } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const SupervisorHome: React.FC = () => {
@@ -27,6 +27,7 @@ export const SupervisorHome: React.FC = () => {
   const [supervisorBoxes, setSupervisorBoxes] = useState<any[]>([]);
   const [selectedBoxForModal, setSelectedBoxForModal] = useState<any>(null);
   const [showBoxOverview, setShowBoxOverview] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   const fetchSupervisorData = async (poIdStr = selectedPoId) => {
     setLoading(true);
@@ -58,66 +59,85 @@ export const SupervisorHome: React.FC = () => {
     setSelectedPoId(newPoId);
   };
 
+  const navTo = (path: string) => { setSidebarOpen(false); navigate(path); };
+
   return (
-    <div className="dashboard-layout desktop-container">
-      {/* ── Supervisor Sidebar Navigation ─────────────────────── */}
-      <div className="dashboard-sidebar">
-        <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px', paddingLeft: '4px' }}>
-          Supervisor Tools
-        </h3>
-        
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', position: 'relative' }}>
+
+      {/* ── Slide-in Sidebar Drawer ───────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(4px)', zIndex: 9000
+          }}
+        />
+      )}
+      <div style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: '280px',
+        backgroundColor: 'var(--bg-surface-1)',
+        borderLeft: '1px solid var(--border-color)',
+        boxShadow: '-8px 0 32px rgba(0,0,0,0.5)',
+        zIndex: 9001, display: 'flex', flexDirection: 'column', gap: '10px',
+        padding: '20px 16px', overflowY: 'auto',
+        transform: sidebarOpen ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Supervisor Tools</h3>
+          <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px' }}>
+            <X size={20} />
+          </button>
+        </div>
+
         <button
-          onClick={() => setShowBoxOverview(!showBoxOverview)}
+          onClick={() => { setSidebarOpen(false); setShowBoxOverview(!showBoxOverview); }}
           style={{
             backgroundColor: showBoxOverview ? 'var(--primary-teal)' : '#0F2942',
             border: `1px solid ${showBoxOverview ? 'var(--primary-teal)' : '#1E4650'}`,
-            borderRadius: '12px',
-            padding: '14px 16px',
-            textAlign: 'left',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            cursor: 'pointer'
+            borderRadius: '12px', padding: '14px 16px', textAlign: 'left',
+            display: 'flex', flexDirection: 'column', cursor: 'pointer'
           }}
         >
           <span style={{ fontSize: '13px', fontWeight: 700, color: showBoxOverview ? '#000' : '#3B82F6' }}>📦 Box Overview</span>
           <span style={{ fontSize: '11px', color: showBoxOverview ? '#000' : 'var(--text-secondary)', marginTop: '2px' }}>View packed boxes & QRs</span>
         </button>
 
-        <button
-          onClick={() => navigate('/supervisor/shifts')}
-          style={{ backgroundColor: '#1A1C38', border: '1px solid #2D3055', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-        >
+        <button onClick={() => navTo('/supervisor/shifts')} style={{ backgroundColor: '#1A1C38', border: '1px solid #2D3055', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Allocation</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage shift members</span>
         </button>
-
-        <button
-          onClick={() => navigate('/admin/dashboard')}
-          style={{ backgroundColor: '#0B2D27', border: '1px solid #174E45', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-        >
+        <button onClick={() => navTo('/admin/dashboard')} style={{ backgroundColor: '#0B2D27', border: '1px solid #174E45', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Factory Dashboard</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Live metrics & KPIs</span>
         </button>
-
-        <button
-          onClick={() => navigate('/admin/users')}
-          style={{ backgroundColor: '#2D1A25', border: '1px solid #4A2A3B', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-        >
+        <button onClick={() => navTo('/admin/users')} style={{ backgroundColor: '#2D1A25', border: '1px solid #4A2A3B', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#EC4899' }}>👤 Manage Users</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Add/edit factory users</span>
         </button>
-
-        <button
-          onClick={() => navigate('/admin/reports')}
-          style={{ backgroundColor: '#0F2942', border: '1px solid #1E4650', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-        >
+        <button onClick={() => navTo('/admin/reports')} style={{ backgroundColor: '#0F2942', border: '1px solid #1E4650', borderRadius: '12px', padding: '14px 16px', textAlign: 'left', display: 'flex', flexDirection: 'column', cursor: 'pointer' }}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>📄 Production Reports</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Generate PDF exports</span>
         </button>
       </div>
 
-      <div className="dashboard-content">
+      {/* ── Hamburger Trigger ─────────────────────────────────── */}
+      <button
+        onClick={() => setSidebarOpen(true)}
+        style={{
+          position: 'fixed', top: '12px', right: '100px',
+          width: '36px', height: '36px', borderRadius: '10px',
+          backgroundColor: 'var(--bg-surface-1)',
+          border: '1px solid var(--primary-teal)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', zIndex: 200, color: 'var(--primary-teal)'
+        }}
+        aria-label="Open supervisor menu"
+      >
+        <Menu size={18} />
+      </button>
+
       {/* Supervisor Header */}
       <div style={styles.headerRow}>
         <div>
@@ -407,7 +427,6 @@ export const SupervisorHome: React.FC = () => {
           </div>
         </div>
       )}
-      </div>
     </div>
   );
 };

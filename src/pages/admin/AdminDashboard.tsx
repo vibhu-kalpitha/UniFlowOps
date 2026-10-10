@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Users,
   X,
+  Menu,
   Zap
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
@@ -38,6 +39,7 @@ export const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'orders' | 'boxes' | 'quality' | 'scrapped' | 'audit'>('orders');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   // Dropdown & Date filter states
   const [selectedStyle, setSelectedStyle] = useState<string>('');
@@ -149,49 +151,72 @@ export const AdminDashboard: React.FC = () => {
 
   const isFiltered = Boolean(selectedStyle || selectedPoId || selectedYear || fromDate || toDate);
 
+  const navTo = (path: string) => { setSidebarOpen(false); navigate(path); };
+
   return (
-    <div className="dashboard-layout desktop-container">
-      {/* ── Sidebar Navigation ──────────────────────────────── */}
-      <div className="dashboard-sidebar">
-        <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px', paddingLeft: '4px' }}>
-          Admin Panel
-        </h3>
-        
-        <button
-          onClick={() => navigate('/admin/sessions')}
-          style={styles.navCard('#0F2942', '#1E4650')}
-        >
+    <div className="desktop-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+
+      {/* ── Slide-in Sidebar Drawer ─────────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(4px)', zIndex: 9000
+          }}
+        />
+      )}
+      <div style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: '280px',
+        backgroundColor: 'var(--bg-surface-1)',
+        borderLeft: '1px solid var(--border-color)',
+        boxShadow: '-8px 0 32px rgba(0,0,0,0.5)',
+        zIndex: 9001, display: 'flex', flexDirection: 'column', gap: '10px',
+        padding: '20px 16px', overflowY: 'auto',
+        transform: sidebarOpen ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Admin Panel</h3>
+          <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <button onClick={() => navTo('/admin/sessions')} style={styles.navCard('#0F2942', '#1E4650')}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>🔐 User Sessions & Activity</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Inspect login history</span>
         </button>
-
-        <button
-          onClick={() => navigate('/admin/users')}
-          style={styles.navCard('#1A1C38', '#2D3055')}
-        >
+        <button onClick={() => navTo('/admin/users')} style={styles.navCard('#1A1C38', '#2D3055')}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Members & Operators</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage operator allocations</span>
         </button>
-
-        <button
-          onClick={() => navigate('/admin/reports')}
-          style={styles.navCard('#0B2D27', '#174E45')}
-        >
+        <button onClick={() => navTo('/admin/reports')} style={styles.navCard('#0B2D27', '#174E45')}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Production Reports</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Export PDF/Excel stats</span>
         </button>
-
-        <button
-          onClick={() => navigate('/admin/orders')}
-          style={styles.navCard('#2D1A25', '#4A2A3B')}
-        >
+        <button onClick={() => navTo('/admin/orders')} style={styles.navCard('#2D1A25', '#4A2A3B')}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#EC4899' }}>📦 Production Orders Config</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Configure PO QR ranges</span>
         </button>
       </div>
 
-      {/* ── Main Dashboard Content ──────────────────────────── */}
-      <div className="dashboard-content">
+      {/* ── Hamburger Menu Trigger (fixed in top-right of page) ─── */}
+      <button
+        onClick={() => setSidebarOpen(true)}
+        style={{
+          position: 'fixed', top: '12px', right: '100px',
+          width: '36px', height: '36px', borderRadius: '10px',
+          backgroundColor: 'var(--bg-surface-1)',
+          border: '1px solid var(--primary-teal)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', zIndex: 200, color: 'var(--primary-teal)'
+        }}
+        aria-label="Open admin menu"
+      >
+        <Menu size={18} />
+      </button>
+
       {/* ── Top Header & Executive Control Bar ─────────────────── */}
       <div style={{
         display: 'flex',
@@ -1098,7 +1123,6 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
-      </div>
     </div>
   );
 };
