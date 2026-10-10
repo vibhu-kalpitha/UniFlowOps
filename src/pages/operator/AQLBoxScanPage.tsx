@@ -131,14 +131,6 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
     );
     const localBox = isMatchingPo(rawLocalBox) ? rawLocalBox : null;
 
-    if (localBox && localBox.status !== 'COMPLETED' && localBox.items.length < localBox.capacity) {
-      return {
-        status: 'rejected' as const,
-        message: `Box ${code} is not fully packed / completed (${localBox.items.length}/${localBox.capacity} items). Only completed boxes can undergo ${stageTitle}.`,
-        code
-      };
-    }
-
     const localItems: string[] = localBox?.items ? localBox.items.map(i => i.qr) : [];
 
     let serverItems: string[] = [];
