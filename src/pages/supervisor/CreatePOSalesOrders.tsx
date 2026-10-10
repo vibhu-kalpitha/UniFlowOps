@@ -40,18 +40,7 @@ export const CreatePOSalesOrders: React.FC = () => {
     { prefix: 'BX', size: 'M', capacity: 12 }
   ]);
 
-  // Shift Allocation State
-  const [shifts, setShifts] = useState<ShiftAssignment[]>([
-    {
-      id: `shf-${Date.now()}-1`,
-      workerId: 'usr-001',
-      workerName: 'Chamika Silva',
-      startTime: '14:00',
-      endTime: '18:00',
-      date: new Date().toISOString().split('T')[0],
-      enabledOperations: ['QC Test', 'Packing']
-    }
-  ]);
+
 
   const fetchMasterConfigTypes = async () => {
     setLoadingMasterTypes(true);
@@ -341,7 +330,6 @@ export const CreatePOSalesOrders: React.FC = () => {
 
     sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(normalizedConfigs));
     sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(normalizedBoxConfigs));
-    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(shifts));
     navigate('/supervisor/production-orders/new/review');
   };
 

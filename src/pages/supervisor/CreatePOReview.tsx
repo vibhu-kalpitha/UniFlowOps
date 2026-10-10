@@ -43,6 +43,10 @@ export const CreatePOReview: React.FC = () => {
 
   const totalQuantity = draftConfigs.reduce((sum, c) => sum + (c.quantity || 0), 0);
 
+  const effectiveAllocations = (draftPoGeneral?.allocations && Array.isArray(draftPoGeneral.allocations) && draftPoGeneral.allocations.length > 0)
+    ? draftPoGeneral.allocations
+    : (draftShifts && draftShifts.length > 0 ? draftShifts : []);
+
   const handleFinalCreate = async () => {
     if (!draftPoGeneral?.styleId) {
       showToast('Please select an existing style or create one first.', 'warning');
@@ -66,8 +70,8 @@ export const CreatePOReview: React.FC = () => {
       qcStationCount: draftPoGeneral.qcStationCount || 1,
       productConfigurations: draftConfigs,
       boxConfigurations: draftBoxConfigs,
-      shifts: draftShifts,
-      allocations: draftPoGeneral.allocations || draftShifts
+      shifts: effectiveAllocations,
+      allocations: effectiveAllocations
     };
 
     let serverPo: ProductionOrder | null = null;
@@ -231,10 +235,10 @@ export const CreatePOReview: React.FC = () => {
               <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.shiftName}</span>
             </div>
           )}
-          {draftShifts.length > 0 && (
+          {effectiveAllocations.length > 0 && (
             <div>
               <span style={styles.sumLabel}>Assigned Operators</span>
-              <span style={styles.sumVal}>{draftShifts.map((s: any) => s.workerName || s.workerId).join(', ')}</span>
+              <span style={styles.sumVal}>{effectiveAllocations.map((s: any) => s.workerName || s.operatorName || s.workerId || s.operatorId).join(', ')}</span>
             </div>
           )}
           {draftPoGeneral.qcTestMode && (

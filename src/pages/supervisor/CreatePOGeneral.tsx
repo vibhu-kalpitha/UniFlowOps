@@ -206,6 +206,8 @@ export const CreatePOGeneral: React.FC = () => {
       allocations: poAllocations.map(a => ({
         workerId: a.operatorId,
         workerName: a.operatorName,
+        operatorId: a.operatorId,
+        operatorName: a.operatorName,
         shiftId: a.shiftId,
         shiftCode: a.shiftCode,
         enabledOperations: selectedOps,
@@ -214,7 +216,7 @@ export const CreatePOGeneral: React.FC = () => {
 
     sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleId);
     sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftPo));
-    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(poAllocations));
+    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(draftPo.allocations));
     navigate('/supervisor/production-orders/new/sales-orders');
   };
 

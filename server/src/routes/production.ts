@@ -607,7 +607,9 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       }
 
       // Sync PO shift allocations
-      const assignmentsToSync = body.shifts || body.allocations || [];
+      const assignmentsToSync = (body.allocations && Array.isArray(body.allocations) && body.allocations.length > 0)
+        ? body.allocations
+        : (body.shifts || []);
       await syncPoAllocations(tx, poDbId, assignmentsToSync, req.user!.id, body.selectedOperations);
     });
 
