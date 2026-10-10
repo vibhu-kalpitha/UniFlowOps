@@ -167,8 +167,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
         </span>
       </button>
       {/* Input Bar */}
-      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', width: '100%', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%', alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: '1 1 min(100%, 200px)' }}>
           <QrCode
             size={18}
             style={{
@@ -195,77 +195,82 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
               border: '1px solid rgba(22, 184, 174, 0.4)',
               borderRadius: '10px',
               color: '#FFFFFF',
-              fontSize: '16px', // 16px to prevent iOS/Android auto-zoom
+              fontSize: '16px',
               outline: 'none',
               boxSizing: 'border-box',
             }}
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={disabled || !inputValue.trim()}
-          style={{
-            height: '48px',
-            padding: '0 16px',
-            backgroundColor: inputValue.trim() ? '#16B8AE' : '#102E38',
-            color: '#FFFFFF',
-            border: 'none',
-            borderRadius: '10px',
-            fontWeight: 600,
-            cursor: inputValue.trim() ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            transition: 'background-color 0.2s',
-          }}
-        >
-          <Send size={18} />
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flex: '1 0 auto', justifyContent: 'flex-end' }}>
+          <button
+            type="submit"
+            disabled={disabled || !inputValue.trim()}
+            style={{
+              height: '48px',
+              padding: '0 16px',
+              backgroundColor: inputValue.trim() ? '#16B8AE' : '#102E38',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: 600,
+              cursor: inputValue.trim() ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'background-color 0.2s',
+              flex: 1
+            }}
+          >
+            <Send size={18} />
+          </button>
 
-        {/* Camera Trigger */}
-        <button
-          type="button"
-          onClick={() => setIsCameraOpen(true)}
-          disabled={disabled}
-          title="Use Phone Camera"
-          style={{
-            height: '48px',
-            width: '48px',
-            backgroundColor: '#102E38',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '10px',
-            color: '#16B8AE',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Camera size={20} />
-        </button>
+          {/* Camera Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsCameraOpen(true)}
+            disabled={disabled}
+            title="Use Phone Camera"
+            style={{
+              height: '48px',
+              width: '48px',
+              backgroundColor: '#102E38',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '10px',
+              color: '#16B8AE',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}
+          >
+            <Camera size={20} />
+          </button>
 
-        {/* Mute Toggle */}
-        <button
-          type="button"
-          onClick={toggleMute}
-          title={muted ? 'Unmute scanner sounds' : 'Mute scanner sounds'}
-          style={{
-            height: '48px',
-            width: '48px',
-            backgroundColor: '#102E38',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '10px',
-            color: muted ? '#64748B' : '#16B8AE',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-        </button>
+          {/* Mute Toggle */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            title={muted ? 'Unmute scanner sounds' : 'Mute scanner sounds'}
+            style={{
+              height: '48px',
+              width: '48px',
+              backgroundColor: '#102E38',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '10px',
+              color: muted ? '#64748B' : '#16B8AE',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}
+          >
+            {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+          </button>
+        </div>
       </form>
 
       {/* Immediate Visual Feedback Banner */}

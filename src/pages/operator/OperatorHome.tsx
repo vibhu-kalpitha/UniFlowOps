@@ -273,13 +273,18 @@ export const OperatorHome: React.FC = () => {
                   <button
                     onClick={() => setPendingOperation({ name: 'Production Order', route: '#' })}
                     style={{
-                      background: 'none',
-                      border: 'none',
+                      background: 'rgba(22, 184, 174, 0.15)',
+                      border: '1px solid var(--primary-teal)',
+                      borderRadius: '8px',
                       color: 'var(--primary-teal)',
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: 700,
                       cursor: 'pointer',
-                      padding: 0
+                      padding: '8px 14px',
+                      minHeight: '44px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                   >
                     Change PO
@@ -300,9 +305,11 @@ export const OperatorHome: React.FC = () => {
               <StatusPill label="LIVE DB DATA" variant="teal" />
             </div>
 
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-              {(po || fetchedPoDetails) ? `Live Metrics for ${(po?.id || po?.poNumber || fetchedPoDetails?.poNumber)}` : 'All Production Orders & Factory Live Metrics'}
-            </h3>
+            {!(po || fetchedPoDetails) && (
+              <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+                All Production Orders & Factory Live Metrics
+              </h3>
+            )}
 
             {/* Metrics Wrapper */}
             <div className="op-metrics-wrapper" style={{ marginTop: '12px' }}>

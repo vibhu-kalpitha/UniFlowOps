@@ -310,7 +310,7 @@ export const CreatePOGeneral: React.FC = () => {
           </div>
 
           {/* Dates */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
             <div>
               <label style={styles.label}>Start Date</label>
               <input type="date" className="input-field" value={startDate} onChange={e => setStartDate(e.target.value)} />

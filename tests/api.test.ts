@@ -2550,6 +2550,7 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
 
 describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Counts Tests', () => {
   it('1. Operator assigned to at least three POs sees all three on Operator assignments endpoint', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();
@@ -2587,6 +2588,7 @@ describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Count
   });
 
   it('2. Operation filtering lists every PO assigned for that operation and excludes unassigned POs or shows empty state', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();
@@ -2626,6 +2628,7 @@ describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Count
   });
 
   it('3. Kavindu Perera and Chamika Silva each see their own assigned POs without overwriting', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();
@@ -2661,6 +2664,7 @@ describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Count
   });
 
   it('4. AQL and Final AQL persist and display different outcomes independently on the same PO & Box', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();
@@ -2737,6 +2741,7 @@ describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Count
   });
 
   it('5. AQL item counts are correct when 2 of 4 items pass and when 4 of 4 items pass', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();
@@ -2782,6 +2787,7 @@ describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Count
   });
 
   it('6. Packing counts items rather than boxes and calculates remaining quantity correctly', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();
@@ -2831,6 +2837,7 @@ describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Count
   });
 
   it('7. QC counts do not appear in Packing counts', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
     const isConnected = await ensureDbConnected();
     if (isConnected) {
       const ts = Date.now();

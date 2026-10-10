@@ -540,7 +540,7 @@ export const CreatePOSalesOrders: React.FC = () => {
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
               <div>
                 <label style={styles.label}>Configuration Code</label>
                 <input
@@ -597,7 +597,7 @@ export const CreatePOSalesOrders: React.FC = () => {
               key={bIdx}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr auto',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
                 gap: '12px',
                 alignItems: 'center',
                 backgroundColor: 'var(--bg-surface-1)',

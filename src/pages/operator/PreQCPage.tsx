@@ -587,7 +587,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    minHeight: '48px'
   },
   passBtnActive: {
     padding: '12px',
@@ -601,7 +602,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    minHeight: '48px'
   },
   failBtnActive: {
     padding: '12px',
@@ -615,7 +617,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    minHeight: '48px'
   },
   reasonInput: {
     width: '100%',

@@ -91,27 +91,22 @@ export const BottomNav: React.FC = () => {
         </button>
 
         <button
-          style={isActive('/admin/users') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/admin/users')}
+          style={isActive('/supervisor/alerts') || isActive('/admin/alerts') ? styles.navItemActive : styles.navItem}
+          onClick={() => navigate('/supervisor/alerts')}
         >
-          <User size={20} />
-          <span>Users</span>
+          <div style={{ position: 'relative' }}>
+            <Bell size={20} />
+            {unreadAlerts > 0 && <span style={styles.miniBadge}>{unreadAlerts}</span>}
+          </div>
+          <span>Alerts</span>
         </button>
 
         <button
-          style={isActive('/admin/reports') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/admin/reports')}
+          style={isActive('/admin/more') ? styles.navItemActive : styles.navItem}
+          onClick={() => navigate('/admin/more')}
         >
-          <Package size={20} />
-          <span>Reports</span>
-        </button>
-
-        <button
-          style={isActive('/supervisor/profile') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/supervisor/profile')}
-        >
-          <User size={20} />
-          <span>Profile</span>
+          <Menu size={20} />
+          <span>More</span>
         </button>
       </nav>
     );

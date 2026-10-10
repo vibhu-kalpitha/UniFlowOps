@@ -51,19 +51,8 @@ router.get('/current-work', authenticateToken, requireRole('OPERATOR'), async (r
 router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (req: AuthRequest, res, next) => {
   try {
     const operatorId = req.user!.id;
-    const operatorUsername = req.user!.username;
+    const operatorUsername = req.user!.username || operatorId;
     const reqOp = (req.query.operation || '').toString().trim();
-
-    // 1. Query active POs allocated to THIS operator in operator_work_assignments
-    let rawRows = await db.prepare(`
-      SELECT po.*, owa.shift_id as owa_shift_id, owa.operation as owa_operation
-      FROM operator_work_assignments owa
-      JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
-      WHERE (owa.operator_id = ? OR owa.operator_id = ?)
-        AND owa.active = 1
-        AND (po.status IS NULL OR UPPER(po.status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
-      ORDER BY po.created_at DESC
-    `).all(operatorId, operatorUsername) as any[];
 
     const matchOp = (assignedOp: string, targetOp: string) => {
       if (!assignedOp || assignedOp.toUpperCase() === 'ALL') return true;
@@ -83,29 +72,69 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
       return false;
     };
 
-    if (reqOp && rawRows.length > 0) {
-      rawRows = rawRows.filter(p => matchOp(p.owa_operation, reqOp));
+    // 1. Fetch all active assignments for this operator
+    const owaRows = await db.prepare(`
+      SELECT owa.production_order_id, owa.sales_order_id, owa.operation, owa.shift_id
+      FROM operator_work_assignments owa
+      WHERE (owa.operator_id = ? OR owa.operator_id = ?) AND owa.active = 1
+    `).all(operatorId, operatorUsername) as any[];
+
+    if (owaRows.length === 0) {
+      return res.json([]);
     }
 
-    // Deduplicate by PO ID
-    const uniquePoMap = new Map<string, any>();
-    for (const row of rawRows) {
-      if (!uniquePoMap.has(row.id)) {
-        uniquePoMap.set(row.id, row);
+    // 2. Resolve PO IDs (in case they were assigned via SO)
+    const poIdsToOps = new Map<string, Set<string>>();
+    
+    // We need to fetch sales_orders if necessary
+    const soIds = owaRows.filter(r => r.sales_order_id && !r.production_order_id).map(r => r.sales_order_id);
+    let soMap = new Map<string, string>();
+    if (soIds.length > 0) {
+      const placeholders = soIds.map(() => '?').join(',');
+      const sos = await db.prepare(`SELECT id, production_order_id FROM sales_orders WHERE id IN (${placeholders})`).all(...soIds) as any[];
+      for (const so of sos) {
+        if (so.production_order_id) soMap.set(so.id, so.production_order_id);
       }
     }
-    const poRows = Array.from(uniquePoMap.values());
 
-    const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
-    let assignments = formattedPos.filter((p): p is NonNullable<typeof p> => Boolean(p));
+    for (const row of owaRows) {
+      let poId = row.production_order_id;
+      if (!poId && row.sales_order_id) {
+        poId = soMap.get(row.sales_order_id);
+      }
+      if (poId) {
+        if (!poIdsToOps.has(poId)) {
+          poIdsToOps.set(poId, new Set<string>());
+        }
+        poIdsToOps.get(poId)!.add(row.operation);
+      }
+    }
 
-    // Filter formatted POs by operation if specified
+    // 3. Filter POs by operation if requested
+    let validPoIds = Array.from(poIdsToOps.keys());
     if (reqOp) {
-      assignments = assignments.filter((p) => {
-        if (!p.selectedOperations || p.selectedOperations.length === 0) return true;
-        return p.selectedOperations.some((op: string) => matchOp(op, reqOp));
+      validPoIds = validPoIds.filter(poId => {
+        const ops = poIdsToOps.get(poId)!;
+        return Array.from(ops).some(op => matchOp(op, reqOp));
       });
     }
+
+    if (validPoIds.length === 0) {
+      return res.json([]);
+    }
+
+    // 4. Fetch actual Production Orders
+    const placeholders = validPoIds.map(() => '?').join(',');
+    const poRows = await db.prepare(`
+      SELECT * FROM production_orders 
+      WHERE id IN (${placeholders}) 
+        AND (status IS NULL OR UPPER(status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
+      ORDER BY created_at DESC
+    `).all(...validPoIds) as any[];
+
+    // 5. Format them
+    const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
+    let assignments = formattedPos.filter((p): p is NonNullable<typeof p> => Boolean(p));
 
     return res.json(assignments);
   } catch (err) {

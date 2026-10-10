@@ -214,7 +214,7 @@ export const SupervisorHome: React.FC = () => {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+            <table className="responsive-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-surface-2)', color: 'var(--text-secondary)', borderBottom: '1.5px solid var(--border-color)' }}>
                   <th style={{ padding: '10px 12px' }}>Box Code</th>
@@ -228,13 +228,13 @@ export const SupervisorHome: React.FC = () => {
               <tbody>
                 {supervisorBoxes.map((bx: any) => (
                   <tr key={bx.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '10px 12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    <td data-label="Box Code" style={{ padding: '10px 12px', fontWeight: 800, color: 'var(--text-primary)' }}>
                       {bx.boxCode}
                     </td>
-                    <td style={{ padding: '10px 12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
+                    <td data-label="Production Order" style={{ padding: '10px 12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
                       {formatPoDisplayName(bx)}
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td data-label="Filled / Capacity" style={{ padding: '10px 12px' }}>
                       <span style={{ fontWeight: 800, color: bx.activeFilledCount >= bx.capacity ? '#10B981' : 'var(--text-primary)' }}>
                         {bx.activeFilledCount} / {bx.capacity}
                       </span>
@@ -242,7 +242,7 @@ export const SupervisorHome: React.FC = () => {
                         ({bx.remainingCapacity} space left)
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', color: 'var(--text-secondary)', maxWidth: '240px' }}>
+                    <td data-label="Active Products Inside" style={{ padding: '10px 12px', color: 'var(--text-secondary)', maxWidth: '240px' }}>
                       {bx.productQrs && bx.productQrs.length > 0 ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           {bx.productQrs.slice(0, 3).map((qr: string, idx: number) => (
@@ -260,10 +260,10 @@ export const SupervisorHome: React.FC = () => {
                         <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Empty box</span>
                       )}
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td data-label="Status" style={{ padding: '10px 12px' }}>
                       <StatusPill label={bx.status} variant={bx.status === 'COMPLETED' || bx.status === 'COMPLETE' ? 'green' : 'teal'} />
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td data-label="Action" style={{ padding: '10px 12px' }}>
                       <button
                         onClick={() => setSelectedBoxForModal(bx)}
                         style={{

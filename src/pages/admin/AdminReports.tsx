@@ -278,7 +278,7 @@ export const AdminReports: React.FC = () => {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={styles.table}>
+            <table className="responsive-table" style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>PO NUMBER</th>
@@ -299,51 +299,51 @@ export const AdminReports: React.FC = () => {
               <tbody>
                 {filteredOrders.map((p: any) => (
                   <tr key={p.poId} style={styles.tr}>
-                    <td style={styles.td}>
+                    <td data-label="PO NUMBER" style={styles.td}>
                       <strong style={{ color: 'var(--primary-teal)' }}>{p.poNumber}</strong>
                       {p.poName && p.poName !== 'N/A' && (
                         <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>{p.poName}</span>
                       )}
                     </td>
-                    <td style={styles.td}>{p.styleName}</td>
-                    <td style={styles.td}>{p.customer}</td>
-                    <td style={styles.td}><strong>{p.targetQuantity.toLocaleString()}</strong></td>
-                    <td style={styles.td}><span style={{ color: '#10B981', fontWeight: 800 }}>{p.qcPassed}</span></td>
-                    <td style={styles.td}>
+                    <td data-label="STYLE NAME" style={styles.td}>{p.styleName}</td>
+                    <td data-label="CUSTOMER" style={styles.td}>{p.customer}</td>
+                    <td data-label="PLANNED" style={styles.td}><strong>{p.targetQuantity.toLocaleString()}</strong></td>
+                    <td data-label="QC PASS" style={styles.td}><span style={{ color: '#10B981', fontWeight: 800 }}>{p.qcPassed}</span></td>
+                    <td data-label="QC FAIL" style={styles.td}>
                       {p.qcFailed > 0 ? (
                         <span style={{ color: '#F59E0B', fontWeight: 800 }}>⚠️ {p.qcFailed}</span>
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>0</span>
                       )}
                     </td>
-                    <td style={styles.td}><span style={{ color: '#3B82F6', fontWeight: 800 }}>{p.packedCount}</span></td>
-                    <td style={styles.td}>
+                    <td data-label="PACKED" style={styles.td}><span style={{ color: '#3B82F6', fontWeight: 800 }}>{p.packedCount}</span></td>
+                    <td data-label="AQL PASS BOXES" style={styles.td}>
                       <StatusPill label={`${p.aqlPassed} Boxes`} variant={p.aqlPassed > 0 ? 'green' : 'muted'} />
                     </td>
-                    <td style={styles.td}>
+                    <td data-label="AQL FAIL BOXES" style={styles.td}>
                       {p.aqlFailed > 0 ? (
                         <StatusPill label={`${p.aqlFailed} Fail`} variant="red" />
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>0</span>
                       )}
                     </td>
-                    <td style={styles.td}>
+                    <td data-label="TRANSFERS" style={styles.td}>
                       <span style={{ color: '#8B5CF6', fontWeight: 800 }}>{p.boxTransfers}</span>
                     </td>
-                    <td style={styles.td}>
+                    <td data-label="SCRAP" style={styles.td}>
                       {p.scrappedCount > 0 ? (
                         <span style={{ color: '#EF4444', fontWeight: 800 }}>{p.scrappedCount}</span>
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>0</span>
                       )}
                     </td>
-                    <td style={{ ...styles.td, minWidth: '110px' }}>
+                    <td data-label="COMPLETION %" style={{ ...styles.td, minWidth: '110px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <ProgressBar current={p.packedCount} total={p.targetQuantity || 1} height={6} color="var(--primary-teal)" />
                         <span style={{ fontSize: '11px', fontWeight: 700 }}>{p.completionPct}</span>
                       </div>
                     </td>
-                    <td style={styles.td}>
+                    <td data-label="STATUS" style={styles.td}>
                       <StatusPill label={p.status} variant={p.status === 'COMPLETED' ? 'green' : 'teal'} />
                     </td>
                   </tr>

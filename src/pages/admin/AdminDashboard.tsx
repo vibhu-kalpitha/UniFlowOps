@@ -225,9 +225,9 @@ export const AdminDashboard: React.FC = () => {
       )}
 
       {/* ── RIGHT-SIDE FILTER PANEL & KPI SUMMARY ───────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '16px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
         {/* Left Side: 13 Executive KPI Cards Grid */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ flex: '1 1 500px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
@@ -401,7 +401,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Right Side Filter Panel */}
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ flex: '1 1 300px', backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '300px', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Filter size={16} color="var(--primary-teal)" />
@@ -574,7 +574,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={styles.table}>
+                <table className="responsive-table" style={styles.table}>
                   <thead>
                     <tr>
                       <th style={styles.th}>PO NUMBER</th>
@@ -596,36 +596,36 @@ export const AdminDashboard: React.FC = () => {
 
                       return (
                         <tr key={po.id} style={styles.tr}>
-                          <td style={styles.td}>
+                          <td data-label="PO NUMBER" style={styles.td}>
                             <strong style={{ color: 'var(--color-teal)' }}>{po.po_number}</strong>
                           </td>
-                          <td style={styles.td}>{po.style_name || 'Standard Style'}</td>
-                          <td style={styles.td}>
+                          <td data-label="STYLE" style={styles.td}>{po.style_name || 'Standard Style'}</td>
+                          <td data-label="TARGET" style={styles.td}>
                             <strong>{po.total_quantity}</strong> pcs
                           </td>
-                          <td style={styles.td}>
+                          <td data-label="PACKED" style={styles.td}>
                             <span style={{ color: 'var(--color-purple)', fontWeight: 800 }}>{packed}</span> pcs
                           </td>
-                          <td style={{ ...styles.td, minWidth: '130px' }}>
+                          <td data-label="PROGRESS" style={{ ...styles.td, minWidth: '130px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <ProgressBar current={packed} total={target} height={6} color="var(--color-purple)" />
                               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{percent}%</span>
                             </div>
                           </td>
-                          <td style={styles.td}>
+                          <td data-label="AQL PASSED BOXES" style={styles.td}>
                             <StatusPill label={`${po.aql_passed_boxes || 0} Boxes`} variant={po.aql_passed_boxes > 0 ? 'green' : 'muted'} />
                           </td>
-                          <td style={styles.td}>
+                          <td data-label="SCRAPPED" style={styles.td}>
                             {po.scrapped_count > 0 ? (
                               <span style={{ color: '#EF4444', fontWeight: 800 }}>⚠️ {po.scrapped_count}</span>
                             ) : (
                               <span style={{ color: 'var(--text-muted)' }}>0</span>
                             )}
                           </td>
-                          <td style={styles.td}>
+                          <td data-label="STATUS" style={styles.td}>
                             <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />
                           </td>
-                          <td style={styles.td}>
+                          <td data-label="ACTION" style={styles.td}>
                             <button
                               onClick={() => navigate('/admin/reports')}
                               style={{
@@ -671,7 +671,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={styles.table}>
+                <table className="responsive-table" style={styles.table}>
                   <thead>
                     <tr>
                       <th style={styles.th}>BOX NUMBER</th>
@@ -687,27 +687,27 @@ export const AdminDashboard: React.FC = () => {
                   <tbody>
                     {filteredBoxes.map((bx: any) => (
                       <tr key={bx.id} style={styles.tr}>
-                        <td style={styles.td}>
+                        <td data-label="BOX NUMBER" style={styles.td}>
                           <strong style={{ color: 'var(--color-purple)' }}>{bx.boxCode || bx.boxNumber}</strong>
                         </td>
-                        <td style={styles.td}>{bx.poNumber}</td>
-                        <td style={styles.td}>{bx.styleName}</td>
-                        <td style={styles.td}>
+                        <td data-label="PO NUMBER" style={styles.td}>{bx.poNumber}</td>
+                        <td data-label="STYLE NAME" style={styles.td}>{bx.styleName}</td>
+                        <td data-label="CAPACITY (X/Y)" style={styles.td}>
                           <strong style={{ color: 'var(--color-teal)' }}>{bx.activeFilledCount}</strong> / {bx.capacity} pcs
                           <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>
                             ({bx.remainingCapacity} space left)
                           </span>
                         </td>
-                        <td style={styles.td}>
+                        <td data-label="STATUS" style={styles.td}>
                           <StatusPill label={bx.status} variant={bx.status === 'COMPLETED' ? 'green' : 'amber'} />
                         </td>
-                        <td style={styles.td}>
+                        <td data-label="AQL AUDIT" style={styles.td}>
                           <StatusPill label={bx.aqlStatus} variant={bx.aqlStatus === 'PASS' ? 'green' : bx.aqlStatus === 'FAIL' ? 'red' : 'muted'} />
                         </td>
-                        <td style={styles.td}>
+                        <td data-label="TRANSFER STATUS" style={styles.td}>
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{bx.transferStatus || 'NONE'}</span>
                         </td>
-                        <td style={styles.td}>
+                        <td data-label="ACTION" style={styles.td}>
                           <button
                             onClick={() => setSelectedBoxModal(bx)}
                             style={{
@@ -843,7 +843,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={styles.table}>
+                <table className="responsive-table" style={styles.table}>
                   <thead>
                     <tr>
                       <th style={styles.th}>ITEM QR BARCODE</th>
@@ -857,16 +857,16 @@ export const AdminDashboard: React.FC = () => {
                   <tbody>
                     {recentScrapped.map((item: any) => (
                       <tr key={item.id} style={styles.tr}>
-                        <td style={styles.td}>
+                        <td data-label="ITEM QR BARCODE" style={styles.td}>
                           <strong style={{ color: '#EF4444' }}>{item.item_qr}</strong>
                         </td>
-                        <td style={styles.td}>{item.box_id || 'N/A'}</td>
-                        <td style={styles.td}>
+                        <td data-label="BOX NUMBER" style={styles.td}>{item.box_id || 'N/A'}</td>
+                        <td data-label="ACTION TYPE" style={styles.td}>
                           <StatusPill label={item.action_type || 'PERMANENTLY_REMOVE'} variant="red" />
                         </td>
-                        <td style={styles.td}>{item.reason || 'Irreparable Damaged Garment'}</td>
-                        <td style={styles.td}>{item.operator_name || item.removed_by || 'Operator'}</td>
-                        <td style={styles.td}>
+                        <td data-label="REASON FOR SCRAP" style={styles.td}>{item.reason || 'Irreparable Damaged Garment'}</td>
+                        <td data-label="REMOVED BY" style={styles.td}>{item.operator_name || item.removed_by || 'Operator'}</td>
+                        <td data-label="TIMESTAMP" style={styles.td}>
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                             {item.removed_at ? new Date(item.removed_at).toLocaleString() : 'Recent'}
                           </span>

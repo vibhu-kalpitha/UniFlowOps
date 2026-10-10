@@ -407,7 +407,7 @@ export const AdminUsers: React.FC = () => {
                 <label style={styles.label}>Initial Password</label>
                 <input type="password" className="input-field" placeholder="At least 6 characters" value={password} onChange={e => setPassword(e.target.value)} required />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
                 <div>
                   <label style={styles.label}>Role</label>
                   <select

@@ -267,17 +267,18 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                   <button
                     className={isSelected ? 'btn btn-success' : 'btn btn-primary'}
                     style={{
-                      padding: '5px 12px',
-                      fontSize: '0.8rem',
+                      padding: '8px 16px',
+                      fontSize: '0.85rem',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '4px',
+                      gap: '6px',
                       borderRadius: '8px',
                       backgroundColor: isSelected ? '#10b981' : 'var(--primary-teal, #14b8a6)',
                       color: '#ffffff',
                       border: 'none',
                       fontWeight: 700,
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      minHeight: '44px'
                     }}
                   >
                     {isSelected ? (

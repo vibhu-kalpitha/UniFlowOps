@@ -325,3 +325,49 @@ button:disabled {
     gap: 6px !important;
   }
 }
+
+/* ── RESPONSIVE TABLE PATTERN ────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .responsive-table {
+    display: block !important;
+    width: 100% !important;
+  }
+  .responsive-table thead, .responsive-table tbody, .responsive-table th, .responsive-table td, .responsive-table tr {
+    display: block !important;
+  }
+  .responsive-table thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+  .responsive-table tr {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background-color: var(--bg-surface-2);
+  }
+  .responsive-table td {
+    border: none !important;
+    position: relative;
+    padding: 8px 0 8px 45% !important;
+    text-align: right !important;
+    min-height: 32px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .responsive-table td:before {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    width: 40%;
+    text-align: left;
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+  }
+}

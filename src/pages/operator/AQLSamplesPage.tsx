@@ -520,7 +520,8 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.2s ease',
+                minHeight: '48px'
               }}
             >
               <Check size={20} /> PASS (Quality Approved)
@@ -548,7 +549,8 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.2s ease',
+                minHeight: '48px'
               }}
             >
               <XCircle size={20} /> FAIL (Select Action)

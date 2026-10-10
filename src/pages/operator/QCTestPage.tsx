@@ -1375,6 +1375,7 @@ const styles = {
     fontWeight: 700,
     fontSize: '13px',
     cursor: 'pointer',
+    minHeight: '48px',
   },
   passBtnActive: {
     display: 'flex',
@@ -1389,6 +1390,7 @@ const styles = {
     fontWeight: 800,
     fontSize: '13px',
     cursor: 'pointer',
+    minHeight: '48px',
   },
   failBtnActive: {
     display: 'flex',
@@ -1403,6 +1405,7 @@ const styles = {
     fontWeight: 800,
     fontSize: '13px',
     cursor: 'pointer',
+    minHeight: '48px',
   },
   textInput: {
     width: '100%',
