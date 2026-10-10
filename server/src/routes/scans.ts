@@ -1163,6 +1163,8 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
     const poParam = req.params.poId;
     const operatorId = req.user!.id;
     const operatorUsername = req.user!.username;
+    const reqStage = (req.query.stage || '').toString().trim().toUpperCase();
+    const isFinal = reqStage === 'FINAL_AQL' || reqStage === 'FINAL AQL';
 
     const po = await resolvePO(poParam);
     if (!po) {
@@ -1178,6 +1180,10 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
 
     const poKeys = [po.id, po.po_number, po.map_po].filter(Boolean);
     const placeholders = poKeys.map(() => '?').join(',');
+
+    const stageCondition = isFinal
+      ? `AND UPPER(TRIM(ai.stage)) IN ('FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER')`
+      : `AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) IN ('AQL', 'AQL_CHECKER', 'NORMAL_AQL'))`;
 
     // 1. Count items passed via aql_inspections (box-wise sum or required_samples)
     const aqlPassRow = await db.prepare(`
@@ -1197,7 +1203,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
         OR b.production_order_id IN (${placeholders}) 
         OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
         OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
-      ) AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+      ) ${stageCondition} AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
     `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
 
     // 2. Count distinct items passed via aql_samples table
@@ -1211,7 +1217,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
         OR b.production_order_id IN (${placeholders}) 
         OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
         OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
-      ) AND UPPER(TRIM(asamp.result)) = 'PASS'
+      ) ${stageCondition} AND UPPER(TRIM(asamp.result)) = 'PASS'
     `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
 
     const aqlPassedCount = Math.max(Number(aqlPassRow?.cnt || 0), Number(samplePassRow?.cnt || 0));
@@ -1234,7 +1240,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
         OR b.production_order_id IN (${placeholders}) 
         OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
         OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
-      ) AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
+      ) ${stageCondition} AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
     `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
 
     // 2. Count distinct items failed via aql_samples table
@@ -1248,7 +1254,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
         OR b.production_order_id IN (${placeholders}) 
         OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
         OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
-      ) AND UPPER(TRIM(asamp.result)) = 'FAIL'
+      ) ${stageCondition} AND UPPER(TRIM(asamp.result)) = 'FAIL'
     `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys) as any;
 
     const aqlFailedCount = Math.max(Number(aqlFailRow?.cnt || 0), Number(sampleFailRow?.cnt || 0));
@@ -1271,6 +1277,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
         OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
       )
       AND (ai.inspector_id = ? OR ai.inspector_id = ?)
+      ${stageCondition}
       AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
     `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys, operatorId, operatorUsername) as any;
     const operatorPassedCount = Math.max(Number(opAqlPassRow?.cnt || 0), aqlPassedCount);
@@ -1293,6 +1300,7 @@ router.get('/aql/progress/:poId', authenticateToken, async (req: AuthRequest, re
         OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
       )
       AND (ai.inspector_id = ? OR ai.inspector_id = ?)
+      ${stageCondition}
       AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
     `).get(...poKeys, ...poKeys, ...poKeys, ...poKeys, operatorId, operatorUsername) as any;
     const operatorFailedCount = Math.max(Number(opAqlFailRow?.cnt || 0), aqlFailedCount);

@@ -55,8 +55,8 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
     const reqOp = (req.query.operation || '').toString().trim();
 
     // 1. Query active POs allocated to THIS operator in operator_work_assignments
-    let poRows = await db.prepare(`
-      SELECT DISTINCT po.*, owa.shift_id as owa_shift_id, owa.operation as owa_operation
+    let rawRows = await db.prepare(`
+      SELECT po.*, owa.shift_id as owa_shift_id, owa.operation as owa_operation
       FROM operator_work_assignments owa
       JOIN production_orders po ON (po.id = owa.production_order_id OR po.id = (SELECT production_order_id FROM sales_orders WHERE id = owa.sales_order_id))
       WHERE (owa.operator_id = ? OR owa.operator_id = ?)
@@ -83,26 +83,25 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
       return false;
     };
 
-    if (reqOp && poRows.length > 0) {
-      poRows = poRows.filter(p => matchOp(p.owa_operation, reqOp));
+    if (reqOp && rawRows.length > 0) {
+      rawRows = rawRows.filter(p => matchOp(p.owa_operation, reqOp));
     }
 
-    // 2. Fallback: If no explicit work assignments exist for this operator, return all active CURRENT POs
-    if (poRows.length === 0) {
-      poRows = await db.prepare(`
-        SELECT * FROM production_orders
-        WHERE (status IS NULL OR UPPER(status) NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED'))
-        ORDER BY created_at DESC
-      `).all() as any[];
+    // Deduplicate by PO ID
+    const uniquePoMap = new Map<string, any>();
+    for (const row of rawRows) {
+      if (!uniquePoMap.has(row.id)) {
+        uniquePoMap.set(row.id, row);
+      }
     }
+    const poRows = Array.from(uniquePoMap.values());
 
     const formattedPos = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
-    let assignments = formattedPos.filter(Boolean);
+    let assignments = formattedPos.filter((p): p is NonNullable<typeof p> => Boolean(p));
 
     // Filter formatted POs by operation if specified
     if (reqOp) {
-      assignments = assignments.filter((p): p is NonNullable<typeof p> => {
-        if (!p) return false;
+      assignments = assignments.filter((p) => {
         if (!p.selectedOperations || p.selectedOperations.length === 0) return true;
         return p.selectedOperations.some((op: string) => matchOp(op, reqOp));
       });

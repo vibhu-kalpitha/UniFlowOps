@@ -21,14 +21,17 @@ export const OperatorHome: React.FC = () => {
 
   // Live stats from database
   const [opStats, setOpStats] = useState({
-    totalQcPassed: 0,
+    targetQuantity: 500,
+    preQcPassedCount: 0,
+    preQcFailedCount: 0,
+    qcPassedCount: 0,
+    qcFailedCount: 0,
     packedCount: 0,
-    aqlDoneCount: 0,
-    qcFailCount: 0,
-    aqlFailedCount: 0,
-    totalFailCount: 0,
+    pendingPackCount: 0,
     aqlPassCount: 0,
-    pendingPackCount: 0
+    aqlFailedCount: 0,
+    finalAqlPassCount: 0,
+    finalAqlFailedCount: 0
   });
 
   const targetPoId = activeJob?.productionOrder?.id;
@@ -43,14 +46,17 @@ export const OperatorHome: React.FC = () => {
       if (res) {
         setFetchError(null);
         setOpStats({
-          totalQcPassed: Number(res.totalQcPassed ?? res.qcPassedToday ?? 0),
+          targetQuantity: Number(res.targetQuantity ?? res.poDetails?.targetQuantity ?? 500),
+          preQcPassedCount: Number(res.preQcPassedCount ?? 0),
+          preQcFailedCount: Number(res.preQcFailedCount ?? 0),
+          qcPassedCount: Number(res.qcPassedCount ?? res.totalQcPassed ?? 0),
+          qcFailedCount: Number(res.qcFailedCount ?? res.qcFailCount ?? 0),
           packedCount: Number(res.packedCount ?? res.packedToday ?? 0),
-          aqlDoneCount: Number(res.aqlDoneCount ?? 0),
-          qcFailCount: Number(res.qcFailCount ?? 0),
-          aqlFailedCount: Number(res.aqlFailedCount ?? 0),
-          totalFailCount: Number(res.totalFailCount ?? (res.failCount ?? 0)),
+          pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0),
           aqlPassCount: Number(res.aqlPassCount ?? 0),
-          pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0)
+          aqlFailedCount: Number(res.aqlFailedCount ?? 0),
+          finalAqlPassCount: Number(res.finalAqlPassCount ?? 0),
+          finalAqlFailedCount: Number(res.finalAqlFailedCount ?? 0)
         });
         if (res.poDetails) {
           setFetchedPoDetails(res.poDetails);
@@ -171,27 +177,6 @@ export const OperatorHome: React.FC = () => {
     ? searchedProductBox.items.find(i => i.qr.toUpperCase() === searchQuery.trim().toUpperCase())
     : null;
 
-  const poQcPassed = productionOrders.reduce((sum, p) => 
-    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcPassed || 0), 0), 0
-  );
-  const poPacked = productionOrders.reduce((sum, p) => 
-    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.packed || 0), 0), 0
-  );
-  const poQcFailed = productionOrders.reduce((sum, p) => 
-    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcFailed || 0), 0), 0
-  );
-
-  const isPoSelected = Boolean(targetPoId || fetchedPoDetails);
-
-  const displayTotalQcPassed = isPoSelected ? opStats.totalQcPassed : Math.max(opStats.totalQcPassed, poQcPassed);
-  const displayPacked = isPoSelected ? opStats.packedCount : Math.max(opStats.packedCount, poPacked);
-  const displayQcFail = opStats.qcFailCount;
-  const displayAqlDone = opStats.aqlDoneCount;
-  const displayAqlPass = opStats.aqlPassCount;
-  const displayAqlFail = opStats.aqlFailedCount;
-  const displayTotalFail = opStats.totalFailCount || (displayQcFail + displayAqlFail);
-  const displayPendingPack = Math.max(0, displayTotalQcPassed - displayPacked);
-
   return (
     <div className="op-home-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Greeting Header */}
@@ -307,11 +292,6 @@ export const OperatorHome: React.FC = () => {
                     styleName: po?.styleName || fetchedPoDetails?.styleName
                   })}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
-                  <span><strong>PO Name:</strong> {po?.poName || fetchedPoDetails?.poName || 'N/A'}</span>
-                  <span><strong>Style Name:</strong> {po?.styleName || fetchedPoDetails?.styleName || 'N/A'}</span>
-                  <span><strong>PO Number:</strong> {po?.id || po?.poNumber || fetchedPoDetails?.poNumber}</span>
-                </div>
               </div>
             )}
 
@@ -325,44 +305,57 @@ export const OperatorHome: React.FC = () => {
             </h3>
 
             {/* Metrics Wrapper */}
-            <div className="op-metrics-wrapper">
-              {/* Row 1 Metrics (6 items) */}
-              <div style={styles.metricsRow1} className="op-metrics-row1">
+            <div className="op-metrics-wrapper" style={{ marginTop: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+                {/* Total QTY */}
                 <div style={styles.metricBoxGreen} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{opStats.targetQuantity}</span>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total QTY</span>
                 </div>
-                <div style={styles.metricBoxBlue} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
-                </div>
-                <div style={styles.metricBoxPurple} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
-                </div>
-                <div style={styles.metricBoxAmber} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
-                </div>
-                <div style={styles.metricBoxDarkRed} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
-                </div>
-                <div style={styles.metricBoxRed} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
-                </div>
-              </div>
 
-              {/* Row 2 Metrics (2 items) */}
-              <div style={styles.metricsRow2} className="op-metrics-row2">
-                <div style={styles.metricBoxEmerald} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
+                {/* Pre-QC */}
+                <div style={{ ...styles.metricBoxGreen, backgroundColor: 'rgba(20, 184, 166, 0.12)', borderColor: 'rgba(20, 184, 166, 0.3)' }} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981' }}>P: {opStats.preQcPassedCount}</span>
+                    <span style={{ color: '#EF4444' }}>F: {opStats.preQcFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#14B8A6', textAlign: 'center' }}>Pre-QC</span>
                 </div>
-                <div style={styles.metricBoxYellow} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+
+                {/* QC Test */}
+                <div style={styles.metricBoxGreen} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981' }}>P: {opStats.qcPassedCount}</span>
+                    <span style={{ color: '#EF4444' }}>F: {opStats.qcFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>QC Test</span>
+                </div>
+
+                {/* Packing */}
+                <div style={styles.metricBoxBlue} className="op-metric-box">
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: '16px', fontWeight: 800, color: '#3B82F6' }}>Packed: {opStats.packedCount}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#60A5FA' }}>Rem: {opStats.pendingPackCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#3B82F6', textAlign: 'center', marginTop: '2px' }}>Packing</span>
+                </div>
+
+                {/* Normal AQL */}
+                <div style={styles.metricBoxPurple} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981' }}>P: {opStats.aqlPassCount}</span>
+                    <span style={{ color: '#EF4444' }}>F: {opStats.aqlFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>Normal AQL</span>
+                </div>
+
+                {/* Final AQL */}
+                <div style={styles.metricBoxEmerald} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981' }}>P: {opStats.finalAqlPassCount}</span>
+                    <span style={{ color: '#EF4444' }}>F: {opStats.finalAqlFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>Final AQL</span>
                 </div>
               </div>
             </div>

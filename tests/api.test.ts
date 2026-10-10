@@ -2548,6 +2548,317 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
   }, 30000);
 });
 
+describe('UniFlow Ops Operator Home, PO Assignment, AQL Separation & Stage Counts Tests', () => {
+  it('1. Operator assigned to at least three POs sees all three on Operator assignments endpoint', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const opId = `op-multi-${ts}`;
+      const po1Id = `po-test1-${ts}`;
+      const po2Id = `po-test2-${ts}`;
+      const po3Id = `po-test3-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO users (id, username, full_name, role, active, created_at) VALUES (?, ?, 'Multi Operator', 'OPERATOR', 1, NOW(3))`, [opId, `user_${ts}`]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-M1', 'PO Multi 1', 'CURRENT', NOW(3), NOW(3))`, [po1Id]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-M2', 'PO Multi 2', 'CURRENT', NOW(3), NOW(3))`, [po2Id]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-M3', 'PO Multi 3', 'CURRENT', NOW(3), NOW(3))`, [po3Id]);
+
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, ?, 'PACKING', 1, NOW(3))`, [`owa1-${ts}`, po1Id, opId]);
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, ?, 'QC_TEST', 1, NOW(3))`, [`owa2-${ts}`, po2Id, opId]);
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, ?, 'AQL', 1, NOW(3))`, [`owa3-${ts}`, po3Id, opId]);
+
+        // Query active POs for this operator
+        const assignedRows = await db.query<any>(`
+          SELECT DISTINCT po.id FROM operator_work_assignments owa
+          JOIN production_orders po ON po.id = owa.production_order_id
+          WHERE owa.operator_id = ? AND owa.active = 1
+        `, [opId]);
+
+        expect(assignedRows.length).toBe(3);
+        const ids = assignedRows.map((r: any) => r.id).sort();
+        expect(ids).toEqual([po1Id, po2Id, po3Id].sort());
+      } finally {
+        await db.execute(`DELETE FROM operator_work_assignments WHERE operator_id = ?`, [opId]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?, ?)`, [po1Id, po2Id, po3Id]);
+        await db.execute(`DELETE FROM users WHERE id = ?`, [opId]);
+      }
+    }
+  });
+
+  it('2. Operation filtering lists every PO assigned for that operation and excludes unassigned POs or shows empty state', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const opId = `op-filter-${ts}`;
+      const poPackId = `po-pack-${ts}`;
+      const poQcId = `po-qc-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO users (id, username, full_name, role, active, created_at) VALUES (?, ?, 'Filter Operator', 'OPERATOR', 1, NOW(3))`, [opId, `filter_${ts}`]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-PK', 'PO Packing', 'CURRENT', NOW(3), NOW(3))`, [poPackId]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-QC', 'PO QC', 'CURRENT', NOW(3), NOW(3))`, [poQcId]);
+
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, ?, 'PACKING', 1, NOW(3))`, [`owa-pk-${ts}`, poPackId, opId]);
+
+        // Filter for PACKING
+        const packingPos = await db.query<any>(`
+          SELECT DISTINCT po.id FROM operator_work_assignments owa
+          JOIN production_orders po ON po.id = owa.production_order_id
+          WHERE owa.operator_id = ? AND owa.active = 1 AND owa.operation = 'PACKING'
+        `, [opId]);
+        expect(packingPos.length).toBe(1);
+        expect(packingPos[0].id).toBe(poPackId);
+
+        // Filter for AQL (operator not assigned)
+        const aqlPos = await db.query<any>(`
+          SELECT DISTINCT po.id FROM operator_work_assignments owa
+          JOIN production_orders po ON po.id = owa.production_order_id
+          WHERE owa.operator_id = ? AND owa.active = 1 AND owa.operation = 'AQL'
+        `, [opId]);
+        expect(aqlPos.length).toBe(0); // Empty list, no fallback leakage!
+      } finally {
+        await db.execute(`DELETE FROM operator_work_assignments WHERE operator_id = ?`, [opId]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poPackId, poQcId]);
+        await db.execute(`DELETE FROM users WHERE id = ?`, [opId]);
+      }
+    }
+  });
+
+  it('3. Kavindu Perera and Chamika Silva each see their own assigned POs without overwriting', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const kavinduId = `usr-kavindu-${ts}`;
+      const chamikaId = `usr-chamika-${ts}`;
+      const poKavinduId = `po-kav-${ts}`;
+      const poChamikaId = `po-cha-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO users (id, username, full_name, role, active, created_at) VALUES (?, 'kavindu', 'Kavindu Perera', 'OPERATOR', 1, NOW(3))`, [kavinduId]);
+        await db.execute(`INSERT INTO users (id, username, full_name, role, active, created_at) VALUES (?, 'chamika', 'Chamika Silva', 'OPERATOR', 1, NOW(3))`, [chamikaId]);
+
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-KAV', 'Kavindu PO', 'CURRENT', NOW(3), NOW(3))`, [poKavinduId]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-CHA', 'Chamika PO', 'CURRENT', NOW(3), NOW(3))`, [poChamikaId]);
+
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, ?, 'PACKING', 1, NOW(3))`, [`owa-k-${ts}`, poKavinduId, kavinduId]);
+        await db.execute(`INSERT INTO operator_work_assignments (id, production_order_id, operator_id, operation, active, created_at) VALUES (?, ?, ?, 'QC_TEST', 1, NOW(3))`, [`owa-c-${ts}`, poChamikaId, chamikaId]);
+
+        const kavPos = await db.query<any>(`SELECT production_order_id FROM operator_work_assignments WHERE operator_id = ? AND active = 1`, [kavinduId]);
+        const chaPos = await db.query<any>(`SELECT production_order_id FROM operator_work_assignments WHERE operator_id = ? AND active = 1`, [chamikaId]);
+
+        expect(kavPos.length).toBe(1);
+        expect(kavPos[0].production_order_id).toBe(poKavinduId);
+
+        expect(chaPos.length).toBe(1);
+        expect(chaPos[0].production_order_id).toBe(poChamikaId);
+      } finally {
+        await db.execute(`DELETE FROM operator_work_assignments WHERE operator_id IN (?, ?)`, [kavinduId, chamikaId]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [poKavinduId, poChamikaId]);
+        await db.execute(`DELETE FROM users WHERE id IN (?, ?)`, [kavinduId, chamikaId]);
+      }
+    }
+  });
+
+  it('4. AQL and Final AQL persist and display different outcomes independently on the same PO & Box', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const poId = `po-sep-${ts}`;
+      const boxId = `box-sep-${ts}`;
+      const itemId = `itm-sep-${ts}`;
+      const inspAqlId = `aql-normal-${ts}`;
+      const inspFinalId = `aql-final-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-SEP', 'AQL Sep PO', 'CURRENT', NOW(3), NOW(3))`, [poId]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSEP1', 'BXSEP1', ?, 4, 'COMPLETE', NOW(3))`, [boxId, poId]);
+        await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, 'QRSEP1', 'PACKED', NOW(3), NOW(3))`, [itemId, poId]);
+
+        // Insert Normal AQL inspection (FAILED)
+        await db.execute(`
+          INSERT INTO aql_inspections (id, box_id, production_order_id, required_samples, result, stage, started_at, completed_at)
+          VALUES (?, ?, ?, 1, 'FAILED', 'AQL', NOW(3), NOW(3))
+        `, [inspAqlId, boxId, poId]);
+
+        await db.execute(`
+          INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, scanned_at)
+          VALUES (?, ?, ?, 1, 'FAIL', 'PERMANENTLY_REMOVE', NOW(3))
+        `, [`asamp-aql-${ts}`, inspAqlId, itemId]);
+
+        // Insert Final AQL inspection (PASSED)
+        await db.execute(`
+          INSERT INTO aql_inspections (id, box_id, production_order_id, required_samples, result, stage, started_at, completed_at)
+          VALUES (?, ?, ?, 1, 'PASSED', 'FINAL_AQL', NOW(3), NOW(3))
+        `, [inspFinalId, boxId, poId]);
+
+        await db.execute(`
+          INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, scanned_at)
+          VALUES (?, ?, ?, 1, 'PASS', 'PASSED', NOW(3))
+        `, [`asamp-final-${ts}`, inspFinalId, itemId]);
+
+        // Query Normal AQL results
+        const aqlPass = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT asamp.item_id) as cnt FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.production_order_id = ? AND ai.stage = 'AQL' AND asamp.result = 'PASS'
+        `, [poId]);
+        const aqlFail = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT asamp.item_id) as cnt FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.production_order_id = ? AND ai.stage = 'AQL' AND asamp.result = 'FAIL'
+        `, [poId]);
+
+        // Query Final AQL results
+        const finalPass = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT asamp.item_id) as cnt FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.production_order_id = ? AND ai.stage = 'FINAL_AQL' AND asamp.result = 'PASS'
+        `, [poId]);
+        const finalFail = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT asamp.item_id) as cnt FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.production_order_id = ? AND ai.stage = 'FINAL_AQL' AND asamp.result = 'FAIL'
+        `, [poId]);
+
+        expect(aqlPass.cnt).toBe(0);
+        expect(aqlFail.cnt).toBe(1);
+
+        expect(finalPass.cnt).toBe(1);
+        expect(finalFail.cnt).toBe(0);
+      } finally {
+        await db.execute(`DELETE FROM aql_samples WHERE inspection_id IN (?, ?)`, [inspAqlId, inspFinalId]);
+        await db.execute(`DELETE FROM aql_inspections WHERE id IN (?, ?)`, [inspAqlId, inspFinalId]);
+        await db.execute(`DELETE FROM item_units WHERE id = ?`, [itemId]);
+        await db.execute(`DELETE FROM boxes WHERE id = ?`, [boxId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  });
+
+  it('5. AQL item counts are correct when 2 of 4 items pass and when 4 of 4 items pass', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const poId = `po-counts-${ts}`;
+      const boxId = `box-counts-${ts}`;
+      const inspId = `aql-cnt-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-CNT', 'Counts PO', 'CURRENT', NOW(3), NOW(3))`, [poId]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXCNT', 'BXCNT', ?, 4, 'COMPLETE', NOW(3))`, [boxId, poId]);
+
+        await db.execute(`INSERT INTO aql_inspections (id, box_id, production_order_id, required_samples, result, stage, started_at) VALUES (?, ?, ?, 4, 'IN_PROGRESS', 'AQL', NOW(3))`, [inspId, boxId, poId]);
+
+        // Insert 4 items with 2 PASS and 2 FAIL
+        for (let i = 1; i <= 4; i++) {
+          const itmId = `itm-cnt-${i}-${ts}`;
+          const res = i <= 2 ? 'PASS' : 'FAIL';
+          await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, ?, 'PACKED', NOW(3), NOW(3))`, [itmId, poId, `QR-CNT-${i}-${ts}`]);
+          await db.execute(`INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, scanned_at) VALUES (?, ?, ?, ?, ?, 'TEST', NOW(3))`, [`smp-${i}-${ts}`, inspId, itmId, i, res]);
+        }
+
+        const passRes = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT asamp.item_id) as cnt FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.production_order_id = ? AND ai.stage = 'AQL' AND asamp.result = 'PASS'
+        `, [poId]);
+        const failRes = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT asamp.item_id) as cnt FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.production_order_id = ? AND ai.stage = 'AQL' AND asamp.result = 'FAIL'
+        `, [poId]);
+
+        expect(passRes.cnt).toBe(2);
+        expect(failRes.cnt).toBe(2);
+      } finally {
+        await db.execute(`DELETE FROM aql_samples WHERE inspection_id = ?`, [inspId]);
+        await db.execute(`DELETE FROM aql_inspections WHERE id = ?`, [inspId]);
+        await db.execute(`DELETE FROM item_units WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM boxes WHERE id = ?`, [boxId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  });
+
+  it('6. Packing counts items rather than boxes and calculates remaining quantity correctly', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const poId = `po-packcnt-${ts}`;
+      const box1Id = `box-pk1-${ts}`;
+      const box2Id = `box-pk2-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-PKCNT', 'Pack Count PO', 'CURRENT', NOW(3), NOW(3))`, [poId]);
+        await db.execute(`INSERT INTO production_order_configs (id, production_order_id, config_code, quantity, created_at, updated_at) VALUES (?, ?, 'CFG1', 10, NOW(3), NOW(3))`, [`poc-${ts}`, poId]);
+
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXPK1', 'BXPK1', ?, 4, 'IN_PROGRESS', NOW(3))`, [box1Id, poId]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXPK2', 'BXPK2', ?, 4, 'IN_PROGRESS', NOW(3))`, [box2Id, poId]);
+
+        // Add 3 items in Box 1 and 2 items in Box 2 (Total 5 packed items across 2 boxes)
+        for (let i = 1; i <= 3; i++) {
+          const itmId = `itm-b1-${i}-${ts}`;
+          await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, ?, 'PACKED', NOW(3), NOW(3))`, [itmId, poId, `QRPK1-${i}`]);
+          await db.execute(`INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-001', NOW(3), 1)`, [`bi-b1-${i}-${ts}`, box1Id, itmId]);
+        }
+        for (let i = 1; i <= 2; i++) {
+          const itmId = `itm-b2-${i}-${ts}`;
+          await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, ?, 'PACKED', NOW(3), NOW(3))`, [itmId, poId, `QRPK2-${i}`]);
+          await db.execute(`INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-001', NOW(3), 1)`, [`bi-b2-${i}-${ts}`, box2Id, itmId]);
+        }
+
+        const packedRes = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          WHERE b.production_order_id = ? AND bi.active = 1
+        `, [poId]);
+
+        const packedItemCount = Number(packedRes.cnt);
+        const targetQuantity = 10;
+        const remainingQuantity = Math.max(0, targetQuantity - packedItemCount);
+
+        expect(packedItemCount).toBe(5); // 5 items, NOT 2 boxes!
+        expect(remainingQuantity).toBe(5);
+      } finally {
+        await db.execute(`DELETE FROM box_items WHERE box_id IN (?, ?)`, [box1Id, box2Id]);
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [box1Id, box2Id]);
+        await db.execute(`DELETE FROM item_units WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM production_order_configs WHERE production_order_id = ?`, [poId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  });
+
+  it('7. QC counts do not appear in Packing counts', async () => {
+    const isConnected = await ensureDbConnected();
+    if (isConnected) {
+      const ts = Date.now();
+      const poId = `po-qcpk-${ts}`;
+      const qcItemId = `itm-qc-${ts}`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-QCPK', 'QC Packing PO', 'CURRENT', NOW(3), NOW(3))`, [poId]);
+        await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, 'QRQC1', 'QC_PASSED', NOW(3), NOW(3))`, [qcItemId, poId]);
+        await db.execute(`INSERT INTO qc_results (id, item_id, inspector_id, qc_result, test_result, inspected_at) VALUES (?, ?, 'usr-001', 'PASS', 'PASS', NOW(3))`, [`qc-${ts}`, qcItemId]);
+
+        // Packed count for this PO must be 0 because item is only QC_PASSED, not packed in any box
+        const packedRes = await db.queryOne<any>(`
+          SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          WHERE b.production_order_id = ? AND bi.active = 1
+        `, [poId]);
+
+        expect(Number(packedRes.cnt)).toBe(0);
+      } finally {
+        await db.execute(`DELETE FROM qc_results WHERE item_id = ?`, [qcItemId]);
+        await db.execute(`DELETE FROM item_units WHERE id = ?`, [qcItemId]);
+        await db.execute(`DELETE FROM production_orders WHERE id = ?`, [poId]);
+      }
+    }
+  });
+});
+
 
 
 

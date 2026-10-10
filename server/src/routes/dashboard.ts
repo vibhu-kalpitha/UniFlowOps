@@ -62,25 +62,51 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
     if (poId) {
       const cfgQtyRow = await db.prepare(`SELECT SUM(quantity) as cnt FROM production_order_configs WHERE production_order_id = ?`).get(poId) as any;
       const soQtyRow = await db.prepare(`SELECT SUM(order_quantity) as cnt FROM sales_orders WHERE production_order_id = ?`).get(poId) as any;
-      targetQuantity = Number(cfgQtyRow?.cnt || soQtyRow?.cnt || 500);
+      targetQuantity = Number(cfgQtyRow?.cnt || soQtyRow?.cnt || po.total_quantity || 500);
     }
 
-    // 2. Total product count (QC Passed for PO)
-    let totalQcPassed = 0;
+    // 2. Pre-QC Passed & Failed (Item level)
+    let preQcPassedCount = 0;
+    let preQcFailedCount = 0;
     if (poId) {
-      const qcPassedRow = await db.prepare(`
+      const prePass = await db.prepare(`
+        SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+        LEFT JOIN item_units iu ON iu.id = pq.item_id
+        WHERE (pq.production_order_id = ? OR iu.production_order_id = ?)
+          AND UPPER(TRIM(pq.pre_qc_result)) = 'PASS'
+      `).get(poId, poId) as any;
+      preQcPassedCount = Number(prePass?.cnt || 0);
+
+      const preFail = await db.prepare(`
+        SELECT COUNT(DISTINCT pq.item_id) as cnt FROM pre_qc_results pq
+        LEFT JOIN item_units iu ON iu.id = pq.item_id
+        WHERE (pq.production_order_id = ? OR iu.production_order_id = ?)
+          AND UPPER(TRIM(pq.pre_qc_result)) = 'FAIL'
+      `).get(poId, poId) as any;
+      preQcFailedCount = Number(preFail?.cnt || 0);
+    }
+
+    // 3. QC Passed & Failed (Item level)
+    let qcPassedCount = 0;
+    let qcFailedCount = 0;
+    if (poId) {
+      const qcPassRow = await db.prepare(`
         SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
         JOIN item_units iu ON iu.id = qr.item_id
         WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-          AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+          AND UPPER(TRIM(qr.qc_result)) = 'PASS' AND UPPER(TRIM(qr.test_result)) = 'PASS'
       `).get(poId, poId) as any;
-      totalQcPassed = Number(qcPassedRow?.cnt || 0);
-    } else {
-      const qcPassedRow = await db.prepare(`SELECT COUNT(DISTINCT item_id) as cnt FROM qc_results WHERE qc_result = 'PASS' AND test_result = 'PASS'`).get() as any;
-      totalQcPassed = Number(qcPassedRow?.cnt || 0);
+      qcPassedCount = Number(qcPassRow?.cnt || 0);
+
+      const qcFailRow = await db.prepare(`
+        SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
+        LEFT JOIN item_units iu ON iu.id = qf.item_id
+        WHERE iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      `).get(poId, poId, poId) as any;
+      qcFailedCount = Number(qcFailRow?.cnt || 0);
     }
 
-    // 3. Packed Count for PO
+    // 4. Packed Count & Pending Pack for PO (Item level)
     let packedCount = 0;
     if (poId) {
       const packedRow = await db.prepare(`
@@ -91,83 +117,82 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
           AND bi.active = 1
       `).get(poId, poId, poId) as any;
       packedCount = Number(packedRow?.cnt || 0);
-    } else {
-      const packedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE active = 1`).get() as any;
-      packedCount = Number(packedRow?.cnt || 0);
     }
+    const pendingPackCount = Math.max(0, targetQuantity - packedCount);
 
-    // 4. AQL Done Count for PO
-    let aqlDoneCount = 0;
-    if (poId) {
-      const aqlDoneRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM aql_inspections ai
-        LEFT JOIN boxes b ON b.id = ai.box_id
-        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
-          AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED', 'FAIL', 'FAILED')
-      `).get(poId, poId) as any;
-      aqlDoneCount = Number(aqlDoneRow?.cnt || 0);
-    } else {
-      const aqlDoneRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE UPPER(TRIM(result)) IN ('PASS', 'PASSED', 'FAIL', 'FAILED')`).get() as any;
-      aqlDoneCount = Number(aqlDoneRow?.cnt || 0);
-    }
-
-    // 5. QC Fail Count for PO
-    let qcFailCount = 0;
-    if (poId) {
-      const qcFailRow = await db.prepare(`
-        SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
-        LEFT JOIN item_units iu ON iu.id = qf.item_id
-        WHERE iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-      `).get(poId, poId, poId) as any;
-      qcFailCount = Number(qcFailRow?.cnt || 0);
-    } else {
-      const qcFailRow = await db.prepare(`SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log`).get() as any;
-      qcFailCount = Number(qcFailRow?.cnt || 0);
-    }
-
-    // 6. AQL Failed Count for PO
+    // 5. Normal AQL Passed & Failed (Item level)
+    let aqlPassCount = 0;
     let aqlFailedCount = 0;
     if (poId) {
-      const aqlFailedRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM aql_inspections ai
-        LEFT JOIN boxes b ON b.id = ai.box_id
-        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
-          AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
-      `).get(poId, poId) as any;
-      aqlFailedCount = Number(aqlFailedRow?.cnt || 0);
-    } else {
-      const aqlFailedRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE UPPER(TRIM(result)) IN ('FAIL', 'FAILED')`).get() as any;
-      aqlFailedCount = Number(aqlFailedRow?.cnt || 0);
-    }
-
-    // 7. AQL Pass Count for PO
-    let aqlPassCount = 0;
-    if (poId) {
       const aqlPassRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM aql_inspections ai
+        SELECT COUNT(DISTINCT asamp.item_id) as cnt
+        FROM aql_samples asamp
+        JOIN aql_inspections ai ON ai.id = asamp.inspection_id
         LEFT JOIN boxes b ON b.id = ai.box_id
         WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
-          AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+          AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) IN ('AQL', 'AQL_CHECKER', 'NORMAL_AQL'))
+          AND UPPER(TRIM(asamp.result)) = 'PASS'
       `).get(poId, poId) as any;
       aqlPassCount = Number(aqlPassRow?.cnt || 0);
-    } else {
-      const aqlPassRow = await db.prepare(`SELECT COUNT(*) as cnt FROM aql_inspections WHERE UPPER(TRIM(result)) IN ('PASS', 'PASSED')`).get() as any;
-      aqlPassCount = Number(aqlPassRow?.cnt || 0);
+
+      const aqlFailRow = await db.prepare(`
+        SELECT COUNT(DISTINCT asamp.item_id) as cnt
+        FROM aql_samples asamp
+        JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+        LEFT JOIN boxes b ON b.id = ai.box_id
+        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+          AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) IN ('AQL', 'AQL_CHECKER', 'NORMAL_AQL'))
+          AND UPPER(TRIM(asamp.result)) = 'FAIL'
+      `).get(poId, poId) as any;
+      aqlFailedCount = Number(aqlFailRow?.cnt || 0);
     }
 
-    // 8. Total Fail Count & Pending Pack
-    const totalFailCount = qcFailCount + aqlFailedCount;
-    const pendingPackCount = Math.max(0, totalQcPassed - packedCount);
+    // 6. Final AQL Passed & Failed (Item level)
+    let finalAqlPassCount = 0;
+    let finalAqlFailedCount = 0;
+    if (poId) {
+      const finalPassRow = await db.prepare(`
+        SELECT COUNT(DISTINCT asamp.item_id) as cnt
+        FROM aql_samples asamp
+        JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+        LEFT JOIN boxes b ON b.id = ai.box_id
+        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+          AND UPPER(TRIM(ai.stage)) IN ('FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER')
+          AND UPPER(TRIM(asamp.result)) = 'PASS'
+      `).get(poId, poId) as any;
+      finalAqlPassCount = Number(finalPassRow?.cnt || 0);
+
+      const finalFailRow = await db.prepare(`
+        SELECT COUNT(DISTINCT asamp.item_id) as cnt
+        FROM aql_samples asamp
+        JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+        LEFT JOIN boxes b ON b.id = ai.box_id
+        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+          AND UPPER(TRIM(ai.stage)) IN ('FINAL_AQL', 'FINAL AQL', 'FINAL_AQL_CHECKER')
+          AND UPPER(TRIM(asamp.result)) = 'FAIL'
+      `).get(poId, poId) as any;
+      finalAqlFailedCount = Number(finalFailRow?.cnt || 0);
+    }
+
+    const totalFailCount = preQcFailedCount + qcFailedCount + aqlFailedCount + finalAqlFailedCount;
 
     return res.json({
-      totalQcPassed,
+      targetQuantity,
+      preQcPassedCount,
+      preQcFailedCount,
+      qcPassedCount,
+      qcFailedCount,
       packedCount,
-      aqlDoneCount,
-      qcFailCount,
-      aqlFailedCount,
-      totalFailCount,
-      aqlPassCount,
       pendingPackCount,
+      aqlPassCount,
+      aqlFailedCount,
+      finalAqlPassCount,
+      finalAqlFailedCount,
+      // Backward compatibility fields
+      totalQcPassed: qcPassedCount,
+      qcFailCount: qcFailedCount,
+      aqlDoneCount: aqlPassCount + aqlFailedCount,
+      totalFailCount,
       poDetails: po ? {
         poId: po.id,
         poNumber: po.po_number,
@@ -176,8 +201,7 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
         styleCode: po.style_code || null,
         targetQuantity
       } : null,
-      // Backward compatibility aliases
-      qcPassedToday: totalQcPassed,
+      qcPassedToday: qcPassedCount,
       packedToday: packedCount,
       pendingCount: pendingPackCount,
       failCount: totalFailCount
