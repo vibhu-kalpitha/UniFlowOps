@@ -64,7 +64,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
     if (!po) return;
     const targetPoKey = po.dbId || po.id;
     try {
-      const res = await apiFetch(`/api/aql/progress/${targetPoKey}`);
+      const res = await apiFetch(`/api/aql/progress/${targetPoKey}?stage=${stageCode}`);
       if (res && typeof res.aqlPassedCount === 'number') {
         setAqlProgress({
           loading: false,
@@ -243,7 +243,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="op-top-banner">
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 800 }}>
             {stageTitle} • {formatPoDisplayName(po)}

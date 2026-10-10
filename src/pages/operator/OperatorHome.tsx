@@ -323,8 +323,8 @@ export const OperatorHome: React.FC = () => {
                 {/* Pre-QC */}
                 <div style={{ ...styles.metricBoxGreen, backgroundColor: 'rgba(20, 184, 166, 0.12)', borderColor: 'rgba(20, 184, 166, 0.3)' }} className="op-metric-box">
                   <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
-                    <span style={{ color: '#10B981' }}>P: {opStats.preQcPassedCount}</span>
-                    <span style={{ color: '#EF4444' }}>F: {opStats.preQcFailedCount}</span>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.preQcPassedCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.preQcFailedCount}</span>
                   </div>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#14B8A6', textAlign: 'center' }}>Pre-QC</span>
                 </div>
@@ -332,8 +332,8 @@ export const OperatorHome: React.FC = () => {
                 {/* QC Test */}
                 <div style={styles.metricBoxGreen} className="op-metric-box">
                   <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
-                    <span style={{ color: '#10B981' }}>P: {opStats.qcPassedCount}</span>
-                    <span style={{ color: '#EF4444' }}>F: {opStats.qcFailedCount}</span>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.qcPassedCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.qcFailedCount}</span>
                   </div>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>QC Test</span>
                 </div>
@@ -341,8 +341,8 @@ export const OperatorHome: React.FC = () => {
                 {/* Packing */}
                 <div style={styles.metricBoxBlue} className="op-metric-box">
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <span style={{ fontSize: '16px', fontWeight: 800, color: '#3B82F6' }}>Packed: {opStats.packedCount}</span>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#60A5FA' }}>Rem: {opStats.pendingPackCount}</span>
+                    <span style={{ fontSize: '15px', fontWeight: 800, color: '#3B82F6', whiteSpace: 'nowrap' }}>Pack: {opStats.packedCount}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#60A5FA', whiteSpace: 'nowrap' }}>Rem: {opStats.pendingPackCount}</span>
                   </div>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#3B82F6', textAlign: 'center', marginTop: '2px' }}>Packing</span>
                 </div>
@@ -350,8 +350,8 @@ export const OperatorHome: React.FC = () => {
                 {/* Normal AQL */}
                 <div style={styles.metricBoxPurple} className="op-metric-box">
                   <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
-                    <span style={{ color: '#10B981' }}>P: {opStats.aqlPassCount}</span>
-                    <span style={{ color: '#EF4444' }}>F: {opStats.aqlFailedCount}</span>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.aqlPassCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.aqlFailedCount}</span>
                   </div>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>Normal AQL</span>
                 </div>
@@ -359,8 +359,8 @@ export const OperatorHome: React.FC = () => {
                 {/* Final AQL */}
                 <div style={styles.metricBoxEmerald} className="op-metric-box">
                   <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
-                    <span style={{ color: '#10B981' }}>P: {opStats.finalAqlPassCount}</span>
-                    <span style={{ color: '#EF4444' }}>F: {opStats.finalAqlFailedCount}</span>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.finalAqlPassCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.finalAqlFailedCount}</span>
                   </div>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>Final AQL</span>
                 </div>

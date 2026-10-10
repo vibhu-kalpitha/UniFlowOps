@@ -379,3 +379,29 @@ button:disabled {
     grid-template-columns: 1fr 1fr !important;
   }
 }
+
+/* ── Operator Shared Top Banner ──────────────────────────────────────────── */
+.op-top-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .op-top-banner {
+    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .op-top-banner > div:first-child {
+    width: 100%;
+  }
+  .op-top-banner > div:last-child {
+    width: 100%;
+    justify-content: space-between;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border-color);
+  }
+}
+

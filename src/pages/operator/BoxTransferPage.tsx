@@ -176,7 +176,7 @@ export const BoxTransferPage: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Header Info */}
-      <div style={styles.headerRow}>
+      <div className="op-top-banner">
         <div>
           <span style={styles.cardHeaderTitle}>STATION OPERATOR</span>
           <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>Box Item Transfer</h2>

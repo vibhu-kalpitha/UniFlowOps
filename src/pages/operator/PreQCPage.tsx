@@ -265,7 +265,7 @@ export const PreQCPage: React.FC = () => {
     <div style={styles.container}>
       {/* Active PO Header Card */}
       <div className="card" style={styles.poCard}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div className="op-top-banner">
           <div>
             <span style={styles.cardSubTitle}>PRE QC OPERATION</span>
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px' }}>

@@ -642,7 +642,7 @@ export const QCTestPage: React.FC = () => {
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top Banner */}
       <div style={styles.banner}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="op-top-banner">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <FileText size={20} color="var(--primary-teal)" />
             <div>
