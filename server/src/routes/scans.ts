@@ -2388,18 +2388,18 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     const activeItems = items.filter(i => !permanentlyRemovedQrs.includes(i.qr_code.trim().toUpperCase()));
     const totalItems = activeItems.length;
 
-    // Check box completeness: Only fully packed / completed boxes can undergo AQL or Final AQL inspection
+    // Check box completeness: Only fully packed / completed boxes (or previously sealed boxes) can undergo AQL or Final AQL inspection
     const isCompletedStatus = ['COMPLETE', 'COMPLETED', 'SEALED', 'CLOSED', 'FULL', 'AQL_PASSED', 'AQL_FAILED', 'FINAL_AQL_PASSED', 'FINAL_AQL_FAILED', 'TRANSFERRED'].includes((box.status || '').toUpperCase());
     const requiredCapacity = box.capacity || 12;
 
-    if (!isCompletedStatus || totalItems < requiredCapacity) {
+    if (!isCompletedStatus && totalItems < requiredCapacity) {
       return res.status(400).json({
         error: 'BOX_NOT_COMPLETED',
         message: `Box ${boxNumber} is not fully packed / completed (${totalItems}/${requiredCapacity} items). Only fully packed boxes can undergo ${isFinalAql ? 'Final AQL' : 'AQL'} inspection.`
       });
     }
 
-    // Check for an existing inspection on this box for THIS STAGE
+    // Find or create an inspection for this box and stage
     let existingInspection = await db.prepare(`
       SELECT ai.*, u.full_name as inspector_name, u.username as inspector_username
       FROM aql_inspections ai
@@ -2417,43 +2417,46 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
       `).run(inspectionId, box.id, box.production_order_id, operatorId, totalItems > 0 ? totalItems : 3, targetStage);
     }
 
-    // Load previous sample records for items in this box FOR THIS INSPECTION STAGE
-    const previousPassedSamples = await db.prepare(`
-      SELECT DISTINCT u.qr_code as itemQr, asamp.result, asamp.action_type as actionType, asamp.sample_number as sampleNumber
+    // Load sample history for THIS STAGE across all inspections for this box to find each item's LATEST sample result
+    const sampleRows = await db.prepare(`
+      SELECT asamp.sample_number as sampleNumber, u.qr_code as itemQr, asamp.result, asamp.action_type as actionType, asamp.scanned_at
       FROM aql_samples asamp
       JOIN aql_inspections ai ON ai.id = asamp.inspection_id
       JOIN item_units u ON u.id = asamp.item_id
-      WHERE ai.id = ? AND UPPER(TRIM(asamp.result)) = 'PASS'
-    `).all(inspectionId) as any[];
-
-    // Load item-wise AQL inspection history for THIS INSPECTION STAGE
-    const itemAqlHistory = await db.prepare(`
-      SELECT u.qr_code as itemQr, asamp.result, asamp.action_type as actionType, asamp.failure_reason as failureReason, asamp.scanned_at as scannedAt, asamp.sample_number as sampleNumber
-      FROM aql_samples asamp
-      JOIN aql_inspections ai ON ai.id = asamp.inspection_id
-      JOIN item_units u ON u.id = asamp.item_id
-      WHERE ai.id = ?
+      WHERE ai.box_id = ? AND (ai.stage = ? OR (? = 'AQL' AND ai.stage IS NULL))
       ORDER BY asamp.scanned_at DESC
-    `).all(inspectionId) as any[];
+    `).all(box.id, targetStage, targetStage) as any[];
 
-    const existingCompletedInspection = (existingInspection && ['PASS', 'PASSED', 'FAIL', 'FAILED'].includes((existingInspection.result || '').toUpperCase()))
-      ? existingInspection
-      : null;
+    const latestSampleMap = new Map<string, any>();
+    for (const s of sampleRows) {
+      const qrUpper = (s.itemQr || '').trim().toUpperCase();
+      if (!latestSampleMap.has(qrUpper)) {
+        latestSampleMap.set(qrUpper, s);
+      }
+    }
+
+    const previousPassedSamples: any[] = [];
+    for (const [qrUpper, s] of latestSampleMap.entries()) {
+      if ((s.result || '').toUpperCase() === 'PASS') {
+        previousPassedSamples.push(s);
+      }
+    }
 
     return res.json({
       box: {
         box_number: box.box_code || box.box_number,
         production_order_id: box.production_order_id,
         item_count: totalItems,
+        capacity: requiredCapacity,
         items: activeItems
       },
       stage: targetStage,
       inspectionId,
-      existingCompletedInspection,
+      existingCompletedInspection: (existingInspection && ['PASS', 'PASSED', 'FAIL', 'FAILED'].includes((existingInspection.result || '').toUpperCase())) ? existingInspection : null,
       requiredSamples: totalItems > 0 ? totalItems : 3,
       previousPassedSamples: previousPassedSamples || [],
       permanentlyRemovedQrs,
-      itemAqlHistory
+      itemAqlHistory: sampleRows
     });
   } catch (err) {
     next(err);
@@ -2464,7 +2467,7 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
 router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const inspectionId = req.params.id;
-    const { sampleNumber, itemQr, result } = req.body;
+    const { sampleNumber, itemQr, result, actionType, failureReason } = req.body;
     const code = itemQr ? itemQr.trim().toUpperCase() : '';
 
     const insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
@@ -2503,46 +2506,14 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
       });
     }
 
-    // Verify sequential order against active box items in DB
-    const orderedBoxItems = await db.prepare(`
-      SELECT u.id, u.qr_code 
-      FROM box_items bi 
-      JOIN item_units u ON bi.item_id = u.id 
-      WHERE bi.box_id = ? AND bi.active = 1
-      ORDER BY bi.packed_at ASC, bi.id ASC
-    `).all(insp.box_id) as any[];
-
     const permanentlyRemovedRows = await db.prepare(`
       SELECT item_qr FROM permanently_removed_items WHERE box_id = ? OR production_order_id = ?
     `).all(insp.box_id, insp.production_order_id) as any[];
     const permRemovedSet = new Set(permanentlyRemovedRows.map(r => r.item_qr ? r.item_qr.trim().toUpperCase() : ''));
-
-    const activeOrderedItems = orderedBoxItems.filter(i => !permRemovedSet.has(i.qr_code.trim().toUpperCase()));
-    const sNum = Number(sampleNumber) || 1;
-
-    if (sNum > 1) {
-      const prevItem = activeOrderedItems[sNum - 2];
-      if (prevItem) {
-        const prevSample = await db.prepare(`
-          SELECT * FROM aql_samples WHERE inspection_id = ? AND item_id = ?
-        `).get(inspectionId, prevItem.id) as any;
-        if (!prevSample) {
-          return res.status(400).json({
-            error: 'CURRENT_ITEM_RESULT_REQUIRED',
-            message: `Please select PASS or FAIL for the current item (${prevItem.qr_code}) before scanning the next item.`
-          });
-        }
-      }
-    }
-
-    const expectedItem = activeOrderedItems[sNum - 1];
-
-    if (expectedItem && code !== expectedItem.qr_code.trim().toUpperCase()) {
+    if (permRemovedSet.has(code)) {
       return res.status(400).json({
-        error: 'WRONG_SEQUENCE',
-        message: `Wrong product. Please scan ${expectedItem.qr_code} first.`,
-        expectedQr: expectedItem.qr_code,
-        scannedQr: code
+        error: 'PERMANENTLY_REMOVED',
+        message: `Product '${code}' was permanently removed and cannot be inspected.`
       });
     }
 
@@ -2553,17 +2524,28 @@ router.post('/aql/inspections/:id/samples', authenticateToken, async (req: AuthR
       });
     }
 
+    const activeBoxItems = await db.prepare(`
+      SELECT u.id, u.qr_code 
+      FROM box_items bi 
+      JOIN item_units u ON bi.item_id = u.id 
+      WHERE bi.box_id = ? AND bi.active = 1
+      ORDER BY bi.packed_at ASC, bi.id ASC
+    `).all(insp.box_id) as any[];
+
+    const activeOrderedItems = activeBoxItems.filter(i => !permRemovedSet.has(i.qr_code.trim().toUpperCase()));
+    const itemIndex = activeOrderedItems.findIndex(i => i.qr_code.trim().toUpperCase() === code);
+    const calculatedSampleNum = itemIndex >= 0 ? itemIndex + 1 : (Number(sampleNumber) || 1);
+
     const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    const { actionType, failureReason } = req.body;
     const actType = actionType || (result === 'PASS' ? 'PASSED' : 'REUSED');
 
     await db.prepare(`
       INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, failure_reason, scanned_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3))
       ON DUPLICATE KEY UPDATE result = VALUES(result), action_type = VALUES(action_type), failure_reason = VALUES(failure_reason), scanned_at = NOW(3)
-    `).run(sampleId, inspectionId, item.id, sampleNumber, result, actType, failureReason || null);
+    `).run(sampleId, inspectionId, item.id, calculatedSampleNum, result, actType, failureReason || null);
 
-    return res.json({ message: 'Sample recorded', sampleNumber, result, actionType: actType, itemQr });
+    return res.json({ message: 'Sample recorded', sampleNumber: calculatedSampleNum, result, actionType: actType, itemQr: code });
   } catch (err) {
     next(err);
   }
@@ -2752,16 +2734,37 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
       const activeToVerify = activeBoxItems.filter(i => !permRemovedSet.has(i.qr_code.trim().toUpperCase()));
       const totalBoxItemsCount = activeToVerify.length;
 
+      // Determine LATEST sample result for each active item for this stage
       const sampleRows = await db.prepare(`
-        SELECT DISTINCT item_id, result FROM aql_samples WHERE inspection_id = ?
-      `).all(inspectionId) as any[];
+        SELECT asamp.item_id, asamp.result, asamp.scanned_at
+        FROM aql_samples asamp
+        JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+        WHERE ai.box_id = ? AND (ai.stage = ? OR (? = 'AQL' AND ai.stage IS NULL))
+        ORDER BY asamp.scanned_at DESC
+      `).all(targetBoxId, targetStage, targetStage) as any[];
 
-      const verifiedCount = sampleRows.length;
-      const hasAnyFail = sampleRows.some(s => (s.result || '').toUpperCase() === 'FAIL');
+      const latestItemResults = new Map<string, string>();
+      for (const s of sampleRows) {
+        if (!latestItemResults.has(s.item_id)) {
+          latestItemResults.set(s.item_id, (s.result || '').toUpperCase());
+        }
+      }
 
-      if (hasAnyFail || result === 'FAILED' || result === 'FAIL') {
+      let passedActiveCount = 0;
+      let failedActiveCount = 0;
+
+      for (const item of activeToVerify) {
+        const latestRes = latestItemResults.get(item.id);
+        if (latestRes === 'PASS' || latestRes === 'PASSED') {
+          passedActiveCount++;
+        } else if (latestRes === 'FAIL' || latestRes === 'FAILED') {
+          failedActiveCount++;
+        }
+      }
+
+      if (failedActiveCount > 0 || result === 'FAILED' || result === 'FAIL') {
         finalResult = 'FAILED';
-      } else if (totalBoxItemsCount > 0 && verifiedCount >= totalBoxItemsCount) {
+      } else if (totalBoxItemsCount > 0 && passedActiveCount >= totalBoxItemsCount) {
         finalResult = 'PASSED';
       } else {
         finalResult = 'IN_PROGRESS';

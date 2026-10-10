@@ -88,12 +88,15 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
       return { status: 'rejected' as const, message: msg, code: trimmed };
     }
 
-    if (expectedQr && trimmed !== expectedQr) {
-      const msg = `Wrong product. Please scan ${expectedQr}.`;
+    const matchIndex = boxItemsList.findIndex((qr: string) => qr.trim().toUpperCase() === trimmed);
+    if (matchIndex === -1) {
+      const msg = `Scanned item (${trimmed}) does not belong to the selected box.`;
       showToast(msg, 'error');
       return { status: 'rejected' as const, message: msg, code: trimmed };
     }
 
+    const targetSampleIndex = matchIndex + 1;
+    setCurrentIdx(targetSampleIndex);
     setScannedQr(trimmed);
     setItemState('SCANNED_RESULT_REQUIRED');
     showToast(`✅ ${trimmed} scanned. Please select PASS or FAIL below.`, 'info');
@@ -138,11 +141,15 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
       actionType: 'PASSED'
     };
 
-    const updatedSamples = [...completedSamples.filter(s => s.sampleIndex !== currentIdx), newSample];
+    const updatedSamples = [...completedSamples.filter(s => (s.itemQr || '').trim().toUpperCase() !== activeQr.trim().toUpperCase()), newSample];
     setCompletedSamples(updatedSamples);
 
-    if (currentIdx < totalRequiredSamples) {
-      const nextIdx = currentIdx + 1;
+    const completedQrs = new Set(updatedSamples.map((s: any) => (s.itemQr || '').trim().toUpperCase()));
+    const uninspectedItems = boxItemsList.filter((qr: string) => !completedQrs.has(qr.trim().toUpperCase()));
+
+    if (uninspectedItems.length > 0) {
+      const nextQr = uninspectedItems[0];
+      const nextIdx = boxItemsList.findIndex((qr: string) => qr.trim().toUpperCase() === nextQr.trim().toUpperCase()) + 1;
       setCurrentIdx(nextIdx);
       setItemState('WAITING');
       setScannedQr('');
@@ -153,7 +160,7 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
         samples: updatedSamples
       });
 
-      showToast(`✓ Sample ${currentIdx} (${activeQr}) PASSED. Moved to Sample ${nextIdx}.`, 'success');
+      showToast(`✓ Sample (${activeQr}) PASSED. Moved to item ${nextQr}.`, 'success');
     } else {
       await finalizeInspection(updatedSamples, false);
     }
@@ -224,13 +231,14 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
           failureReason: removeReason || 'Scrapped'
         };
 
-        const updatedSamples = [...completedSamples.filter(s => s.sampleIndex !== currentIdx), newSample];
+        const updatedSamples = [...completedSamples.filter(s => (s.itemQr || '').trim().toUpperCase() !== activeQr.trim().toUpperCase()), newSample];
         setCompletedSamples(updatedSamples);
 
         saveAQLSession({
           ...session,
           boxItems: freshActiveQrs,
           sampleRequired: freshActiveQrs.length,
+          totalBoxQuantity: freshActiveQrs.length,
           samples: updatedSamples
         });
 
@@ -244,7 +252,13 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
         setShowFailModal(false);
         setIsProcessingAction(false);
 
-        if (currentIdx <= freshActiveQrs.length) {
+        const completedQrs = new Set(updatedSamples.map((s: any) => (s.itemQr || '').trim().toUpperCase()));
+        const uninspectedItems = freshActiveQrs.filter((qr: string) => !completedQrs.has(qr.trim().toUpperCase()));
+
+        if (uninspectedItems.length > 0) {
+          const nextQr = uninspectedItems[0];
+          const nextIdx = freshActiveQrs.findIndex((qr: string) => qr.trim().toUpperCase() === nextQr.trim().toUpperCase()) + 1;
+          setCurrentIdx(nextIdx);
           setItemState('WAITING');
           setScannedQr('');
         } else {
@@ -273,15 +287,19 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
           failureReason: 'REWORK'
         };
 
-        const updatedSamples = [...completedSamples.filter(s => s.sampleIndex !== currentIdx), newSample];
+        const updatedSamples = [...completedSamples.filter(s => (s.itemQr || '').trim().toUpperCase() !== activeQr.trim().toUpperCase()), newSample];
         setCompletedSamples(updatedSamples);
 
         showToast(`Item ${activeQr} recorded as FAIL (Reusable for Rework)`, 'info');
         setShowFailModal(false);
         setIsProcessingAction(false);
 
-        if (currentIdx < totalRequiredSamples) {
-          const nextIdx = currentIdx + 1;
+        const completedQrs = new Set(updatedSamples.map((s: any) => (s.itemQr || '').trim().toUpperCase()));
+        const uninspectedItems = boxItemsList.filter((qr: string) => !completedQrs.has(qr.trim().toUpperCase()));
+
+        if (uninspectedItems.length > 0) {
+          const nextQr = uninspectedItems[0];
+          const nextIdx = boxItemsList.findIndex((qr: string) => qr.trim().toUpperCase() === nextQr.trim().toUpperCase()) + 1;
           setCurrentIdx(nextIdx);
           setItemState('WAITING');
           setScannedQr('');

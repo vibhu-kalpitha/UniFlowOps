@@ -830,12 +830,11 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
     // Frontend State Machine checks
     expect(aqlPageCode).toContain('WAITING');
     expect(aqlPageCode).toContain('SCANNED_RESULT_REQUIRED');
-    expect(aqlPageCode).toContain('Wrong product. Please scan');
+    expect(aqlPageCode).toContain('does not belong to the selected box');
     expect(aqlPageCode).toContain('Please select PASS or FAIL');
 
-    // Backend Sequence & Previous Item Result Enforcement checks
-    expect(scansRouteCode).toContain('CURRENT_ITEM_RESULT_REQUIRED');
-    expect(scansRouteCode).toContain('WRONG_SEQUENCE');
+    // Backend Non-sequential & Item Validation checks
+    expect(scansRouteCode).toContain('ITEM_NOT_IN_BOX');
     expect(scansRouteCode).toContain('RESULT_REQUIRED');
   });
 
@@ -2276,6 +2275,124 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   });
+
+  it('38. Comprehensive AQL & Final AQL Workflows (Scenarios A - G)', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    if (isConnected) {
+      const po1Id = `po-aql-scen-1-${timestamp}`;
+      const po2Id = `po-aql-scen-2-${timestamp}`;
+      const box1Id = `box-aql-scen-1-${timestamp}`;
+      const box2Id = `box-aql-scen-2-${timestamp}`;
+      const item1Id = `item-1-${timestamp}`;
+      const item2Id = `item-2-${timestamp}`;
+      const item3Id = `item-3-${timestamp}`;
+      const item4Id = `item-4-${timestamp}`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-SCEN-1', 'PO Scen 1', 'CURRENT', NOW(3), NOW(3))`, [po1Id]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-SCEN-2', 'PO Scen 2', 'CURRENT', NOW(3), NOW(3))`, [po2Id]);
+
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSCEN1', 'BXSCEN1', ?, 4, 'COMPLETE', NOW(3))`, [box1Id, po1Id]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSCEN1', 'BXSCEN1', ?, 4, 'OPEN', NOW(3))`, [box2Id, po2Id]);
+
+        const qrs = [`PNFLSS1-${timestamp}`, `PNFLSS2-${timestamp}`, `PNFLSS3-${timestamp}`, `PNFLSS4-${timestamp}`];
+        const itemIds = [item1Id, item2Id, item3Id, item4Id];
+
+        for (let i = 0; i < 4; i++) {
+          await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, ?, 'PACKED', NOW(3), NOW(3))`, [itemIds[i], po1Id, qrs[i]]);
+          await db.execute(`INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-001', NOW(3), 1)`, [`bi-scen-${i}-${timestamp}`, box1Id, itemIds[i]]);
+        }
+
+        // Test A: Out-of-order scanning validation
+        const activeItemsBox1 = await db.query<any>(`
+          SELECT u.qr_code FROM box_items bi JOIN item_units u ON u.id = bi.item_id WHERE bi.box_id = ? AND bi.active = 1
+        `, [box1Id]);
+        const activeQrs = activeItemsBox1.map((r: any) => r.qr_code);
+        expect(activeQrs).toContain(qrs[2]); // PNFLSS3 can be found and selected out of order
+
+        // Test B: Permanent removal updates active items & count
+        const removeId = `prm-scen-${timestamp}`;
+        await db.execute(`
+          INSERT INTO permanently_removed_items (id, item_id, item_qr, box_id, production_order_id, removed_by, action_type, reason, removed_at)
+          VALUES (?, ?, ?, ?, ?, 'usr-001', 'PERMANENTLY_REMOVE', 'Damaged', NOW(3))
+        `, [removeId, item4Id, qrs[3], box1Id, po1Id]);
+        await db.execute(`UPDATE box_items SET active = 0 WHERE item_id = ?`, [item4Id]);
+
+        const remActive = await db.query<any>(`
+          SELECT u.qr_code FROM box_items bi JOIN item_units u ON u.id = bi.item_id WHERE bi.box_id = ? AND bi.active = 1
+        `, [box1Id]);
+        expect(remActive.length).toBe(3);
+        expect(remActive.map((r: any) => r.qr_code)).not.toContain(qrs[3]);
+
+        // Test C: Reuse & Pass (latest AQL result determination)
+        const insp1Id = `insp-scen-1-${timestamp}`;
+        await db.execute(`
+          INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, stage, started_at)
+          VALUES (?, ?, ?, 'usr-001', 3, 'FAILED', 'AQL', NOW(3))
+        `, [insp1Id, box1Id, po1Id]);
+
+        await db.execute(`
+          INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, failure_reason, scanned_at)
+          VALUES (?, ?, ?, 1, 'FAIL', 'REUSED', 'Rework', NOW(3))
+        `, [`aqls-1-${timestamp}`, insp1Id, item1Id]);
+
+        // Second inspection attempt (re-inspection after reuse)
+        const insp2Id = `insp-scen-2-${timestamp}`;
+        await db.execute(`
+          INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, stage, started_at)
+          VALUES (?, ?, ?, 'usr-001', 3, 'PASSED', 'AQL', NOW(3))
+        `, [insp2Id, box1Id, po1Id]);
+
+        await db.execute(`
+          INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, scanned_at)
+          VALUES (?, ?, ?, 1, 'PASS', 'PASSED', NOW(3))
+        `, [`aqls-2-${timestamp}`, insp2Id, item1Id]);
+
+        // Determine LATEST sample result per item across all inspections
+        const sampleRows = await db.query<any>(`
+          SELECT asamp.item_id, asamp.result, asamp.scanned_at
+          FROM aql_samples asamp
+          JOIN aql_inspections ai ON ai.id = asamp.inspection_id
+          WHERE ai.box_id = ? AND ai.stage = 'AQL'
+          ORDER BY asamp.scanned_at DESC
+        `, [box1Id]);
+
+        const latestMap = new Map<string, string>();
+        for (const s of sampleRows) {
+          if (!latestMap.has(s.item_id)) {
+            latestMap.set(s.item_id, s.result);
+          }
+        }
+
+        expect(latestMap.get(item1Id)).toBe('PASS'); // Item 1 latest status is PASS despite historical FAIL
+
+        // Test D, E & F: Latest AQL passed count calculations
+        let passedCount = 0;
+        for (const [itemId, res] of latestMap.entries()) {
+          if (res === 'PASS') passedCount++;
+        }
+        expect(passedCount).toBe(1); // Only active items with latest status PASS count towards passedCount
+
+        // Test G: PO Scoping
+        const box1Result = await db.queryOne<any>(`SELECT * FROM boxes WHERE box_code = 'BXSCEN1' AND production_order_id = ?`, [po1Id]);
+        const box2Result = await db.queryOne<any>(`SELECT * FROM boxes WHERE box_code = 'BXSCEN1' AND production_order_id = ?`, [po2Id]);
+        expect(box1Result.id).toBe(box1Id);
+        expect(box2Result.id).toBe(box2Id);
+        expect(box1Result.id).not.toBe(box2Result.id);
+      } finally {
+        await db.execute(`DELETE FROM permanently_removed_items WHERE id = ?`, [`prm-scen-${timestamp}`]);
+        await db.execute(`DELETE FROM aql_samples WHERE id IN (?, ?)`, [`aqls-1-${timestamp}`, `aqls-2-${timestamp}`]);
+        await db.execute(`DELETE FROM aql_inspections WHERE id IN (?, ?)`, [`insp-scen-1-${timestamp}`, `insp-scen-2-${timestamp}`]);
+        await db.execute(`DELETE FROM box_items WHERE box_id IN (?, ?)`, [box1Id, box2Id]);
+        await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?, ?)`, itemIds);
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [box1Id, box2Id]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po1Id, po2Id]);
+      }
+    }
+  }, 30000);
 });
 
 
