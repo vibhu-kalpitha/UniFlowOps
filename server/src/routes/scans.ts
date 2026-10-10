@@ -2556,30 +2556,88 @@ const removeSchema = z.object({
   itemQr: z.string().min(1),
   boxNumber: z.string().optional(),
   inspectionId: z.string().optional(),
+  productionOrderId: z.string().optional(),
+  poId: z.string().optional(),
   reason: z.string().optional()
 });
 
 router.post('/aql/items/permanently-remove', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const { itemQr, boxNumber, inspectionId, reason } = removeSchema.parse(req.body);
+    const { itemQr, boxNumber, inspectionId, productionOrderId, poId: reqPoId, reason } = removeSchema.parse(req.body);
     const operatorId = req.user!.id;
-
     const qr = itemQr.trim().toUpperCase();
-    let box = boxNumber ? await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase()) as any : null;
-    const targetPoId = box?.production_order_id || null;
 
-    const item = targetPoId ? await db.prepare(`
-      SELECT * FROM item_units 
-      WHERE (production_order_id = ? OR production_order_id IS NULL) 
-        AND UPPER(TRIM(qr_code)) = ?
-    `).get(targetPoId, qr) as any : await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qr) as any;
+    let box: any = null;
+    let insp: any = null;
 
+    if (inspectionId) {
+      insp = await db.prepare(`SELECT * FROM aql_inspections WHERE id = ?`).get(inspectionId) as any;
+      if (insp?.box_id) {
+        box = await db.prepare(`SELECT * FROM boxes WHERE id = ?`).get(insp.box_id) as any;
+      }
+    }
+
+    const currentPoKey = productionOrderId || reqPoId || (req.body as any).productionOrderNumber || insp?.production_order_id || null;
+    let targetPo: any = null;
+    if (currentPoKey) {
+      targetPo = await resolvePO(currentPoKey);
+    }
+
+    if (!box && boxNumber) {
+      const bCode = boxNumber.trim().toUpperCase();
+      if (targetPo) {
+        box = await db.prepare(`
+          SELECT * FROM boxes 
+          WHERE (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?)
+            AND (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
+        `).get(bCode, bCode, targetPo.id, targetPo.po_number, targetPo.map_po) as any;
+      } else {
+        box = await db.prepare(`SELECT * FROM boxes WHERE UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?`).get(bCode, bCode) as any;
+      }
+    }
+
+    const poId = targetPo?.id || box?.production_order_id || insp?.production_order_id || null;
+
+    // Resolve exact active item in the target box / PO
+    let realItem: any = null;
+    if (box) {
+      realItem = await db.prepare(`
+        SELECT u.* FROM box_items bi
+        JOIN item_units u ON u.id = bi.item_id
+        WHERE bi.box_id = ? AND (UPPER(TRIM(u.qr_code)) = ? OR u.id = ?) AND bi.active = 1
+      `).get(box.id, qr, qr) as any;
+    }
+
+    if (!realItem && poId) {
+      realItem = await db.prepare(`
+        SELECT * FROM item_units 
+        WHERE (production_order_id = ? OR production_order_id = ?)
+          AND (UPPER(TRIM(qr_code)) = ? OR id = ?)
+      `).get(poId, targetPo?.po_number || poId, qr, qr) as any;
+    }
+
+    if (!realItem && !poId && !box) {
+      realItem = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ? OR id = ?`).get(qr, qr) as any;
+    }
+
+    if (!realItem) {
+      return res.status(400).json({
+        success: false,
+        error: 'ITEM_NOT_FOUND_IN_BOX',
+        message: `Active product '${qr}' not found in Box '${boxNumber || box?.box_code || 'selected box'}' for this Production Order.`,
+        itemQr: qr,
+        boxNumber: box?.box_code || box?.box_number || boxNumber || null
+      });
+    }
+
+    // Check if already permanently removed
     const alreadyRemoved = await db.prepare(`
       SELECT * FROM permanently_removed_items 
-      WHERE UPPER(TRIM(item_qr)) = ? OR (item_id IS NOT NULL AND item_id = ?)
-    `).get(qr, item?.id || null) as any;
+      WHERE (UPPER(TRIM(item_qr)) = ? OR item_id = ?)
+        AND (production_order_id = ? OR production_order_id IS NULL OR ? IS NULL)
+    `).get(qr, realItem.id, poId, poId) as any;
 
-    if (alreadyRemoved || item?.status === 'PERMANENTLY_REMOVED') {
+    if (alreadyRemoved || realItem.status === 'PERMANENTLY_REMOVED') {
       return res.status(400).json({
         success: false,
         error: 'ALREADY_REMOVED',
@@ -2590,38 +2648,36 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
     }
 
     const removeId = `prm-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    const poId = item?.production_order_id || box?.production_order_id || null;
-    const boxId = box?.id || null;
-    const itemId = item?.id || null;
+    const finalBoxId = box?.id || null;
+    const finalPoId = poId || realItem.production_order_id || null;
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
         INSERT INTO permanently_removed_items (id, item_id, item_qr, box_id, production_order_id, removed_by, action_type, reason, removed_at)
         VALUES (?, ?, ?, ?, ?, ?, 'PERMANENTLY_REMOVE', ?, NOW(3))
-      `).run(removeId, itemId, qr, boxId, poId, operatorId, reason || 'Irreparable Damaged Item removed during AQL Inspection');
+      `).run(removeId, realItem.id, realItem.qr_code || qr, finalBoxId, finalPoId, operatorId, reason || 'Irreparable Damaged Item removed during AQL Inspection');
 
-      if (itemId) {
-        await tx.prepare(`UPDATE box_items SET active = 0 WHERE item_id = ?`).run(itemId);
-        await tx.prepare(`UPDATE item_units SET status = 'PERMANENTLY_REMOVED', updated_at = NOW(3) WHERE id = ?`).run(itemId);
-      } else if (boxId) {
-        await tx.prepare(`UPDATE box_items SET active = 0 WHERE box_id = ? AND item_id IN (SELECT id FROM item_units WHERE UPPER(TRIM(qr_code)) = ?)`).run(boxId, qr);
+      if (finalBoxId) {
+        await tx.prepare(`UPDATE box_items SET active = 0 WHERE box_id = ? AND item_id = ?`).run(finalBoxId, realItem.id);
+      } else {
+        await tx.prepare(`UPDATE box_items SET active = 0 WHERE item_id = ?`).run(realItem.id);
       }
 
-      if (itemId) {
-        const failId = `qcf-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-        await tx.prepare(`
-          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, po_id, failure_type)
-          VALUES (?, ?, ?, 'FAIL', 'FAIL', ?, 1, NOW(3), ?, 'PERMANENTLY_REMOVED')
-        `).run(failId, itemId, operatorId, `PERMANENTLY_REMOVED: ${reason || 'Damaged Garment Scrapped'}`, poId);
-      }
+      await tx.prepare(`UPDATE item_units SET status = 'PERMANENTLY_REMOVED', updated_at = NOW(3) WHERE id = ?`).run(realItem.id);
 
-      if (inspectionId && itemId) {
+      const failId = `qcf-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      await tx.prepare(`
+        INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, po_id, failure_type)
+        VALUES (?, ?, ?, 'FAIL', 'FAIL', ?, 1, NOW(3), ?, 'PERMANENTLY_REMOVED')
+      `).run(failId, realItem.id, operatorId, `PERMANENTLY_REMOVED: ${reason || 'Damaged Garment Scrapped'}`, finalPoId);
+
+      if (inspectionId) {
         const sampleId = `aqls-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
           INSERT INTO aql_samples (id, inspection_id, item_id, sample_number, result, action_type, failure_reason, scanned_at)
           VALUES (?, ?, ?, 1, 'FAIL', 'PERMANENTLY_REMOVE', ?, NOW(3))
           ON DUPLICATE KEY UPDATE result = 'FAIL', action_type = 'PERMANENTLY_REMOVE', failure_reason = VALUES(failure_reason), scanned_at = NOW(3)
-        `).run(sampleId, inspectionId, itemId, reason || 'Damaged Garment Scrapped');
+        `).run(sampleId, inspectionId, realItem.id, reason || 'Damaged Garment Scrapped');
       }
     });
 
@@ -2634,6 +2690,7 @@ router.post('/aql/items/permanently-remove', authenticateToken, async (req: Auth
       success: true,
       removed: true,
       removeId,
+      itemId: realItem.id,
       itemQr: qr,
       boxNumber: boxCodeStr,
       message: `${qr} was permanently removed from ${boxCodeStr}.`

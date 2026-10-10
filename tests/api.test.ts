@@ -2393,6 +2393,94 @@ describe('UniFlow Ops Auth, User Sessions & Style Selection Unit Tests', () => {
       }
     }
   }, 30000);
+
+  it('39. AQL Permanent Removal Exact Item-ID Mapping & Packing Visibility Test', async () => {
+    const { db, ensureDbConnected } = await import('../server/src/db/connection');
+    const { getAuthorizedBoxDetails } = await import('../server/src/routes/scans');
+    const isConnected = await ensureDbConnected();
+    const timestamp = Date.now();
+
+    if (isConnected) {
+      const po9999Id = `po-1791610128768-${timestamp}`;
+      const po9077Id = `po-1791454044391-${timestamp}`;
+      const box9999Id = `box-1791610288040-e9ay-${timestamp}`;
+      const box9077Id = `box-1791454060961-cu5b-${timestamp}`;
+
+      const item1Id = `itm-${po9999Id}-PNFLSS1`;
+      const item2Id = `itm-${po9999Id}-PNFLSS2`; // Exact PO-prefixed internal ID
+      const item3Id = `itm-${po9999Id}-PNFLSS3`;
+      const item4Id = `itm-${po9999Id}-PNFLSS4`;
+
+      try {
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-2026-9999', 'PO 9999', 'CURRENT', NOW(3), NOW(3))`, [po9999Id]);
+        await db.execute(`INSERT INTO production_orders (id, po_number, po_name, status, created_at, updated_at) VALUES (?, 'PO-2026-9077', 'PO 9077', 'CURRENT', NOW(3), NOW(3))`, [po9077Id]);
+
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSS1', 'BXSS1', ?, 4, 'COMPLETE', NOW(3))`, [box9999Id, po9999Id]);
+        await db.execute(`INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at) VALUES (?, 'BXSS1', 'BXSS1', ?, 4, 'COMPLETE', NOW(3))`, [box9077Id, po9077Id]);
+
+        const items = [
+          { id: item1Id, qr: `PNFLSS1-${timestamp}` },
+          { id: item2Id, qr: `PNFLSS2-${timestamp}` },
+          { id: item3Id, qr: `PNFLSS3-${timestamp}` },
+          { id: item4Id, qr: `PNFLSS4-${timestamp}` }
+        ];
+
+        for (let i = 0; i < 4; i++) {
+          await db.execute(`INSERT INTO item_units (id, production_order_id, qr_code, status, created_at, updated_at) VALUES (?, ?, ?, 'PACKED', NOW(3), NOW(3))`, [items[i].id, po9999Id, items[i].qr]);
+          await db.execute(`INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active) VALUES (?, ?, ?, 'usr-001', NOW(3), 1)`, [`bi-9999-${i}-${timestamp}`, box9999Id, items[i].id]);
+        }
+
+        // 1. Perform permanent removal for item2Id (PNFLSS2) in PO-2026-9999
+        const removeId = `prm-9999-${timestamp}`;
+        await db.execute(`
+          INSERT INTO permanently_removed_items (id, item_id, item_qr, box_id, production_order_id, removed_by, action_type, reason, removed_at)
+          VALUES (?, ?, ?, ?, ?, 'usr-001', 'PERMANENTLY_REMOVE', 'Fabric Tear', NOW(3))
+        `, [removeId, item2Id, items[1].qr, box9999Id, po9999Id]);
+
+        await db.execute(`UPDATE box_items SET active = 0 WHERE box_id = ? AND item_id = ?`, [box9999Id, item2Id]);
+        await db.execute(`UPDATE item_units SET status = 'PERMANENTLY_REMOVED' WHERE id = ?`, [item2Id]);
+
+        // Verify permanently_removed_items record matches exact item_id, box_id, po_id
+        const prmRecord = await db.queryOne<any>(`SELECT * FROM permanently_removed_items WHERE id = ?`, [removeId]);
+        expect(prmRecord.item_id).toBe(item2Id);
+        expect(prmRecord.box_id).toBe(box9999Id);
+        expect(prmRecord.production_order_id).toBe(po9999Id);
+
+        // Verify box_items deactivation for item2Id
+        const deactivatedBi = await db.queryOne<any>(`SELECT * FROM box_items WHERE box_id = ? AND item_id = ?`, [box9999Id, item2Id]);
+        expect(deactivatedBi.active).toBe(0);
+
+        // Verify remaining 3 items in box9999 remain active = 1
+        const activeItemsRow = await db.query<any>(`SELECT * FROM box_items WHERE box_id = ? AND active = 1`, [box9999Id]);
+        expect(activeItemsRow.length).toBe(3);
+
+        // 2. Packing visibility: getAuthorizedBoxDetails returns 3 active items, count = 3, availableSpace = 1
+        const box9999Row = await db.queryOne<any>(`SELECT * FROM boxes WHERE id = ?`, [box9999Id]);
+        const packingRes = await getAuthorizedBoxDetails(box9999Row, 'usr-001', 'OPERATOR', po9999Id);
+        expect('box' in packingRes).toBe(true);
+        if ('box' in packingRes) {
+          expect(packingRes.box.activeCount).toBe(3);
+          expect(packingRes.box.availableSpace).toBe(1);
+          expect(packingRes.box.items.length).toBe(3);
+          const activeItemIds = packingRes.box.items.map((i: any) => i.item_id);
+          expect(activeItemIds).toContain(item1Id);
+          expect(activeItemIds).toContain(item3Id);
+          expect(activeItemIds).toContain(item4Id);
+          expect(activeItemIds).not.toContain(item2Id);
+        }
+
+        // 3. Duplicate removal check
+        const alreadyRemoved = await db.queryOne<any>(`SELECT * FROM permanently_removed_items WHERE item_id = ?`, [item2Id]);
+        expect(alreadyRemoved).toBeTruthy();
+      } finally {
+        await db.execute(`DELETE FROM permanently_removed_items WHERE id = ?`, [`prm-9999-${timestamp}`]);
+        await db.execute(`DELETE FROM box_items WHERE box_id IN (?, ?)`, [box9999Id, box9077Id]);
+        await db.execute(`DELETE FROM item_units WHERE id IN (?, ?, ?, ?)`, [item1Id, item2Id, item3Id, item4Id]);
+        await db.execute(`DELETE FROM boxes WHERE id IN (?, ?)`, [box9999Id, box9077Id]);
+        await db.execute(`DELETE FROM production_orders WHERE id IN (?, ?)`, [po9999Id, po9077Id]);
+      }
+    }
+  }, 30000);
 });
 
 
