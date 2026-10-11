@@ -1,0 +1,50 @@
+# Dockerfile.dev
+# ─────────────────────────────────────────────────────────────────────────────
+# Development image — identical build process as production Dockerfile,
+# but with a parameterised PORT so it can run on 4001 without modifying
+# the production Dockerfile.
+#
+# The PORT is injected at container runtime via .env.dev (PORT=4001).
+# ENV PORT=4001 here sets the default only if .env.dev is missing.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stage 1: Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+# Stage 2: Development runner stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Default to development; actual values are supplied via .env.dev at runtime
+ENV NODE_ENV=development
+ENV PORT=4001
+
+COPY package*.json ./
+# Install production dependencies (including mysql2, express, etc.)
+RUN npm ci --omit=dev
+
+# Copy compiled frontend and backend assets
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist-server ./dist-server
+COPY --from=builder /app/server/src/db/migrations ./dist-server/db/migrations
+COPY --from=builder /app/server/src/db/migrations ./server/src/db/migrations
+
+# EXPOSE is informational — the actual port is driven by $PORT from .env.dev
+EXPOSE 4001
+
+# Healthcheck targets port 4001 (development port)
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:4001/api/health || exit 1
+
+# Run database migrations then start server — identical CMD to production
+# Migrations will only operate on the database configured in .env.dev (uniflow_ops_dev)
+CMD ["sh", "-c", "node dist-server/db/migrate.js; node dist-server/index.js"]

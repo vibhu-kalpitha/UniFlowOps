@@ -1,0 +1,28 @@
+# docker-compose.dev.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Development deployment ONLY.
+# Uses a separate container, port, env file, and database from production.
+# Production runs from docker-compose.yml on port 4000 (container: uniflow_ops_app).
+# Development runs from this file on port 4001 (container: uniflow_ops_dev_app).
+#
+# DO NOT use this file for production deployment.
+# DO NOT use docker-compose.yml for development deployment.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  uniflow-ops-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev        # Dev Dockerfile with parameterised PORT/EXPOSE/healthcheck
+    container_name: uniflow_ops_dev_app # Deliberately different from production uniflow_ops_app
+    restart: unless-stopped
+    env_file: .env.dev                  # Dev secrets — must NOT contain production credentials
+    ports:
+      - "4001:4001"                     # Dev port — never binds to production port 4000
+    networks:
+      - mysql_network
+
+networks:
+  mysql_network:
+    external: true
+    name: mysql-server_default          # Joins the same MySQL network as production
