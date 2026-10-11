@@ -3,50 +3,69 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerStatus } from '../../components/ScannerStatus';
-import { ProductionOrder, SalesOrder } from '../../types';
-import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect } from 'lucide-react';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
+import { ProductionOrder, SalesOrder, OperationType } from '../../types';
+import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 export const OperatorHome: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession, scannerConnected, setScannerConnected } = useApp();
+  const { currentUser, activeJob, setActiveJob, productionOrders, packingBoxes, aqlSession, scannerConnected, setScannerConnected, showToast } = useApp();
 
-  const [pendingOperation, setPendingOperation] = useState<{ name: string; route: string } | null>(null);
+  const [pendingOperation, setPendingOperation] = useState<{ name: OperationType | string; route: string } | null>(null);
   const [selectedPoForModal, setSelectedPoForModal] = useState<ProductionOrder | null>(null);
+
+  const [fetchedPoDetails, setFetchedPoDetails] = useState<any>(null);
 
   // Live stats from database
   const [opStats, setOpStats] = useState({
-    totalQcPassed: 0,
+    targetQuantity: 500,
+    preQcPassedCount: 0,
+    preQcFailedCount: 0,
+    qcPassedCount: 0,
+    qcFailedCount: 0,
     packedCount: 0,
-    aqlDoneCount: 0,
-    qcFailCount: 0,
-    aqlFailedCount: 0,
-    totalFailCount: 0,
+    pendingPackCount: 0,
     aqlPassCount: 0,
-    pendingPackCount: 0
+    aqlFailedCount: 0,
+    finalAqlPassCount: 0,
+    finalAqlFailedCount: 0
   });
 
-  const fetchStats = () => {
-    fetch('/api/dashboard/operator', { cache: 'no-store' })
-      .then(res => res.json())
-      .then(res => {
-        if (res) {
-          setOpStats({
-            totalQcPassed: Number(res.totalQcPassed ?? res.qcPassedToday ?? 0),
-            packedCount: Number(res.packedCount ?? res.packedToday ?? 0),
-            aqlDoneCount: Number(res.aqlDoneCount ?? 0),
-            qcFailCount: Number(res.qcFailCount ?? 0),
-            aqlFailedCount: Number(res.aqlFailedCount ?? 0),
-            totalFailCount: Number(res.totalFailCount ?? (res.failCount ?? 0)),
-            aqlPassCount: Number(res.aqlPassCount ?? 0),
-            pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0)
-          });
+  const targetPoId = activeJob?.productionOrder?.id;
+
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchStats = async () => {
+    if (!currentUser) return;
+    const url = targetPoId ? `/api/dashboard/operator?poId=${encodeURIComponent(targetPoId)}` : '/api/dashboard/operator';
+    try {
+      const res = await apiFetch<any>(url);
+      if (res) {
+        setFetchError(null);
+        setOpStats({
+          targetQuantity: Number(res.targetQuantity ?? res.poDetails?.targetQuantity ?? 500),
+          preQcPassedCount: Number(res.preQcPassedCount ?? 0),
+          preQcFailedCount: Number(res.preQcFailedCount ?? 0),
+          qcPassedCount: Number(res.qcPassedCount ?? res.totalQcPassed ?? 0),
+          qcFailedCount: Number(res.qcFailedCount ?? res.qcFailCount ?? 0),
+          packedCount: Number(res.packedCount ?? res.packedToday ?? 0),
+          pendingPackCount: Number(res.pendingPackCount ?? res.pendingCount ?? 0),
+          aqlPassCount: Number(res.aqlPassCount ?? 0),
+          aqlFailedCount: Number(res.aqlFailedCount ?? 0),
+          finalAqlPassCount: Number(res.finalAqlPassCount ?? 0),
+          finalAqlFailedCount: Number(res.finalAqlFailedCount ?? 0)
+        });
+        if (res.poDetails) {
+          setFetchedPoDetails(res.poDetails);
         }
-      })
-      .catch(err => {
-        console.error('Failed to fetch operator stats:', err);
-      });
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch operator stats via apiFetch:', err);
+      setFetchError(err.message || 'Failed to load live operator metrics');
+    }
   };
 
   useEffect(() => {
@@ -57,7 +76,7 @@ export const OperatorHome: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('focus', fetchStats);
     };
-  }, []);
+  }, [targetPoId, currentUser?.id]);
 
   // Search / Quick Scan state
   const [showSearch, setShowSearch]     = useState(false);
@@ -68,8 +87,13 @@ export const OperatorHome: React.FC = () => {
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
-  const handleOpClick = (opName: string, route: string) => {
-    setSelectedPoForModal(null);
+  const selectedOps = po?.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'FINAL AQL', 'Box Transfer'];
+
+  const handleOpClick = (opName: OperationType | string, route: string) => {
+    if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') {
+      navigate(route);
+      return;
+    }
     setPendingOperation({ name: opName, route });
   };
 
@@ -153,25 +177,6 @@ export const OperatorHome: React.FC = () => {
     ? searchedProductBox.items.find(i => i.qr.toUpperCase() === searchQuery.trim().toUpperCase())
     : null;
 
-  const poQcPassed = productionOrders.reduce((sum, p) => 
-    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcPassed || 0), 0), 0
-  );
-  const poPacked = productionOrders.reduce((sum, p) => 
-    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.packed || 0), 0), 0
-  );
-  const poQcFailed = productionOrders.reduce((sum, p) => 
-    sum + (p.salesOrders || []).reduce((sSum, s) => sSum + (s.progress?.qcFailed || 0), 0), 0
-  );
-
-  const displayTotalQcPassed = Math.max(opStats.totalQcPassed, poQcPassed);
-  const displayPacked = Math.max(opStats.packedCount, poPacked);
-  const displayQcFail = opStats.qcFailCount;
-  const displayAqlDone = opStats.aqlDoneCount;
-  const displayAqlPass = opStats.aqlPassCount;
-  const displayAqlFail = opStats.aqlFailedCount;
-  const displayTotalFail = opStats.totalFailCount || (displayQcFail + displayAqlFail);
-  const displayPendingPack = Math.max(0, displayTotalQcPassed - displayPacked);
-
   return (
     <div className="op-home-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Greeting Header */}
@@ -229,132 +234,257 @@ export const OperatorHome: React.FC = () => {
             <ScanLine size={16} color="var(--text-secondary)" />
           </button>
 
+          {fetchError && (
+            <div style={{
+              padding: '12px 16px',
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              border: '1.5px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '12px',
+              color: '#EF4444',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <AlertCircle size={18} />
+              <span style={{ fontWeight: 700, fontSize: '13px' }}>
+                Failed to update live metrics: {fetchError}
+              </span>
+            </div>
+          )}
+
           {/* Production Overview Card */}
           <div className="card" style={styles.poCard}>
+            {/* CURRENT PRODUCTION ORDER Banner */}
+            {(po || fetchedPoDetails) && (
+              <div style={{
+                backgroundColor: 'var(--bg-surface-1)',
+                border: '1.5px solid var(--primary-teal)',
+                borderRadius: '12px',
+                padding: '12px 16px',
+                marginBottom: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
+                    CURRENT PRODUCTION ORDER
+                  </span>
+                  <button
+                    onClick={() => setPendingOperation({ name: 'Production Order', route: '#' })}
+                    style={{
+                      background: 'rgba(22, 184, 174, 0.15)',
+                      border: '1px solid var(--primary-teal)',
+                      borderRadius: '8px',
+                      color: 'var(--primary-teal)',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      padding: '8px 14px',
+                      minHeight: '44px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    Change PO
+                  </button>
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {formatPoDisplayName({
+                    poNumber: po?.id || po?.poNumber || fetchedPoDetails?.poNumber,
+                    poName: po?.poName || fetchedPoDetails?.poName,
+                    styleName: po?.styleName || fetchedPoDetails?.styleName
+                  })}
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={styles.cardSubTitle}>PRODUCTION OVERVIEW</span>
               <StatusPill label="LIVE DB DATA" variant="teal" />
             </div>
 
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-              All Production Orders & Factory Live Metrics
-            </h3>
+            {!(po || fetchedPoDetails) && (
+              <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
+                All Production Orders & Factory Live Metrics
+              </h3>
+            )}
 
             {/* Metrics Wrapper */}
-            <div className="op-metrics-wrapper">
-              {/* Row 1 Metrics (6 items) */}
-              <div style={styles.metricsRow1} className="op-metrics-row1">
+            <div className="op-metrics-wrapper" style={{ marginTop: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+                {/* Total QTY */}
                 <div style={styles.metricBoxGreen} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#10B981' }}>{displayTotalQcPassed}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total Product Count</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{opStats.targetQuantity}</span>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>Total QTY</span>
                 </div>
-                <div style={styles.metricBoxBlue} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#3B82F6' }}>{displayPacked}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#3B82F6', textAlign: 'center' }}>Packed</span>
-                </div>
-                <div style={styles.metricBoxPurple} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#8B5CF6' }}>{displayAqlDone}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>AQL Done Count</span>
-                </div>
-                <div style={styles.metricBoxAmber} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#F59E0B' }}>{displayQcFail}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#F59E0B', textAlign: 'center' }}>QC Fail Count</span>
-                </div>
-                <div style={styles.metricBoxDarkRed} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#DC2626' }}>{displayAqlFail}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#DC2626', textAlign: 'center' }}>AQL Failed Count</span>
-                </div>
-                <div style={styles.metricBoxRed} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#EF4444' }}>{displayTotalFail}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#EF4444', textAlign: 'center' }}>Total Fail Count</span>
-                </div>
-              </div>
 
-              {/* Row 2 Metrics (2 items) */}
-              <div style={styles.metricsRow2} className="op-metrics-row2">
-                <div style={styles.metricBoxEmerald} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#059669' }}>{displayAqlPass}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>AQL Pass Count</span>
+                {/* Pre-QC */}
+                <div style={{ ...styles.metricBoxGreen, backgroundColor: 'rgba(20, 184, 166, 0.12)', borderColor: 'rgba(20, 184, 166, 0.3)' }} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.preQcPassedCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.preQcFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#14B8A6', textAlign: 'center' }}>Pre-QC</span>
                 </div>
-                <div style={styles.metricBoxYellow} className="op-metric-box">
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#D97706' }}>{displayPendingPack}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#D97706', textAlign: 'center' }}>Pending Pack Count</span>
+
+                {/* QC Test */}
+                <div style={styles.metricBoxGreen} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.qcPassedCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.qcFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981', textAlign: 'center' }}>QC Test</span>
+                </div>
+
+                {/* Packing */}
+                <div style={styles.metricBoxBlue} className="op-metric-box">
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: '15px', fontWeight: 800, color: '#3B82F6', whiteSpace: 'nowrap' }}>Pack: {opStats.packedCount}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#60A5FA', whiteSpace: 'nowrap' }}>Rem: {opStats.pendingPackCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#3B82F6', textAlign: 'center', marginTop: '2px' }}>Packing</span>
+                </div>
+
+                {/* Normal AQL */}
+                <div style={styles.metricBoxPurple} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.aqlPassCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.aqlFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#8B5CF6', textAlign: 'center' }}>Normal AQL</span>
+                </div>
+
+                {/* Final AQL */}
+                <div style={styles.metricBoxEmerald} className="op-metric-box">
+                  <div style={{ display: 'flex', gap: '8px', fontSize: '15px', fontWeight: 800 }}>
+                    <span style={{ color: '#10B981', whiteSpace: 'nowrap' }}>P: {opStats.finalAqlPassCount}</span>
+                    <span style={{ color: '#EF4444', whiteSpace: 'nowrap' }}>F: {opStats.finalAqlFailedCount}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#059669', textAlign: 'center' }}>Final AQL</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 4 Operation Action Tiles */}
+          {/* Operation Action Tiles */}
           <div>
             <h4 style={styles.sectionHeader}>Operations</h4>
             <div className="op-ops-grid-2x2" style={styles.opsGrid}>
+              {/* Pre QC */}
+              {selectedOps.includes('Pre QC') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileTeal}
+                  onClick={() => handleOpClick('Pre QC', '/operator/pre-qc')}
+                >
+                  <div style={styles.opIconTeal}>
+                    <ScanLine size={26} color="var(--primary-teal)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>Pre QC</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Validate product barcode against PO configuration
+                    </span>
+                  </div>
+                </button>
+              )}
+
               {/* QC Test */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTileGreen}
-                onClick={() => handleOpClick('QC Test', '/operator/qc')}
-              >
-                <div style={styles.opIconGreen}>
-                  <CheckCircle2 size={26} color="var(--color-green)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>QC Test</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Inspect product quality & validate barcode ranges
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('QC Test') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileGreen}
+                  onClick={() => handleOpClick('QC Test', '/operator/qc')}
+                >
+                  <div style={styles.opIconGreen}>
+                    <CheckCircle2 size={26} color="var(--color-green)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>QC Test</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Inspect product quality & validate barcode ranges
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* Packing */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTileBlue}
-                onClick={() => handleOpClick('Packing', '/operator/packing')}
-              >
-                <div style={styles.opIconBlue}>
-                  <Package size={26} color="var(--color-blue)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>Packing</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Pack passed items into box & seal shipping cartons
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('Packing') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileBlue}
+                  onClick={() => handleOpClick('Packing', '/operator/packing')}
+                >
+                  <div style={styles.opIconBlue}>
+                    <Package size={26} color="var(--color-blue)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>Packing</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Pack passed items into box & seal shipping cartons
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* AQL Checker */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTilePurple}
-                onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
-              >
-                <div style={styles.opIconPurple}>
-                  <Search size={26} color="var(--color-purple)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>AQL Checker</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Perform AQL sample audits on sealed boxes
-                  </span>
-                </div>
-              </button>
+              {(selectedOps.includes('AQL Checker') || selectedOps.includes('AQL')) && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTilePurple}
+                  onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
+                >
+                  <div style={styles.opIconPurple}>
+                    <Search size={26} color="var(--color-purple)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>AQL Checker</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Perform Normal AQL sample audits on sealed boxes
+                    </span>
+                  </div>
+                </button>
+              )}
+
+              {/* FINAL AQL */}
+              {(selectedOps.includes('FINAL AQL') || selectedOps.includes('FINAL_AQL') || selectedOps.includes('Final AQL')) && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileTeal}
+                  onClick={() => handleOpClick('FINAL AQL', '/operator/final-aql/box')}
+                >
+                  <div style={styles.opIconTeal}>
+                    <Search size={26} color="var(--primary-teal)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>FINAL AQL</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Perform Final AQL inspection on packed boxes
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* Box Transfer */}
-              <button
-                className="op-card-interactive"
-                style={styles.opTileOrange}
-                onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
-              >
-                <div style={styles.opIconOrange}>
-                  <ArrowLeftRight size={26} color="var(--color-orange)" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <span style={styles.opTitle}>Box Transfer</span>
-                  <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Transfer completed boxes to warehouse shipping
-                  </span>
-                </div>
-              </button>
+              {selectedOps.includes('Box Transfer') && (
+                <button
+                  className="op-card-interactive"
+                  style={styles.opTileOrange}
+                  onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
+                >
+                  <div style={styles.opIconOrange}>
+                    <ArrowLeftRight size={26} color="var(--color-orange)" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <span style={styles.opTitle}>Box Transfer</span>
+                    <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Transfer completed boxes to warehouse shipping
+                    </span>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -509,116 +639,19 @@ export const OperatorHome: React.FC = () => {
         </div>
       )}
 
-      {/* ── 2-Step PO → SO Selection Modal ───────────────────── */}
+      {/* ── Production Order Selection Modal ───────────────────── */}
       {pendingOperation && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {!selectedPoForModal ? 'Step 1: Select Production Order (PO)' : 'Step 2: Select Sales Order (SO)'}
-                </h3>
-                <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-                  For {pendingOperation.name} {!selectedPoForModal ? '' : `• PO: ${selectedPoForModal.id}`}
-                </span>
-              </div>
-              <button style={styles.closeBtn} onClick={() => { setPendingOperation(null); setSelectedPoForModal(null); }}>
-                <X size={20} color="var(--text-secondary)" />
-              </button>
-            </div>
-
-            {/* Step 1: List POs */}
-            {!selectedPoForModal ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '360px', overflowY: 'auto' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                  Assigned Production Orders ({productionOrders.length})
-                </span>
-                {productionOrders.map(p => {
-                  const isCurrentActivePo = po?.id === p.id;
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() => setSelectedPoForModal(p)}
-                      style={{
-                        backgroundColor: isCurrentActivePo ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-2)',
-                        border: `1.5px solid ${isCurrentActivePo ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                        borderRadius: '12px',
-                        padding: '14px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-                            {p.id}
-                          </span>
-                          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                            • {p.customer}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                          Contains {p.salesOrders.length} Sales Order(s) • {p.remarks}
-                        </div>
-                      </div>
-                      <ChevronRight size={22} color="var(--primary-teal)" />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* Step 2: List SOs for selected PO */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '360px', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                    Sales Orders in {selectedPoForModal.id} ({selectedPoForModal.salesOrders.length})
-                  </span>
-                  <button
-                    onClick={() => setSelectedPoForModal(null)}
-                    style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary-teal)', textDecoration: 'underline' }}
-                  >
-                    ← Change PO
-                  </button>
-                </div>
-
-                {selectedPoForModal.salesOrders.map(s => {
-                  const isCurrentActiveSo = po?.id === selectedPoForModal.id && so?.id === s.id;
-                  return (
-                    <div
-                      key={s.id}
-                      onClick={() => handleSelectSoJob(s)}
-                      style={{
-                        backgroundColor: isCurrentActiveSo ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-2)',
-                        border: `1.5px solid ${isCurrentActiveSo ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                        borderRadius: '12px',
-                        padding: '14px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                            {s.product}
-                          </span>
-                          {isCurrentActiveSo && <StatusPill label="Active" variant="teal" />}
-                        </div>
-                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          <span style={{ color: 'var(--primary-teal)', fontWeight: 700 }}>{s.id}</span> • {s.colour} ({s.sizeRange}) • Qty: {s.quantity}
-                        </div>
-                      </div>
-                      <ChevronRight size={22} color="var(--primary-teal)" />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <SelectPOForOperation
+          operationName={pendingOperation.name as any}
+          isModal={true}
+          onClose={() => setPendingOperation(null)}
+          onSelectPo={(selectedPo) => {
+            setActiveJob({ productionOrder: selectedPo });
+            const targetRoute = pendingOperation.route;
+            setPendingOperation(null);
+            navigate(targetRoute);
+          }}
+        />
       )}
     </div>
   );
@@ -780,6 +813,26 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     gap: '12px'
+  },
+  opTileTeal: {
+    height: '110px',
+    borderRadius: '18px',
+    backgroundColor: 'rgba(22, 184, 174, 0.08)',
+    border: '1px solid rgba(22, 184, 174, 0.25)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px'
+  },
+  opIconTeal: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   opTileGreen: {
     height: '110px',

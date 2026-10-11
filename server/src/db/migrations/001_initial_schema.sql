@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS styles (
 CREATE TABLE IF NOT EXISTS production_orders (
   id VARCHAR(191) PRIMARY KEY,
   po_number VARCHAR(191) UNIQUE NOT NULL,
+  po_name VARCHAR(191) NULL,
   map_po VARCHAR(191) NOT NULL,
   customer VARCHAR(191) NOT NULL,
   style_id VARCHAR(191) NULL,
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS production_orders (
   created_at DATETIME(3) NOT NULL,
   updated_at DATETIME(3) NOT NULL,
   INDEX idx_po_number (po_number),
+  INDEX idx_po_name (po_name),
   INDEX idx_po_style (style_id),
   FOREIGN KEY (style_id) REFERENCES styles(id) ON DELETE SET NULL,
   FOREIGN KEY (supervisor_id) REFERENCES users(id) ON DELETE SET NULL
@@ -128,14 +130,18 @@ CREATE TABLE IF NOT EXISTS operator_work_assignments (
 
 CREATE TABLE IF NOT EXISTS item_units (
   id VARCHAR(191) PRIMARY KEY,
-  qr_code VARCHAR(191) UNIQUE NOT NULL,
-  sales_order_id VARCHAR(191) NOT NULL,
+  qr_code VARCHAR(191) NOT NULL,
+  sales_order_id VARCHAR(191) NULL,
+  production_order_id VARCHAR(191) NULL,
+  product_config_id VARCHAR(191) NULL,
   size VARCHAR(50) NOT NULL,
   status VARCHAR(50) NOT NULL,
   created_at DATETIME(3) NOT NULL,
   updated_at DATETIME(3) NOT NULL,
   INDEX idx_item_qr (qr_code),
   INDEX idx_item_so (sales_order_id),
+  INDEX idx_item_po (production_order_id),
+  UNIQUE KEY uq_item_po_qr (production_order_id, qr_code),
   FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

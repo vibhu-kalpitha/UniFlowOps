@@ -111,7 +111,7 @@ export const SelectStylePage: React.FC = () => {
         <div style={wizardStyles.stepDivider} />
         <div style={wizardStyles.stepInactive}>
           <span style={wizardStyles.stepNumInactive}>3</span>
-          <span>Sales Orders</span>
+          <span>Product Configurations</span>
         </div>
       </div>
 

@@ -65,7 +65,7 @@ export const LoginPage: React.FC = () => {
                 <path d="M12 10L3.5 15.5a1.5 1.5 0 0 0 .7 2.8h15.6a1.5 1.5 0 0 0 .7-2.8L12 10z" />
               </svg>
             </div>
-            <h1 style={styles.title}>UniFlow <span style={{ color: '#22D3C5' }}>Ops</span></h1>
+            <h1 style={styles.title}>UniFlow</h1>
             <p style={styles.subtitle}>UNIT FLOW OPERATOR</p>
           </div>
 

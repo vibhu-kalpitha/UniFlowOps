@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
-import { Building, Layers, Shirt, Package, Wifi, Lock, Settings, Shield, LogOut, ChevronRight, X } from 'lucide-react';
+import { Building, Layers, Shirt, Package, Wifi, Lock, Settings, Shield, LogOut, ChevronRight, X, User } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const AdminMore: React.FC = () => {
   const navigate = useNavigate();
-  const { logoutUser, showToast } = useApp();
+  const { currentRole, logoutUser, showToast } = useApp();
 
   const [activeModal, setActiveModal] = useState<string | null>(null);
 
@@ -30,6 +30,26 @@ export const AdminMore: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <h2 style={{ fontSize: '20px', fontWeight: 800 }}>System Settings & More</h2>
+
+      {/* Quick Navigation Links */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '8px' }}>
+        <button className="btn-secondary" onClick={() => navigate('/admin/users')}>
+          <User size={16} style={{ marginRight: '6px' }} /> Users
+        </button>
+        <button className="btn-secondary" onClick={() => navigate('/admin/reports')}>
+          <Package size={16} style={{ marginRight: '6px' }} /> Reports
+        </button>
+        {currentRole === 'supervisor' && (
+          <>
+            <button className="btn-secondary" onClick={() => navigate('/supervisor/shifts')}>
+              <Building size={16} style={{ marginRight: '6px' }} /> Shift Roster
+            </button>
+            <button className="btn-secondary" onClick={() => navigate('/supervisor/profile')}>
+              <User size={16} style={{ marginRight: '6px' }} /> Profile
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Settings Grid */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

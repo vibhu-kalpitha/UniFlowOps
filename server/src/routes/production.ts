@@ -6,17 +6,42 @@ import { auditLog } from '../middleware/errorHandler.js';
 
 const router = ExpressRouter();
 
-// Styles API
-
 // GET /api/production/styles (or /api/styles)
 router.get('/styles', authenticateToken, async (req, res, next) => {
   try {
-    const styles = await db.prepare(`SELECT * FROM styles ORDER BY code ASC`).all();
+    let styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
+    if (styles.length === 0) {
+      const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
+      await db.execute(`
+        INSERT INTO styles (id, code, name, customer, season, created_at, updated_at)
+        VALUES 
+          ('style-biotab-2', 'ST-BIOTAB-2', 'BioTab 2 Style', 'BioTab Healthcare', '2026', ?, ?),
+          ('style-beacon', 'ST-BEACON', 'Beacon Style', 'Beacon Medical', '2026', ?, ?)
+      `, [now, now, now, now]);
+      styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
+    }
     return res.json(styles);
   } catch (err) {
     next(err);
   }
 });
+
+// GET /api/operators — List all active operators (for supervisor PO & shift management)
+router.get('/operators', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req, res, next) => {
+  try {
+    const operators = await db.prepare(`
+      SELECT id, full_name, username, employee_no
+      FROM users
+      WHERE role = 'OPERATOR' AND active = 1
+      ORDER BY full_name ASC
+    `).all();
+    return res.json(operators);
+  } catch (err) {
+    next(err);
+  }
+});
+
+
 
 const createStyleSchema = z.object({
   code: z.string().min(1),
@@ -51,10 +76,11 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
 });
 
 // Helper to map DB PO to API contract
-async function formatProductionOrder(po: any, reqUser?: AuthUser) {
+export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   const opsRows = await db.prepare(`SELECT operation FROM production_order_operations WHERE production_order_id = ?`).all(po.id) as any[];
-  const selectedOperations = opsRows.map(r => {
+  let selectedOperations = opsRows.map(r => {
     switch (r.operation) {
+      case 'PRE_QC': return 'Pre QC';
       case 'QC_TEST': return 'QC Test';
       case 'PACKING': return 'Packing';
       case 'AQL': return 'AQL Checker';
@@ -63,160 +89,247 @@ async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     }
   });
 
+  if (selectedOperations.length === 0 && po.operations) {
+    try {
+      const parsed = typeof po.operations === 'string' ? JSON.parse(po.operations) : po.operations;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        selectedOperations = parsed.map((op: string) => {
+          if (op === 'PRE_QC' || op === 'PREQC') return 'Pre QC';
+          if (op === 'QC_TEST' || op === 'QC') return 'QC Test';
+          if (op === 'PACKING' || op === 'PACK') return 'Packing';
+          if (op === 'AQL' || op === 'AQL_CHECKER') return 'AQL Checker';
+          if (op === 'BOX_TRANSFER') return 'Box Transfer';
+          return op;
+        });
+      }
+    } catch (e) {}
+  }
+
+  if (selectedOperations.length === 0) {
+    selectedOperations = ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'];
+  }
+
   const style = po.style_id ? await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(po.style_id) as any : null;
 
-  let soQuery = `
-    SELECT so.*, pl.name as line_name, s.name as shift_name
-    FROM sales_orders so
-    LEFT JOIN production_lines pl ON pl.id = so.line_id
-    LEFT JOIN shifts s ON s.id = so.shift_id
-    WHERE so.production_order_id = ?
-  `;
-  const soRows = await db.prepare(soQuery).all(po.id) as any[];
+  // Strictly enforce Operator Visibility Rule using operator_work_assignments
+  if (reqUser && reqUser.role === 'OPERATOR') {
+    const totalAssignments = await db.prepare(`
+      SELECT COUNT(*) as cnt FROM operator_work_assignments
+      WHERE (operator_id = ? OR operator_id = ?) AND active = 1
+    `).get(reqUser.id, reqUser.username || reqUser.id) as any;
 
-  const salesOrders = (await Promise.all(soRows.map(async so => {
-    // Strictly enforce Operator Visibility Rule using operator_work_assignments ONLY
-    if (reqUser && reqUser.role === 'OPERATOR') {
+    if (totalAssignments && totalAssignments.cnt > 0) {
       const isAllocated = await db.prepare(`
         SELECT COUNT(*) as cnt FROM operator_work_assignments
-        WHERE sales_order_id = ? AND operator_id = ? AND active = 1
-      `).get(so.id, reqUser.id) as any;
+        WHERE (production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+          AND (operator_id = ? OR operator_id = ?) AND active = 1
+      `).get(po.id, po.id, reqUser.id, reqUser.username || reqUser.id) as any;
 
       if (!isAllocated || isAllocated.cnt === 0) {
         return null;
       }
     }
+  }
 
-    // Progress metrics
-    const qcPassedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
-      JOIN item_units iu ON iu.id = qr.item_id
-      WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
-    `).get(so.id) as any;
-    const qcPassed = qcPassedRow?.cnt || 0;
+  // Load PO Product Configurations
+  const configRows = await db.prepare(`
+    SELECT * FROM production_order_configs WHERE production_order_id = ? ORDER BY config_code ASC
+  `).all(po.id) as any[];
 
-    const qcFailedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log qf
-      JOIN item_units iu ON iu.id = qf.item_id
-      WHERE iu.sales_order_id = ?
-    `).get(so.id) as any;
-    const qcFailed = qcFailedRow?.cnt || 0;
+  const productConfigurations = configRows.map(c => ({
+    id: c.id,
+    productionOrderId: c.production_order_id,
+    configCode: c.config_code,
+    productType: c.product_type || undefined,
+    size: c.size || undefined,
+    productQrPrefix: c.product_qr_prefix,
+    productSerialStart: Number(c.product_serial_start),
+    productSerialEnd: Number(c.product_serial_end),
+    quantity: c.quantity
+  }));
 
-    const packedRow = await db.prepare(`
-      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
-      JOIN boxes b ON b.id = bi.box_id
-      WHERE b.sales_order_id = ? AND bi.active = 1
-    `).get(so.id) as any;
-    const packed = packedRow?.cnt || 0;
+  // Load PO Box Configurations
+  const boxConfigRows = await db.prepare(`
+    SELECT * FROM production_order_box_configs WHERE production_order_id = ? ORDER BY prefix ASC, size ASC
+  `).all(po.id) as any[];
 
-    const aqlPassedRow = await db.prepare(`
-      SELECT COUNT(*) as cnt FROM aql_inspections ai
-      JOIN boxes b ON b.id = ai.box_id
-      WHERE b.sales_order_id = ? AND ai.result = 'PASSED'
-    `).get(so.id) as any;
-    const aqlPassed = aqlPassedRow?.cnt || 0;
+  const boxConfigurations = boxConfigRows.map(c => ({
+    id: c.id,
+    productionOrderId: c.production_order_id,
+    prefix: c.prefix,
+    size: c.size,
+    capacity: Number(c.capacity)
+  }));
 
-    const allocations = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
-      FROM operator_work_assignments owa
-      JOIN users u ON u.id = owa.operator_id
-      LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id) as any[];
+  const totalQuantity = productConfigurations.length > 0
+    ? productConfigurations.reduce((sum, c) => sum + c.quantity, 0)
+    : 0;
 
-    const shifts = allocations.map(m => ({
-      id: m.id,
-      salesOrderId: so.id,
-      workerId: m.operator_id,
-      workerName: m.operator_name,
-      shiftId: m.shift_id,
-      shiftName: m.shift_name,
-      operation: m.operation || 'ALL',
-      date: new Date().toISOString().split('T')[0],
-      enabledOperations: [m.operation || 'ALL']
-    }));
+  // QC Test Mode
+  let qcTestMode: string = 'QC & Test';
+  if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
+  else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
 
-    return {
-      id: so.so_number,
-      dbId: so.id,
-      mapSo: so.map_so,
-      product: so.product,
-      styleCode: so.style_code,
-      colour: so.colour,
-      sizeRange: so.size_range,
-      quantity: so.order_quantity,
-      lineId: so.line_name || 'Line 04',
-      shiftId: so.shift_id,
-      shiftName: so.shift_name,
-      boxCapacity: so.box_capacity,
-      productQrPrefix: so.product_qr_prefix || undefined,
-      productSerialStart: so.product_serial_start != null ? Number(so.product_serial_start) : undefined,
-      productSerialEnd: so.product_serial_end != null ? Number(so.product_serial_end) : undefined,
-      allocations,
-      shifts,
-      progress: {
-        qcPassed,
-        qcFailed,
-        testPassed: qcPassed,
-        testFailed: qcFailed,
-        packed,
-        aqlPassed,
-        aqlFailed: 0,
-        issuesCount: qcFailed,
-        status: so.status
-      }
-    };
-  }))).filter(Boolean);
+  const qcStationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
+
+  // Load PO-level allocations
+  const poAllocations = await db.prepare(`
+    SELECT owa.id, owa.production_order_id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+    FROM operator_work_assignments owa
+    JOIN users u ON u.id = owa.operator_id
+    LEFT JOIN shifts s ON s.id = owa.shift_id
+    WHERE (owa.production_order_id = ? OR owa.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND owa.active = 1
+  `).all(po.id, po.id) as any[];
+
+  const shifts = poAllocations.map(m => ({
+    id: m.id,
+    productionOrderId: po.id,
+    salesOrderId: m.sales_order_id || undefined,
+    workerId: m.operator_id,
+    workerName: m.operator_name,
+    shiftId: m.shift_id,
+    shiftName: m.shift_name,
+    operation: m.operation || 'ALL',
+    date: new Date().toISOString().split('T')[0],
+    enabledOperations: [m.operation || 'ALL']
+  }));
+
+  // Aggregated progress metrics
+  const qcPassedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+    JOIN item_units iu ON iu.id = qr.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+  `).get(po.id, po.id) as any;
+  const qcPassed = qcPassedRow?.cnt || 0;
+
+  const qcFailedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT item_id) as cnt FROM qc_fail_log qf
+    JOIN item_units iu ON iu.id = qf.item_id
+    WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+      AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
+  `).get(po.id, po.id) as any;
+  const qcFailed = qcFailedRow?.cnt || 0;
+
+  const packedRow = await db.prepare(`
+    SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+    JOIN boxes b ON b.id = bi.box_id
+    LEFT JOIN item_units iu ON iu.id = bi.item_id
+    WHERE (
+      b.production_order_id = ? 
+      OR iu.production_order_id = ?
+      OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+    ) AND bi.active = 1
+  `).get(po.id, po.id, po.id, po.id) as any;
+  const packed = packedRow?.cnt || 0;
+
+  const aqlPassedRow = await db.prepare(`
+    SELECT COUNT(*) as cnt FROM aql_inspections ai
+    LEFT JOIN boxes b ON (b.id = ai.box_id OR UPPER(TRIM(b.box_code)) = UPPER(TRIM(ai.box_id)) OR UPPER(TRIM(b.box_number)) = UPPER(TRIM(ai.box_id)))
+    WHERE (
+      ai.production_order_id = ? 
+      OR b.production_order_id = ? 
+      OR ai.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+    ) AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+  `).get(po.id, po.id, po.id, po.id) as any;
+  const aqlPassed = aqlPassedRow?.cnt || 0;
+
+  // Legacy SO rows if present
+  const soRows = await db.prepare(`
+    SELECT so.*, pl.name as line_name, s.name as shift_name
+    FROM sales_orders so
+    LEFT JOIN production_lines pl ON pl.id = so.line_id
+    LEFT JOIN shifts s ON s.id = so.shift_id
+    WHERE so.production_order_id = ?
+  `).all(po.id) as any[];
+
+  const salesOrders = soRows.map(so => ({
+    id: so.so_number,
+    dbId: so.id,
+    mapSo: so.map_so,
+    product: so.product,
+    styleCode: so.style_code,
+    colour: so.colour,
+    sizeRange: so.size_range,
+    quantity: so.order_quantity,
+    lineId: so.line_name || 'Line 04',
+    shiftId: so.shift_id,
+    shiftName: so.shift_name,
+    boxCapacity: so.box_capacity,
+    productQrPrefix: so.product_qr_prefix || undefined,
+    productSerialStart: so.product_serial_start != null ? Number(so.product_serial_start) : undefined,
+    productSerialEnd: so.product_serial_end != null ? Number(so.product_serial_end) : undefined,
+    progress: {
+      qcPassed,
+      qcFailed,
+      testPassed: qcPassed,
+      testFailed: qcFailed,
+      packed,
+      aqlPassed,
+      aqlFailed: 0,
+      issuesCount: qcFailed,
+      status: so.status
+    }
+  }));
+
+  const calcTotalQty = totalQuantity || (salesOrders.reduce((sum, s) => sum + (s.quantity || 0), 0)) || 1000;
+
+  const shiftRow = po.shift_id ? await db.prepare(`SELECT * FROM shifts WHERE id = ? OR code = ?`).get(po.shift_id, po.shift_id) as any : null;
+  const resolvedShiftId = po.shift_id || shiftRow?.id || (shifts[0]?.shiftId || undefined);
+  const resolvedShiftName = shiftRow?.name || (shifts[0]?.shiftName || undefined);
+  const resolvedShiftCode = shiftRow?.code || undefined;
 
   return {
     id: po.po_number,
     dbId: po.id,
+    poName: po.po_name || po.poName || undefined,
     mapPo: po.map_po,
-    customer: po.customer,
+    customer: po.customer || 'Factory Customer',
     styleId: style ? style.id : null,
-    styleCode: style ? style.code : ((salesOrders[0] as any)?.styleCode || 'ST-900'),
+    styleCode: style ? style.code : 'ST-900',
     styleName: style ? style.name : 'Standard Style',
     startDate: po.start_date,
     dueDate: po.due_date,
     supervisorId: po.supervisor_id,
-    remarks: po.remarks,
+    shiftId: resolvedShiftId,
+    shiftCode: resolvedShiftCode,
+    shiftName: resolvedShiftName,
+    remarks: po.remarks || '',
     status: po.status === 'CURRENT' ? 'Current' : po.status === 'COMPLETED' ? 'Completed' : 'Draft',
     selectedOperations,
+    qcTestMode,
+    qcStationCount,
+    qc_station_count: qcStationCount,
+    stationCount: qcStationCount,
+    productConfigurations,
+    boxConfigurations,
+    totalQuantity: calcTotalQty,
+    allocations: poAllocations,
+    shifts,
+    progress: {
+      qcPassed,
+      qcFailed,
+      testPassed: qcPassed,
+      testFailed: qcFailed,
+      packed,
+      aqlPassed,
+      aqlFailed: 0,
+      issuesCount: qcFailed,
+      status: po.status === 'CURRENT' ? 'In Progress' : po.status
+    },
     salesOrders
   };
 }
 
 export async function checkQrRangeOverlap(
-  prefix: string,
-  start: number,
-  end: number,
-  excludeSoId?: string
-): Promise<{ overlap: boolean; overlappingSoNumber?: string }> {
-  if (!prefix || start == null || end == null) return { overlap: false };
-  const normPrefix = prefix.trim().toUpperCase();
-
-  let query = `
-    SELECT id, so_number, product_qr_prefix, product_serial_start, product_serial_end 
-    FROM sales_orders 
-    WHERE UPPER(TRIM(product_qr_prefix)) = ? AND product_serial_start IS NOT NULL AND product_serial_end IS NOT NULL
-  `;
-  const params: any[] = [normPrefix];
-  if (excludeSoId) {
-    query += ` AND id != ? AND so_number != ?`;
-    params.push(excludeSoId, excludeSoId);
-  }
-
-  const existingRows = await db.prepare(query).all(...params) as any[];
-
-  for (const r of existingRows) {
-    const existStart = Number(r.product_serial_start);
-    const existEnd = Number(r.product_serial_end);
-
-    if (Math.max(start, existStart) <= Math.min(end, existEnd)) {
-      return { overlap: true, overlappingSoNumber: r.so_number || r.id };
-    }
-  }
-
+  _prefix: string,
+  _start: number,
+  _end: number,
+  _excludePoId?: string
+): Promise<{ overlap: boolean; overlappingPoNumber?: string }> {
+  // Range overlap checking has been completely removed per business requirements.
   return { overlap: false };
 }
 
@@ -233,7 +346,7 @@ router.get('/production-orders', authenticateToken, async (req: AuthRequest, res
       if (role === 'SUPERVISOR' || role === 'ADMIN') {
         return true;
       }
-      return po.salesOrders && po.salesOrders.length > 0;
+      return true;
     });
 
     return res.json(orders);
@@ -256,106 +369,28 @@ router.get('/production-orders/:id', authenticateToken, async (req: AuthRequest,
   }
 });
 
-const addSoStandaloneSchema = z.object({
-  id: z.string().optional(),
-  soNumber: z.string().optional(),
-  mapSo: z.string().optional(),
-  product: z.string().optional(),
-  styleCode: z.string().optional(),
-  colour: z.string().optional(),
-  sizeRange: z.string().optional(),
-  quantity: z.number().optional(),
-  orderQuantity: z.number().optional(),
-  lineId: z.string().optional(),
-  shiftId: z.string().optional(),
-  boxCapacity: z.number().optional(),
+const createPoProductConfigSchema = z.object({
+  configCode: z.string().min(1),
+  productType: z.string().optional(),
+  size: z.string().optional(),
   productQrPrefix: z.string().optional(),
-  product_qr_prefix: z.string().optional(),
   productSerialStart: z.number().optional(),
-  product_serial_start: z.number().optional(),
   productSerialEnd: z.number().optional(),
-  product_serial_end: z.number().optional()
+  quantity: z.number().optional()
 });
 
-// POST /api/production-orders/:id/sales-orders (SUPERVISOR / ADMIN)
-router.post('/production-orders/:id/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
-  try {
-    const poParam = req.params.id;
-    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
-    if (!po) {
-      return res.status(404).json({ error: 'PO_NOT_FOUND', message: `Parent Production Order '${poParam}' not found` });
-    }
-
-    const body = addSoStandaloneSchema.parse(req.body);
-    const soNumber = body.soNumber || body.id || `SO-${Math.floor(77000 + Math.random() * 9999)}`;
-    const mapSo = body.mapSo || `MAP-${soNumber}`;
-    const soDbId = `so-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-
-    let lineId = 'line-04';
-    if (body.lineId === 'Line 01' || body.lineId === 'line-01') lineId = 'line-01';
-    else if (body.lineId === 'Line 02' || body.lineId === 'line-02') lineId = 'line-02';
-    else if (body.lineId === 'Line 03' || body.lineId === 'line-03') lineId = 'line-03';
-
-    const shiftId = body.shiftId || 'shift-c';
-    const qty = body.orderQuantity || body.quantity || 1000;
-
-    const prefix = body.productQrPrefix || body.product_qr_prefix || null;
-    const start = body.productSerialStart != null ? Number(body.productSerialStart) : (body.product_serial_start != null ? Number(body.product_serial_start) : null);
-    const end = body.productSerialEnd != null ? Number(body.productSerialEnd) : (body.product_serial_end != null ? Number(body.product_serial_end) : null);
-
-    if (prefix && start != null && end != null) {
-      if (start > end) {
-        return res.status(400).json({ error: 'INVALID_QR_RANGE', message: 'Product Serial Start cannot be greater than Product Serial End' });
-      }
-      if ((end - start + 1) < qty) {
-        return res.status(400).json({ error: 'INSUFFICIENT_QR_RANGE', message: `Product serial range (${end - start + 1}) must cover at least order quantity (${qty}).` });
-      }
-      const overlapRes = await checkQrRangeOverlap(prefix, start, end, soNumber);
-      if (overlapRes.overlap) {
-        return res.status(409).json({ error: 'QR_RANGE_OVERLAP', message: `Product QR range overlaps with existing Sales Order ${overlapRes.overlappingSoNumber}.` });
-      }
-    }
-
-    await db.prepare(`
-      INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
-    `).run(
-      soDbId,
-      po.id,
-      soNumber,
-      mapSo,
-      body.product || 'Garment Product',
-      body.styleCode || 'ST-900',
-      body.colour || 'Black',
-      body.sizeRange || 'S - XL',
-      qty,
-      lineId,
-      shiftId,
-      body.boxCapacity || 12,
-      prefix ? prefix.trim().toUpperCase() : null,
-      start,
-      end
-    );
-
-    await auditLog(req.user!.id, 'CREATE_SO', 'sales_orders', soDbId, { poId: po.id, soNumber });
-
-    const updatedPo = await formatProductionOrder(po, req.user);
-    return res.status(201).json({
-      message: `Sales Order ${soNumber} attached to PO ${po.po_number}`,
-      soDbId,
-      soNumber,
-      parentPoId: po.id,
-      productionOrder: updatedPo
-    });
-  } catch (err) {
-    next(err);
-  }
+const createPoBoxConfigSchema = z.object({
+  prefix: z.string().min(1),
+  size: z.string().min(1),
+  capacity: z.number().int().positive()
 });
 
 const createPoSchema = z.object({
   id: z.string().min(1),
+  poName: z.string().optional(),
+  po_name: z.string().optional(),
   mapPo: z.string().min(1),
-  customer: z.string().min(1),
+  customer: z.string().optional(),
   styleId: z.string().optional(),
   style_id: z.string().optional(),
   styleCode: z.string().optional(),
@@ -366,14 +401,25 @@ const createPoSchema = z.object({
   remarks: z.string().optional(),
   status: z.enum(['Current', 'Completed', 'Draft']).optional(),
   selectedOperations: z.array(z.string()),
+  qcTestMode: z.string().optional(),
+  qcStationCount: z.union([z.number(), z.string()]).optional(),
+  qc_station_count: z.union([z.number(), z.string()]).optional(),
+  stationCount: z.union([z.number(), z.string()]).optional(),
+  shiftId: z.string().optional(),
+  shift_id: z.string().optional(),
+  productConfigurations: z.array(createPoProductConfigSchema).optional(),
+  boxConfigurations: z.array(createPoBoxConfigSchema).optional(),
+  shifts: z.array(z.any()).optional(),
+  allocations: z.array(z.any()).optional(),
   salesOrders: z.array(z.any()).optional()
 });
 
-async function syncSalesOrderAllocations(
+async function syncPoAllocations(
   tx: any,
-  soDbId: string,
+  poDbId: string,
   requestedAssignments: any[],
-  assignedByUserId: string
+  assignedByUserId: string,
+  fallbackOperations?: string[]
 ) {
   if (!requestedAssignments || !Array.isArray(requestedAssignments) || requestedAssignments.length === 0) return;
 
@@ -394,42 +440,82 @@ async function syncSalesOrderAllocations(
       SELECT id FROM shifts WHERE id = ? OR code = ? OR name = ?
     `).get(rawShift, rawShift, rawShift) as any;
 
-    const shiftId = shiftRow ? shiftRow.id : 'shift-c';
-    const operation = item.operation || (Array.isArray(item.enabledOperations) ? item.enabledOperations[0] : 'ALL') || 'ALL';
+    const shiftId = shiftRow ? shiftRow.id : rawShift;
 
-    activeOpAssignments.push({
-      operatorId: opUser.id,
-      shiftId,
-      operation
-    });
+    // Build list of operations for this allocation
+    // If the item has enabledOperations array, expand each one; else use single operation or fallback
+    const rawOpsArray: string[] = Array.isArray(item.enabledOperations) && item.enabledOperations.length > 0
+      ? item.enabledOperations
+      : item.operation
+        ? [item.operation]
+        : fallbackOperations || ['ALL'];
+
+    // Map frontend operation names to DB codes
+    for (const opName of rawOpsArray) {
+      let opCode = opName;
+      if (opName === 'Pre QC' || opName === 'PRE_QC') opCode = 'PRE_QC';
+      else if (opName === 'QC Test' || opName === 'QC_TEST' || opName === 'QC') opCode = 'QC_TEST';
+      else if (opName === 'Packing' || opName === 'PACKING') opCode = 'PACKING';
+      else if (opName === 'AQL Checker' || opName === 'AQL' || opName === 'Normal AQL') opCode = 'AQL';
+      else if (opName === 'FINAL AQL' || opName === 'Final AQL' || opName === 'FINAL_AQL') opCode = 'FINAL_AQL';
+      else if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') opCode = 'BOX_TRANSFER';
+
+      activeOpAssignments.push({ operatorId: opUser.id, shiftId, operation: opCode });
+    }
   }
 
-  const activeOpIds = activeOpAssignments.map(a => a.operatorId);
+  const activeOpIds = [...new Set(activeOpAssignments.map(a => a.operatorId))];
 
   if (activeOpIds.length > 0) {
     const placeholders = activeOpIds.map(() => '?').join(',');
     await tx.prepare(`
       UPDATE operator_work_assignments 
       SET active = 0, updated_at = NOW(3)
-      WHERE sales_order_id = ? AND active = 1 AND operator_id NOT IN (${placeholders})
-    `).run(soDbId, ...activeOpIds);
+      WHERE production_order_id = ? AND active = 1 AND operator_id NOT IN (${placeholders})
+    `).run(poDbId, ...activeOpIds);
   } else {
     await tx.prepare(`
       UPDATE operator_work_assignments 
       SET active = 0, updated_at = NOW(3)
-      WHERE sales_order_id = ? AND active = 1
-    `).run(soDbId);
+      WHERE production_order_id = ? AND active = 1
+    `).run(poDbId);
   }
 
   for (const assign of activeOpAssignments) {
-    const owaId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    await tx.prepare(`
-      INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
-      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
-    `).run(owaId, soDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
+    const existing = await tx.prepare(`
+      SELECT id FROM operator_work_assignments 
+      WHERE production_order_id = ? AND operator_id = ? AND operation = ?
+    `).get(poDbId, assign.operatorId, assign.operation) as any;
+
+    if (existing) {
+      await tx.prepare(`
+        UPDATE operator_work_assignments 
+        SET shift_id = ?, active = 1, updated_at = NOW(3)
+        WHERE id = ?
+      `).run(assign.shiftId, existing.id);
+    } else {
+      const owaId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      await tx.prepare(`
+        INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
+        ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
+      `).run(owaId, poDbId, assign.shiftId, assign.operatorId, assign.operation, assignedByUserId);
+    }
+  }
+
+  for (const opId of activeOpIds) {
+    const activeOpsForUser = activeOpAssignments.filter(a => a.operatorId === opId).map(a => a.operation);
+    if (activeOpsForUser.length > 0) {
+      const ph = activeOpsForUser.map(() => '?').join(',');
+      await tx.prepare(`
+        UPDATE operator_work_assignments
+        SET active = 0, updated_at = NOW(3)
+        WHERE production_order_id = ? AND operator_id = ? AND active = 1 AND operation NOT IN (${ph})
+      `).run(poDbId, opId, ...activeOpsForUser);
+    }
   }
 }
+
 
 // POST /api/production-orders (SUPERVISOR / ADMIN)
 router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
@@ -454,93 +540,78 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
       });
     }
 
-    if (body.salesOrders && body.salesOrders.length > 0) {
-      for (const so of body.salesOrders) {
-        const prefix = so.productQrPrefix || so.product_qr_prefix;
-        const start = so.productSerialStart != null ? Number(so.productSerialStart) : (so.product_serial_start != null ? Number(so.product_serial_start) : null);
-        const end = so.productSerialEnd != null ? Number(so.productSerialEnd) : (so.product_serial_end != null ? Number(so.product_serial_end) : null);
-        const qty = so.quantity || so.orderQuantity || 1;
+    // QC Test Mode format mapping
+    let dbQcTestMode = 'QC_AND_TEST';
+    if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
+    else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
-        if (prefix && start != null && end != null) {
-          if (start > end) {
-            return res.status(400).json({
-              error: 'INVALID_QR_RANGE',
-              message: `Product Serial Start (${start}) cannot be greater than Product Serial End (${end}) for Sales Order ${so.id || so.soNumber}.`
-            });
-          }
-          const rangeCount = end - start + 1;
-          if (rangeCount < qty) {
-            return res.status(400).json({
-              error: 'INSUFFICIENT_QR_RANGE',
-              message: `Product serial range (${rangeCount}) must cover at least order quantity (${qty}) for Sales Order ${so.id || so.soNumber}.`
-            });
-          }
-          const overlapRes = await checkQrRangeOverlap(prefix, start, end, so.id || so.soNumber);
-          if (overlapRes.overlap) {
-            return res.status(409).json({
-              error: 'QR_RANGE_OVERLAP',
-              message: `Product QR range overlaps with existing Sales Order ${overlapRes.overlappingSoNumber}.`
-            });
-          }
-        }
-      }
+    const rawStationCount = (req.body as any)?.qcStationCount ?? (req.body as any)?.qc_station_count ?? (req.body as any)?.stationCount ?? body.qcStationCount ?? body.qc_station_count ?? body.stationCount;
+    const dbQcStationCount = Number(rawStationCount) === 1 ? 1 : 2;
+
+    const rawShiftId = body.shiftId || body.shift_id;
+    let poShiftId: string | null = null;
+    if (rawShiftId) {
+      const shiftRow = await db.prepare(`SELECT id FROM shifts WHERE id = ? OR code = ? OR name = ?`).get(rawShiftId, rawShiftId, rawShiftId) as any;
+      poShiftId = shiftRow ? shiftRow.id : rawShiftId;
     }
+
+    const poNameVal = (body.poName || body.po_name || '').trim() || null;
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, map_po, customer, style_id, start_date, due_date, supervisor_id, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, body.mapPo, body.customer, styleId, body.startDate, body.dueDate, req.user!.id, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, qc_station_count, shift_id, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, dbQcStationCount, poShiftId, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
-        let code = 'QC_TEST';
-        if (opStr === 'Packing') code = 'PACKING';
+        let code = opStr;
+        if (opStr === 'Pre QC') code = 'PRE_QC';
+        else if (opStr === 'QC Test') code = 'QC_TEST';
+        else if (opStr === 'Packing') code = 'PACKING';
         else if (opStr === 'AQL Checker') code = 'AQL';
         else if (opStr === 'Box Transfer') code = 'BOX_TRANSFER';
         await tx.prepare(`INSERT INTO production_order_operations (production_order_id, operation) VALUES (?, ?)`).run(poDbId, code);
       }
 
-      if (body.salesOrders && body.salesOrders.length > 0) {
-        for (const so of body.salesOrders) {
-          const soDbId = `so-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-          let lineId = 'line-04';
-          if (so.lineId === 'Line 01') lineId = 'line-01';
-          else if (so.lineId === 'Line 02') lineId = 'line-02';
-          else if (so.lineId === 'Line 03') lineId = 'line-03';
-
-          let shiftId = 'shift-c';
-          if (so.shiftId) shiftId = so.shiftId;
-
-          const prefix = so.productQrPrefix || so.product_qr_prefix || null;
-          const start = so.productSerialStart != null ? Number(so.productSerialStart) : (so.product_serial_start != null ? Number(so.product_serial_start) : null);
-          const end = so.productSerialEnd != null ? Number(so.productSerialEnd) : (so.product_serial_end != null ? Number(so.product_serial_end) : null);
+      if (body.productConfigurations && body.productConfigurations.length > 0) {
+        for (const config of body.productConfigurations) {
+          const cfgAny = config as any;
+          const pocId = `poc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+          const code = (config.configCode || cfgAny.config_code || 'CONFIG-1').trim().toUpperCase();
+          const pType = config.productType || cfgAny.product_type || null;
+          const sz = config.size || null;
+          const qty = Number(config.quantity) || 100;
+          const prefix = config.productQrPrefix ? config.productQrPrefix.trim().toUpperCase() : code;
+          const start = config.productSerialStart != null && !isNaN(Number(config.productSerialStart)) ? Number(config.productSerialStart) : 1;
+          const end = config.productSerialEnd != null && !isNaN(Number(config.productSerialEnd)) ? Number(config.productSerialEnd) : qty;
 
           await tx.prepare(`
-            INSERT INTO sales_orders (id, production_order_id, so_number, map_so, product, style_code, colour, size_range, order_quantity, line_id, shift_id, box_capacity, product_qr_prefix, product_serial_start, product_serial_end, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'In Progress', NOW(3), NOW(3))
-          `).run(
-            soDbId,
-            poDbId,
-            so.id,
-            so.mapSo,
-            so.product || 'Garment Product',
-            body.styleCode || so.styleCode || 'ST-900',
-            so.colour || 'Black',
-            so.sizeRange || 'S - XL',
-            so.quantity || 1000,
-            lineId,
-            shiftId,
-            so.boxCapacity || 12,
-            prefix ? prefix.trim().toUpperCase() : null,
-            start,
-            end
-          );
-
-          // Persist operator assignments to operator_work_assignments for THIS SO
-          const assignmentsToSync = so.shifts || so.allocations || so.operators || [];
-          await syncSalesOrderAllocations(tx, soDbId, assignmentsToSync, req.user!.id);
+            INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, product_qr_prefix, product_serial_start, product_serial_end, quantity, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+          `).run(pocId, poDbId, code, pType, sz, prefix, start, end, qty);
         }
       }
+
+      if (body.boxConfigurations && body.boxConfigurations.length > 0) {
+        for (const bCfg of body.boxConfigurations) {
+          const pbcId = `pbc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+          const prefix = (bCfg.prefix || 'BX').trim().toUpperCase();
+          const size = (bCfg.size || '').trim().toUpperCase();
+          const capacity = Number(bCfg.capacity) || 12;
+
+          await tx.prepare(`
+            INSERT INTO production_order_box_configs (id, production_order_id, prefix, size, capacity, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3))
+            ON DUPLICATE KEY UPDATE capacity = VALUES(capacity), updated_at = NOW(3)
+          `).run(pbcId, poDbId, prefix, size, capacity);
+        }
+      }
+
+      // Sync PO shift allocations
+      const assignmentsToSync = (body.allocations && Array.isArray(body.allocations) && body.allocations.length > 0)
+        ? body.allocations
+        : (body.shifts || []);
+      await syncPoAllocations(tx, poDbId, assignmentsToSync, req.user!.id, body.selectedOperations);
     });
 
     await auditLog(req.user!.id, 'CREATE_PO', 'production_orders', poDbId, { poNumber: body.id, styleId });
@@ -553,23 +624,21 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
   }
 });
 
-// Sales Order Operator Allocation endpoints using ONLY operator_work_assignments
-
-const allocSchema = z.object({
+// POST /api/production-orders/:id/allocations
+const poAllocSchema = z.object({
   operatorId: z.string().min(1),
   shiftId: z.string().min(1),
   operation: z.string().optional()
 });
 
-// POST /api/production/sales-orders/:id/allocations
-router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+router.post('/production-orders/:id/allocations', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
-    const soParam = req.params.id;
-    const { operatorId, shiftId, operation } = allocSchema.parse(req.body);
+    const poParam = req.params.id;
+    const { operatorId, shiftId, operation } = poAllocSchema.parse(req.body);
 
-    const so = await db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
-    if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    const po = await db.prepare(`SELECT id, po_number FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
     const opUser = await db.prepare(`SELECT id, full_name FROM users WHERE (id = ? OR username = ?) AND role = 'OPERATOR'`).get(operatorId, operatorId) as any;
@@ -580,27 +649,46 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
     const shift = await db.prepare(`SELECT id FROM shifts WHERE id = ? OR code = ?`).get(shiftId, shiftId) as any;
     const targetShiftId = shift ? shift.id : shiftId;
 
-    const workAssignId = `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    let targetOp = operation || 'ALL';
+    if (targetOp === 'AQL Checker' || targetOp === 'Normal AQL' || targetOp === 'NORMAL_AQL') targetOp = 'AQL';
+    else if (targetOp === 'FINAL AQL' || targetOp === 'Final AQL') targetOp = 'FINAL_AQL';
+    else if (targetOp === 'QC Test' || targetOp === 'QC') targetOp = 'QC_TEST';
+    else if (targetOp === 'Pre QC' || targetOp === 'PREQC') targetOp = 'PRE_QC';
+    else if (targetOp === 'Packing' || targetOp === 'PACK') targetOp = 'PACKING';
 
-    await db.prepare(`
-      INSERT INTO operator_work_assignments (id, sales_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
-      ON DUPLICATE KEY UPDATE shift_id = VALUES(shift_id), active = 1, updated_at = NOW(3)
-    `).run(workAssignId, so.id, targetShiftId, opUser.id, operation || 'ALL', req.user!.id);
+    const existingAlloc = await db.prepare(`
+      SELECT * FROM operator_work_assignments 
+      WHERE production_order_id = ? AND operator_id = ? AND UPPER(TRIM(operation)) = UPPER(TRIM(?))
+    `).get(po.id, opUser.id, targetOp) as any;
 
-    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR', 'operator_work_assignments', workAssignId, { soId: so.id, operatorId: opUser.id, shiftId: targetShiftId });
+    let workAssignId = existingAlloc ? existingAlloc.id : `owa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+
+    if (existingAlloc) {
+      await db.prepare(`
+        UPDATE operator_work_assignments 
+        SET shift_id = ?, active = 1, updated_at = NOW(3) 
+        WHERE id = ?
+      `).run(targetShiftId, existingAlloc.id);
+    } else {
+      await db.prepare(`
+        INSERT INTO operator_work_assignments (id, production_order_id, shift_id, operator_id, operation, assigned_date, source, assigned_by, active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURDATE(), 'SUPERVISOR', ?, 1, NOW(3), NOW(3))
+      `).run(workAssignId, po.id, targetShiftId, opUser.id, targetOp, req.user!.id);
+    }
+
+    await auditLog(req.user!.id, 'ALLOCATE_OPERATOR_PO', 'operator_work_assignments', workAssignId, { poId: po.id, operatorId: opUser.id, shiftId: targetShiftId, operation: targetOp });
 
     const allocs = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      SELECT owa.id, owa.production_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
       FROM operator_work_assignments owa
       JOIN users u ON u.id = owa.operator_id
       LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id);
+      WHERE owa.production_order_id = ? AND owa.active = 1
+    `).all(po.id);
 
     return res.status(201).json({
-      message: `Operator ${opUser.full_name} allocated to SO ${so.so_number}`,
-      allocation: { id: workAssignId, salesOrderId: so.id, operatorId: opUser.id, shiftId: targetShiftId },
+      message: `Operator ${opUser.full_name} allocated to PO ${po.po_number} for ${targetOp}`,
+      allocation: { id: workAssignId, productionOrderId: po.id, operatorId: opUser.id, shiftId: targetShiftId, operation: targetOp },
       allocations: allocs
     });
   } catch (err) {
@@ -608,52 +696,22 @@ router.post('/sales-orders/:id/allocations', authenticateToken, requireRole(['SU
   }
 });
 
-// POST /api/production/sales-orders/:id/allocations/sync (SUPERVISOR / ADMIN)
-router.post('/sales-orders/:id/allocations/sync', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+// GET /api/production-orders/:id/allocations
+router.get('/production-orders/:id/allocations', authenticateToken, async (req, res, next) => {
   try {
-    const soParam = req.params.id;
-    const so = await db.prepare(`SELECT id, so_number FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
-    if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
-    }
-
-    const requestedShifts = req.body.shifts || req.body.allocations || (req.body.operatorId ? [req.body] : []);
-    await syncSalesOrderAllocations(db, so.id, requestedShifts, req.user!.id);
-
-    const allocs = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
-      FROM operator_work_assignments owa
-      JOIN users u ON u.id = owa.operator_id
-      LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id);
-
-    return res.status(200).json({
-      message: `Allocations synced for SO ${so.so_number}`,
-      salesOrderId: so.id,
-      allocations: allocs
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/production/sales-orders/:id/allocations
-router.get('/sales-orders/:id/allocations', authenticateToken, async (req, res, next) => {
-  try {
-    const soParam = req.params.id;
-    const so = await db.prepare(`SELECT id FROM sales_orders WHERE id = ? OR so_number = ?`).get(soParam, soParam) as any;
-    if (!so) {
-      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    const poParam = req.params.id;
+    const po = await db.prepare(`SELECT id FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
     const allocs = await db.prepare(`
-      SELECT owa.id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
+      SELECT owa.id, owa.production_order_id, owa.sales_order_id, owa.shift_id, owa.operator_id, owa.operation, owa.assigned_by, owa.active, owa.created_at, u.full_name as operator_name, u.username as operator_username, s.name as shift_name
       FROM operator_work_assignments owa
       JOIN users u ON u.id = owa.operator_id
       LEFT JOIN shifts s ON s.id = owa.shift_id
-      WHERE owa.sales_order_id = ? AND owa.active = 1
-    `).all(so.id);
+      WHERE (owa.production_order_id = ? OR owa.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)) AND owa.active = 1
+    `).all(po.id, po.id);
 
     return res.json(allocs);
   } catch (err) {
@@ -661,8 +719,8 @@ router.get('/sales-orders/:id/allocations', authenticateToken, async (req, res, 
   }
 });
 
-// DELETE /api/production/sales-orders/:id/allocations/:allocId
-router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+// DELETE /api/production-orders/:id/allocations/:allocId
+router.delete('/production-orders/:id/allocations/:allocId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { allocId } = req.params;
 
@@ -670,6 +728,623 @@ router.delete('/sales-orders/:id/allocations/:allocId', authenticateToken, requi
     await auditLog(req.user!.id, 'DEACTIVATE_ALLOCATION', 'operator_work_assignments', allocId);
 
     return res.json({ message: 'Allocation deactivated successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── ADMIN & SUPERVISOR USER MANAGEMENT ENDPOINTS ──────────────────────────────
+// GET /api/admin/users
+router.get('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const users = await db.query(`
+      SELECT id, employee_no, username, full_name, role, active, created_at, updated_at
+      FROM users
+      ORDER BY created_at DESC
+    `);
+    const formatted = users.map((u: any) => ({
+      id: u.id,
+      employeeNo: u.employee_no || u.id,
+      username: u.username,
+      name: u.full_name,
+      role: u.role.charAt(0).toUpperCase() + u.role.slice(1).toLowerCase(),
+      lineId: u.role === 'OPERATOR' ? 'Line 04' : u.role === 'SUPERVISOR' ? 'Line 04 & 02' : 'All Lines',
+      status: u.active ? 'Active' : 'Inactive',
+      createdAt: u.created_at
+    }));
+    return res.json(formatted);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/users
+router.post('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const bcrypt = (await import('bcryptjs')).default;
+    const { username, password, role, employeeNo } = req.body;
+    const fullName = req.body.fullName || req.body.full_name || req.body.name;
+    if (!username || !password || !fullName || !role) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Username, password, name, and role are required' });
+    }
+
+    const roleUpper = role.toUpperCase();
+    if (req.user?.role === 'SUPERVISOR' && roleUpper !== 'OPERATOR') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to create Operator accounts.' });
+    }
+
+    const cleanUser = username.trim().toLowerCase();
+    const existing = await db.prepare(`SELECT id FROM users WHERE LOWER(username) = ?`).get(cleanUser);
+    if (existing) {
+      return res.status(409).json({ error: 'USER_EXISTS', message: `User @${cleanUser} already exists` });
+    }
+    const userId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const passwordHash = bcrypt.hashSync(password, 10);
+    const empNo = employeeNo || `EMP-${Date.now().toString().slice(-4)}`;
+    await db.prepare(`
+      INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3))
+    `).run(userId, empNo, cleanUser, passwordHash, fullName, roleUpper);
+    await auditLog(req.user!.id, 'CREATE_USER', 'users', userId, { username: cleanUser, role: roleUpper });
+    return res.status(201).json({ message: 'User created successfully', userId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/admin/users/:id
+router.patch('/admin/users/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { fullName, role, active } = req.body;
+    const userId = req.params.id;
+    const user = await db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as any;
+    if (!user) {
+      return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+    if (req.user?.role === 'SUPERVISOR' && user.role !== 'OPERATOR') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to manage Operator accounts.' });
+    }
+    if (fullName) await db.prepare(`UPDATE users SET full_name = ?, updated_at = NOW(3) WHERE id = ?`).run(fullName, userId);
+    if (role) {
+      const nextRoleUpper = role.toUpperCase();
+      if (req.user?.role === 'SUPERVISOR' && nextRoleUpper !== 'OPERATOR') {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'Supervisors are only authorized to assign the Operator role.' });
+      }
+      await db.prepare(`UPDATE users SET role = ?, updated_at = NOW(3) WHERE id = ?`).run(nextRoleUpper, userId);
+    }
+    if (active !== undefined) await db.prepare(`UPDATE users SET active = ?, updated_at = NOW(3) WHERE id = ?`).run(active ? 1 : 0, userId);
+    await auditLog(req.user!.id, 'UPDATE_USER', 'users', userId, { fullName, role, active });
+    return res.json({ message: 'User updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── ADMIN STYLE MANAGEMENT ENDPOINTS ──────────────────────────────
+// GET /api/admin/styles
+router.get('/admin/styles', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const styles = await db.query(`
+      SELECT s.*,
+        (SELECT COUNT(id) FROM production_orders WHERE style_id = s.id) as po_count
+      FROM styles s
+      ORDER BY s.created_at DESC
+    `);
+    return res.json(styles);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── ADMIN PRODUCTION ORDERS & QUANTITY EDITING ────────────────────
+// GET /api/admin/orders
+router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const orders = await db.query(`
+      SELECT 
+        po.id, po.po_number, po.po_name, po.customer, po.start_date, po.due_date, po.status, po.created_at,
+        s.name as style_name, s.code as style_code, u.full_name as supervisor_name,
+        (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
+        (SELECT COUNT(DISTINCT item_id) FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE (iu.production_order_id = po.id OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS') as qc_passed_count,
+        (SELECT COUNT(DISTINCT bi.item_id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id LEFT JOIN item_units iu ON iu.id = bi.item_id WHERE (b.production_order_id = po.id OR iu.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count
+      FROM production_orders po
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = po.supervisor_id
+      ORDER BY po.created_at DESC
+    `);
+
+    const formatted = orders.map((p: any) => {
+      const targetQty = Number(p.cfg_qty || p.total_quantity || 500);
+      const packed = Number(p.packed_count || 0);
+      const qcPassed = Number(p.qc_passed_count || 0);
+      const completionPct = targetQty > 0 ? Math.min(100, Math.round((packed / targetQty) * 100)) : 0;
+
+      return {
+        id: p.id,
+        poNumber: p.po_number,
+        poName: p.po_name || null,
+        styleName: p.style_name || p.style_code || 'Standard Style',
+        customer: p.customer || 'Standard',
+        supervisorName: p.supervisor_name || 'Supervisor',
+        startDate: p.start_date,
+        dueDate: p.due_date,
+        status: p.status,
+        configuredQuantity: targetQty,
+        qcPassedCount: qcPassed,
+        packedCount: packed,
+        completionPct,
+        displayName: p.style_name 
+          ? (p.po_name ? `${p.style_name} - ${p.po_name} - ${p.po_number}` : `${p.style_name} - ${p.po_number}`)
+          : (p.po_name ? `${p.po_name} - ${p.po_number}` : p.po_number)
+      };
+    });
+
+    return res.json(formatted);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/admin/orders/:id/quantity - Edit Configured Quantity with Safety Validation
+router.patch('/admin/orders/:id/quantity', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const poParam = req.params.id;
+    const { newQuantity } = req.body;
+    const qty = Number(newQuantity);
+
+    if (!qty || isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'INVALID_QUANTITY', message: 'Configured quantity must be a positive number' });
+    }
+
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    // Safety check: Verify new quantity >= already processed / packed count
+    const packedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+      JOIN boxes b ON b.id = bi.box_id
+      LEFT JOIN item_units iu ON iu.id = bi.item_id
+      WHERE (b.production_order_id = ? OR iu.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND bi.active = 1
+    `).get(po.id, po.id, po.id) as any;
+    const packedCount = Number(packedRow?.cnt || 0);
+
+    const qcRow = await db.prepare(`
+      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+      JOIN item_units iu ON iu.id = qr.item_id
+      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+    `).get(po.id, po.id) as any;
+    const qcPassedCount = Number(qcRow?.cnt || 0);
+
+    const maxProcessed = Math.max(packedCount, qcPassedCount);
+
+    if (qty < maxProcessed) {
+      return res.status(400).json({
+        error: 'QUANTITY_SAFETY_VIOLATION',
+        message: `Cannot reduce quantity to ${qty}. ${maxProcessed} items have already been processed/packed for this Production Order.`
+      });
+    }
+
+    // Fetch existing configs
+    const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
+
+    if (configs.length > 0) {
+      const oldTotal = configs.reduce((sum: number, c: any) => sum + Number(c.quantity || 0), 0);
+      const ratio = oldTotal > 0 ? qty / oldTotal : 1;
+
+      for (const cfg of configs) {
+        const updatedCfgQty = Math.max(1, Math.round(cfg.quantity * ratio));
+        await db.prepare(`UPDATE production_order_configs SET quantity = ?, updated_at = NOW(3) WHERE id = ?`).run(updatedCfgQty, cfg.id);
+      }
+    }
+
+    await db.prepare(`UPDATE production_orders SET updated_at = NOW(3) WHERE id = ?`).run(po.id);
+
+    await auditLog(req.user!.id, 'UPDATE_PO_QUANTITY', 'production_orders', po.id, {
+      poNumber: po.po_number,
+      oldQuantity: po.total_quantity || maxProcessed,
+      newQuantity: qty
+    });
+
+    return res.json({
+      message: `Updated configured quantity to ${qty} for PO ${po.po_number}`,
+      poId: po.id,
+      newQuantity: qty
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── BOX OVERVIEW ENDPOINT ──────────────────────────────────────────
+// GET /api/boxes - Query system boxes with capacity, fill count, active product QRs
+router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const { poId, styleName, search, status } = req.query as { poId?: string; styleName?: string; search?: string; status?: string };
+
+    let whereClauses: string[] = ['1=1'];
+    let params: any[] = [];
+
+    if (poId) {
+      whereClauses.push(`(b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))`);
+      params.push(poId, poId);
+    }
+    if (styleName) {
+      whereClauses.push(`(UPPER(TRIM(s.name)) = ? OR UPPER(TRIM(s.code)) = ?)`);
+      const sUpper = styleName.trim().toUpperCase();
+      params.push(sUpper, sUpper);
+    }
+    if (search) {
+      const q = `%${search.trim().toUpperCase()}%`;
+      whereClauses.push(`(UPPER(b.box_code) LIKE ? OR UPPER(b.box_number) LIKE ? OR UPPER(po.po_number) LIKE ?)`);
+      params.push(q, q, q);
+    }
+    if (status) {
+      whereClauses.push(`UPPER(TRIM(b.status)) = ?`);
+      params.push(status.trim().toUpperCase());
+    }
+
+    const boxes = await db.query(`
+      SELECT 
+        b.id, b.box_code, b.box_number, b.capacity, b.status, b.created_at, b.production_order_id,
+        po.po_number, po.po_name, s.name as style_name,
+        (SELECT COUNT(bi.id) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) as active_count
+      FROM boxes b
+      LEFT JOIN production_orders po ON po.id = b.production_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY b.created_at DESC
+      LIMIT 100
+    `, params);
+
+    const formattedBoxes = await Promise.all(boxes.map(async (b: any) => {
+      const activeItems = await db.prepare(`
+        SELECT u.id, u.qr_code, u.size, bi.packed_at, usr.full_name as packed_by_name
+        FROM box_items bi
+        JOIN item_units u ON u.id = bi.item_id
+        LEFT JOIN users usr ON usr.id = bi.packed_by
+        WHERE bi.box_id = ? AND bi.active = 1
+        ORDER BY bi.packed_at ASC
+      `).all(b.id) as any[];
+
+      const activeCount = Number(b.active_count || activeItems.length || 0);
+      const capacity = Number(b.capacity || 12);
+      const remainingCapacity = Math.max(0, capacity - activeCount);
+
+      const aqlRow = await db.prepare(`SELECT result FROM aql_inspections WHERE box_id = ? ORDER BY completed_at DESC LIMIT 1`).get(b.id) as any;
+      const transferRow = await db.prepare(`SELECT * FROM box_transfers WHERE source_box_id = ? OR destination_box_id = ? ORDER BY transferred_at DESC LIMIT 1`).get(b.id, b.id) as any;
+
+      return {
+        id: b.id,
+        boxCode: b.box_code || b.box_number,
+        boxNumber: b.box_number || b.box_code,
+        poId: b.production_order_id,
+        poNumber: b.po_number || b.production_order_id,
+        poName: b.po_name || null,
+        styleName: b.style_name || 'Standard Style',
+        capacity,
+        activeFilledCount: activeCount,
+        remainingCapacity,
+        status: b.status || (activeCount >= capacity ? 'COMPLETED' : 'OPEN'),
+        aqlStatus: aqlRow?.result || 'PENDING',
+        transferStatus: transferRow ? `Transferred (${transferRow.item_count} items)` : 'NONE',
+        items: activeItems
+      };
+    }));
+
+    return res.json(formattedBoxes);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =========================================================================
+// PRODUCT CONFIGURATION MASTER-DATA ENDPOINTS (FULLY DYNAMIC / USER-MANAGED)
+// =========================================================================
+
+// GET /api/product-config-types — List configuration types with associated sizes
+router.get('/product-config-types', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const showAll = req.query.all === '1' || req.query.all === 'true';
+    const typesQuery = showAll
+      ? `SELECT * FROM product_configuration_types ORDER BY created_at ASC`
+      : `SELECT * FROM product_configuration_types WHERE active = 1 ORDER BY created_at ASC`;
+
+    const types = await db.query<any>(typesQuery);
+
+    const result = await Promise.all(
+      types.map(async (t) => {
+        const sizesQuery = showAll
+          ? `SELECT id, configuration_type_id as configurationTypeId, size_code as sizeCode, active FROM product_configuration_sizes WHERE configuration_type_id = ? ORDER BY created_at ASC`
+          : `SELECT id, configuration_type_id as configurationTypeId, size_code as sizeCode, active FROM product_configuration_sizes WHERE configuration_type_id = ? AND active = 1 ORDER BY created_at ASC`;
+        const sizes = await db.query<any>(sizesQuery, [t.id]);
+
+        return {
+          id: t.id,
+          name: t.name,
+          prefix: t.prefix || '',
+          usesSizes: Boolean(t.uses_sizes),
+          active: Boolean(t.active),
+          createdAt: t.created_at,
+          updatedAt: t.updated_at,
+          sizes: sizes.map(s => ({
+            id: s.id,
+            configurationTypeId: s.configurationTypeId,
+            sizeCode: s.sizeCode,
+            active: Boolean(s.active)
+          }))
+        };
+      })
+    );
+
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/product-config-types — Create new Product Configuration Type (SUPERVISOR / ADMIN)
+router.post('/product-config-types', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { name, prefix, usesSizes } = req.body;
+    const cleanName = (name || '').trim();
+
+    if (!cleanName) {
+      return res.status(400).json({ error: 'NAME_REQUIRED', message: 'Configuration Type Name is required.' });
+    }
+
+    const cleanPrefix = prefix ? prefix.trim().toUpperCase() : null;
+    const usesSizesVal = usesSizes === false || usesSizes === 0 || usesSizes === 'false' ? 0 : 1;
+
+    // Check duplicate active name
+    const existing = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_types WHERE UPPER(TRIM(name)) = UPPER(TRIM(?)) AND active = 1`,
+      [cleanName]
+    );
+
+    if (existing) {
+      return res.status(400).json({
+        error: 'DUPLICATE_TYPE',
+        message: `A configuration type named '${cleanName}' already exists.`
+      });
+    }
+
+    const id = `pct-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await db.execute(
+      `INSERT INTO product_configuration_types (id, name, prefix, uses_sizes, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, NOW(3), NOW(3))`,
+      [id, cleanName, cleanPrefix, usesSizesVal]
+    );
+
+    await auditLog(req.user!.id, 'CREATE_CONFIG_TYPE', 'product_configuration_types', id, { name: cleanName, prefix: cleanPrefix, usesSizes: usesSizesVal });
+
+    return res.status(201).json({
+      id,
+      name: cleanName,
+      prefix: cleanPrefix || '',
+      usesSizes: Boolean(usesSizesVal),
+      active: true,
+      sizes: []
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/product-config-types/:id — Update Configuration Type details
+router.put('/product-config-types/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, prefix, usesSizes } = req.body;
+
+    const existingType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!existingType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    const cleanName = name ? name.trim() : existingType.name;
+    const cleanPrefix = prefix !== undefined ? (prefix ? prefix.trim().toUpperCase() : null) : existingType.prefix;
+    const usesSizesVal = usesSizes !== undefined ? (usesSizes ? 1 : 0) : existingType.uses_sizes;
+
+    // Check duplicate active name excluding this ID
+    const dup = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_types WHERE UPPER(TRIM(name)) = UPPER(TRIM(?)) AND id != ? AND active = 1`,
+      [cleanName, id]
+    );
+
+    if (dup) {
+      return res.status(400).json({
+        error: 'DUPLICATE_TYPE',
+        message: `Another active configuration type named '${cleanName}' already exists.`
+      });
+    }
+
+    await db.execute(
+      `UPDATE product_configuration_types SET name = ?, prefix = ?, uses_sizes = ?, updated_at = NOW(3) WHERE id = ?`,
+      [cleanName, cleanPrefix, usesSizesVal, id]
+    );
+
+    await auditLog(req.user!.id, 'UPDATE_CONFIG_TYPE', 'product_configuration_types', id, { name: cleanName, prefix: cleanPrefix, usesSizes: usesSizesVal });
+
+    const updated = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    const sizes = await db.query<any>(`SELECT id, configuration_type_id as configurationTypeId, size_code as sizeCode, active FROM product_configuration_sizes WHERE configuration_type_id = ? AND active = 1`, [id]);
+
+    return res.json({
+      id: updated.id,
+      name: updated.name,
+      prefix: updated.prefix || '',
+      usesSizes: Boolean(updated.uses_sizes),
+      active: Boolean(updated.active),
+      sizes: sizes.map(s => ({ id: s.id, configurationTypeId: s.configurationTypeId, sizeCode: s.sizeCode, active: Boolean(s.active) }))
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/product-config-types/:id/toggle — Activate/Deactivate Configuration Type
+router.patch('/product-config-types/:id/toggle', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+
+    const existingType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!existingType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    const newActive = active ? 1 : 0;
+    await db.execute(`UPDATE product_configuration_types SET active = ?, updated_at = NOW(3) WHERE id = ?`, [newActive, id]);
+    await auditLog(req.user!.id, newActive ? 'ACTIVATE_CONFIG_TYPE' : 'DEACTIVATE_CONFIG_TYPE', 'product_configuration_types', id, { active: newActive });
+
+    return res.json({ id, active: Boolean(newActive), message: `Configuration type ${newActive ? 'activated' : 'deactivated'}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/product-config-types/:id — Delete or Deactivate Configuration Type
+router.delete('/product-config-types/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const existingType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!existingType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    // Check if referenced in historical PO configurations
+    const usedRow = await db.queryOne<any>(
+      `SELECT COUNT(*) as cnt FROM production_order_configs WHERE UPPER(TRIM(product_type)) = UPPER(TRIM(?))`,
+      [existingType.name]
+    );
+
+    const isUsed = (usedRow?.cnt || 0) > 0;
+
+    if (isUsed) {
+      // Safely deactivate instead of deleting to protect historical production data
+      await db.execute(`UPDATE product_configuration_types SET active = 0, updated_at = NOW(3) WHERE id = ?`, [id]);
+      await auditLog(req.user!.id, 'DEACTIVATE_CONFIG_TYPE', 'product_configuration_types', id, { isUsed: true });
+      return res.json({ id, active: false, deactivated: true, message: `Configuration type '${existingType.name}' is referenced by historical PO records. It has been deactivated to preserve traceability.` });
+    }
+
+    // Unused: Safe to delete
+    await db.execute(`DELETE FROM product_configuration_sizes WHERE configuration_type_id = ?`, [id]);
+    await db.execute(`DELETE FROM product_configuration_types WHERE id = ?`, [id]);
+    await auditLog(req.user!.id, 'DELETE_CONFIG_TYPE', 'product_configuration_types', id, { deleted: true });
+
+    return res.json({ id, deleted: true, message: `Configuration type '${existingType.name}' deleted.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/product-config-types/:id/sizes — Add Size under Configuration Type
+router.post('/product-config-types/:id/sizes', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { sizeCode } = req.body;
+
+    const configType = await db.queryOne<any>(`SELECT * FROM product_configuration_types WHERE id = ?`, [id]);
+    if (!configType) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Configuration type not found.' });
+    }
+
+    const cleanSize = (sizeCode || '').trim().toUpperCase();
+    if (!cleanSize) {
+      return res.status(400).json({ error: 'SIZE_REQUIRED', message: 'Size code is required.' });
+    }
+
+    // Check duplicate active size code under THIS configuration type
+    const dup = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_sizes WHERE configuration_type_id = ? AND UPPER(TRIM(size_code)) = ? AND active = 1`,
+      [id, cleanSize]
+    );
+
+    if (dup) {
+      return res.status(400).json({
+        error: 'DUPLICATE_SIZE',
+        message: `Size '${cleanSize}' already exists for configuration type '${configType.name}'.`
+      });
+    }
+
+    const sizeId = `pcs-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    await db.execute(
+      `INSERT INTO product_configuration_sizes (id, configuration_type_id, size_code, active, created_at, updated_at)
+       VALUES (?, ?, ?, 1, NOW(3), NOW(3))`,
+      [sizeId, id, cleanSize]
+    );
+
+    await auditLog(req.user!.id, 'CREATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { configurationTypeId: id, sizeCode: cleanSize });
+
+    return res.status(201).json({
+      id: sizeId,
+      configurationTypeId: id,
+      sizeCode: cleanSize,
+      active: true
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/product-config-types/sizes/:sizeId — Update Size code
+router.put('/product-config-types/sizes/:sizeId', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { sizeId } = req.params;
+    const { sizeCode } = req.body;
+
+    const existingSize = await db.queryOne<any>(`SELECT * FROM product_configuration_sizes WHERE id = ?`, [sizeId]);
+    if (!existingSize) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Size not found.' });
+    }
+
+    const cleanSize = (sizeCode || '').trim().toUpperCase();
+    if (!cleanSize) {
+      return res.status(400).json({ error: 'SIZE_REQUIRED', message: 'Size code is required.' });
+    }
+
+    // Duplicate check under same configuration type
+    const dup = await db.queryOne<any>(
+      `SELECT * FROM product_configuration_sizes WHERE configuration_type_id = ? AND UPPER(TRIM(size_code)) = ? AND id != ? AND active = 1`,
+      [existingSize.configuration_type_id, cleanSize, sizeId]
+    );
+
+    if (dup) {
+      return res.status(400).json({
+        error: 'DUPLICATE_SIZE',
+        message: `Size '${cleanSize}' already exists for this configuration type.`
+      });
+    }
+
+    await db.execute(`UPDATE product_configuration_sizes SET size_code = ?, updated_at = NOW(3) WHERE id = ?`, [cleanSize, sizeId]);
+    await auditLog(req.user!.id, 'UPDATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { sizeCode: cleanSize });
+
+    return res.json({ id: sizeId, configurationTypeId: existingSize.configuration_type_id, sizeCode: cleanSize, active: Boolean(existingSize.active) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/product-config-types/sizes/:sizeId/toggle — Activate/Deactivate Size
+router.patch('/product-config-types/sizes/:sizeId/toggle', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const { sizeId } = req.params;
+    const { active } = req.body;
+
+    const existingSize = await db.queryOne<any>(`SELECT * FROM product_configuration_sizes WHERE id = ?`, [sizeId]);
+    if (!existingSize) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Size not found.' });
+    }
+
+    const newActive = active ? 1 : 0;
+    await db.execute(`UPDATE product_configuration_sizes SET active = ?, updated_at = NOW(3) WHERE id = ?`, [newActive, sizeId]);
+    await auditLog(req.user!.id, newActive ? 'ACTIVATE_CONFIG_SIZE' : 'DEACTIVATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { active: newActive });
+
+    return res.json({ id: sizeId, active: Boolean(newActive), message: `Size ${newActive ? 'activated' : 'deactivated'}` });
   } catch (err) {
     next(err);
   }

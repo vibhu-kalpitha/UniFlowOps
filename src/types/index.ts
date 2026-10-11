@@ -10,13 +10,54 @@ export interface User {
   avatarInitials: string;
 }
 
-export type OperationType = 'QC Test' | 'Packing' | 'AQL Checker' | 'Box Transfer';
+export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
+
+export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only';
+
+export interface ProductConfigSizeMaster {
+  id: string;
+  configurationTypeId: string;
+  sizeCode: string;
+  active: boolean;
+}
+
+export interface ProductConfigTypeMaster {
+  id: string;
+  name: string;
+  prefix: string;
+  usesSizes: boolean;
+  active: boolean;
+  sizes: ProductConfigSizeMaster[];
+}
+
+export interface ProductConfiguration {
+  id?: string;
+  configCode: string;         // e.g. PNFLSS, PNFLSM, 009735535
+  productType?: string;       // e.g. LEG, CORE, BEACON, CUSTOM
+  size?: string;              // e.g. SS, SM, SL, TS, TM, TL, TXL
+  productQrPrefix: string;    // e.g. PNFLSS0926
+  productSerialStart: number; // e.g. 1
+  productSerialEnd: number;   // e.g. 500
+  quantity: number;           // Auto calculated e.g. 500
+}
+
+export interface PoBoxConfiguration {
+  id?: string;
+  productionOrderId?: string;
+  prefix: string;
+  size: string;
+  capacity: number;
+}
 
 export interface ShiftAssignment {
   id: string;
-  salesOrderId: string;
+  productionOrderId?: string;
+  salesOrderId?: string;
   workerId: string;
   workerName: string;
+  shiftId?: string;
+  shiftName?: string;
+  operation?: string;
   startTime: string; // e.g. "14:00"
   endTime: string;   // e.g. "18:00"
   date: string;      // e.g. "2026-09-14"
@@ -54,24 +95,51 @@ export interface SalesOrder {
   progress: SalesOrderProgress;
 }
 
+export interface ProductionOrderProgress {
+  qcPassed: number;
+  qcFailed: number;
+  testPassed: number;
+  testFailed: number;
+  packed: number;
+  aqlPassed: number;
+  aqlFailed: number;
+  issuesCount: number;
+  status: string;
+}
+
 export interface ProductionOrder {
   id: string;                  // e.g. PO-2026-0184
   dbId?: string;
+  poNumber?: string;
+  poName?: string;
   mapPo: string;               // Free text e.g. MAP-PO-44821
   customer: string;            // e.g. Nike
+  styleId?: string | null;
+  styleCode?: string;
+  styleName?: string;
   startDate: string;           // e.g. 2026-09-10
   dueDate: string;             // e.g. 2026-09-25
   supervisorId: string;        // e.g. Nimal Perera
   remarks?: string;
   status: 'Current' | 'Completed' | 'Draft';
   selectedOperations: OperationType[];
-  salesOrders: SalesOrder[];
+  qcTestMode?: QcTestMode;
+  qcStationCount?: 1 | 2;
+  qc_station_count?: number;
+  productConfigurations?: ProductConfiguration[];
+  boxConfigurations?: PoBoxConfiguration[];
+  totalQuantity?: number;
+  shifts?: ShiftAssignment[];
+  allocations?: any[];
+  progress?: ProductionOrderProgress;
+  salesOrders?: SalesOrder[];
 }
 
 export interface ActiveJob {
   productionOrder: ProductionOrder;
-  salesOrder: SalesOrder;
-  shift: ShiftAssignment;
+  shift?: ShiftAssignment;
+  salesOrder?: SalesOrder;
+  config?: ProductConfiguration;
 }
 
 export interface BoxItem {
@@ -102,7 +170,8 @@ export interface AQLSession {
   currentSampleIndex: number;
   samples: AQLSampleResult[];
   status: 'BOX_SCAN' | 'SAMPLE_SCAN' | 'RESULT';
-  overallResult?: 'PASSED' | 'FAILED';
+  overallResult?: 'PASSED' | 'FAILED' | 'IN_PROGRESS';
+  stage?: 'AQL' | 'FINAL_AQL';
   inspectionId?: string;
   boxItems?: string[];
 }

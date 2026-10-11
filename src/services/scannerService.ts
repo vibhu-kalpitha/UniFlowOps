@@ -22,9 +22,9 @@ class ScannerService {
     this.listeners.forEach(cb => cb(barcode));
   }
 
-  public generateMockItemQR(): string {
+  public generateMockItemQR(prefix: string = 'ITEM'): string {
     const randomDigits = Math.floor(100000000 + Math.random() * 900000000);
-    return `PNFLS09${randomDigits.toString().substring(0, 8)}`;
+    return `${prefix}${randomDigits.toString().substring(0, 8)}`;
   }
 
   public generateMockBoxQR(): string {

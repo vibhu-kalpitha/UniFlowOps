@@ -231,6 +231,16 @@ button:disabled {
   box-shadow: 0 0 0 2px rgba(22, 184, 174, 0.2);
 }
 
+/* Hide number input spinners while preserving keyboard entry */
+.no-spinner::-webkit-inner-spin-button,
+.no-spinner::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinner {
+  -moz-appearance: textfield;
+}
+
 .select-field {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238EABB0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
@@ -274,9 +284,6 @@ button:disabled {
 /* ── Mobile Operator Home Responsive Enhancements (<= 640px) ──────────────── */
 @media (max-width: 640px) {
   .op-metrics-wrapper {
-    display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 6px !important;
     margin-top: 10px !important;
     padding-top: 10px !important;
     border-top: 1px solid var(--border-color) !important;
@@ -313,5 +320,117 @@ button:disabled {
     height: 88px !important;
     padding: 10px !important;
     gap: 6px !important;
+  }
+}
+
+/* ── RESPONSIVE TABLE PATTERN ────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .responsive-table {
+    display: block !important;
+    width: 100% !important;
+  }
+  .responsive-table thead, .responsive-table tbody, .responsive-table th, .responsive-table td, .responsive-table tr {
+    display: block !important;
+  }
+  .responsive-table thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+  .responsive-table tr {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background-color: var(--bg-surface-2);
+  }
+  .responsive-table td {
+    border: none !important;
+    position: relative;
+    padding: 8px 0 8px 45% !important;
+    text-align: right !important;
+    min-height: 32px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .responsive-table td:before {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    width: 40%;
+    text-align: left;
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+  }
+}
+
+/* ── Operator Home Mobile Layout ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .op-metrics-wrapper > div {
+    display: grid !important;
+    width: 100% !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+}
+
+/* ── Operator Shared Top Banner ──────────────────────────────────────────── */
+.op-top-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .op-top-banner {
+    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .op-top-banner > div:first-child {
+    width: 100%;
+  }
+  .op-top-banner > div:last-child {
+    width: 100%;
+    justify-content: space-between;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border-color);
+  }
+}
+
+
+/* ── Dashboard Sidebar Layout ────────────────────────────────────────── */
+.dashboard-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.dashboard-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dashboard-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-layout {
+    flex-direction: column;
+  }
+  .dashboard-sidebar {
+    width: 100%;
   }
 }

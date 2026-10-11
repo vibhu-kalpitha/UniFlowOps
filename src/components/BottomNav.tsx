@@ -64,7 +64,6 @@ export const BottomNav: React.FC = () => {
   }
 
   if (currentRole === 'supervisor') {
-    // Supervisor has exactly 4 items and NO Scan button
     return (
       <nav className="bottom-nav-bar" style={styles.navBar}>
         <button
@@ -75,8 +74,10 @@ export const BottomNav: React.FC = () => {
           <span>Home</span>
         </button>
 
+
+
         <button
-          style={isActive('/supervisor/orders') ? styles.navItemActive : styles.navItem}
+          style={isActive('/supervisor/orders') || isActive('/admin/orders') ? styles.navItemActive : styles.navItem}
           onClick={() => navigate('/supervisor/orders')}
         >
           <ClipboardList size={20} />
@@ -84,7 +85,7 @@ export const BottomNav: React.FC = () => {
         </button>
 
         <button
-          style={isActive('/supervisor/alerts') ? styles.navItemActive : styles.navItem}
+          style={isActive('/supervisor/alerts') || isActive('/admin/alerts') ? styles.navItemActive : styles.navItem}
           onClick={() => navigate('/supervisor/alerts')}
         >
           <div style={{ position: 'relative' }}>
@@ -95,11 +96,11 @@ export const BottomNav: React.FC = () => {
         </button>
 
         <button
-          style={isActive('/supervisor/profile') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/supervisor/profile')}
+          style={isActive('/admin/more') ? styles.navItemActive : styles.navItem}
+          onClick={() => navigate('/admin/more')}
         >
-          <User size={20} />
-          <span>Profile</span>
+          <Menu size={20} />
+          <span>More</span>
         </button>
       </nav>
     );

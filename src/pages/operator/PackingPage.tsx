@@ -5,9 +5,11 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
-import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine } from 'lucide-react';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
+import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
+import { formatPoDisplayName } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 interface BoxItem {
@@ -16,6 +18,7 @@ interface BoxItem {
 }
 
 interface ActiveBox {
+  boxId?: string;
   boxNumber: string;
   capacity: number;
   soId: string;
@@ -25,33 +28,169 @@ interface ActiveBox {
 
 export const PackingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { activeJob, packingBoxes, savePackingBox, incrementPacked, showToast } = useApp();
+  const { activeJob, setActiveJob, packingBoxes, savePackingBox, incrementPacked, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
   const so = activeJob?.salesOrder;
 
-  const targetSoQty = so?.quantity || 10;
-  const packedQty = so?.progress?.packed || 0;
-  const remainingPackQty = Math.max(0, targetSoQty - packedQty);
+  const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
+
+  const initialTarget = po?.totalQuantity || 500;
+  const initialPacked = po?.progress?.packed || 0;
+
+  const [packProgress, setPackProgress] = useState<{
+    loading: boolean;
+    targetQuantity: number;
+    packedCount: number;
+    remainingToPack: number;
+    totalFailCount: number;
+    operatorStats: {
+      operatorName: string;
+      packedCount: number;
+      failCount: number;
+    };
+  }>({
+    loading: true,
+    targetQuantity: initialTarget,
+    packedCount: initialPacked,
+    remainingToPack: Math.max(0, initialTarget - initialPacked),
+    totalFailCount: po?.progress?.qcFailed || 0,
+    operatorStats: {
+      operatorName: 'Operator',
+      packedCount: initialPacked,
+      failCount: 0
+    }
+  });
+
+  const fetchPackingProgress = async () => {
+    if (!po) return;
+    const targetPoKey = po.dbId || po.id;
+    try {
+      const res = await apiFetch(`/api/packing/progress/${targetPoKey}`);
+      if (res && typeof res.packedCount === 'number') {
+        setPackProgress({
+          loading: false,
+          targetQuantity: res.targetQuantity || po.totalQuantity || 500,
+          packedCount: res.packedCount,
+          remainingToPack: res.remainingToPack,
+          totalFailCount: res.totalFailCount || 0,
+          operatorStats: {
+            operatorName: res.operatorStats?.operatorName || 'Operator',
+            packedCount: typeof res.operatorStats?.packedCount === 'number' ? res.operatorStats.packedCount : 0,
+            failCount: typeof res.operatorStats?.failCount === 'number' ? res.operatorStats.failCount : 0
+          }
+        });
+      }
+    } catch {
+      setPackProgress(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  React.useEffect(() => {
+    setBox(null);
+    if (po) {
+      const target = po.totalQuantity || 500;
+      const packed = po.progress?.packed || 0;
+      setPackProgress(prev => ({
+        ...prev,
+        targetQuantity: target,
+        packedCount: packed,
+        remainingToPack: Math.max(0, target - packed)
+      }));
+      fetchPackingProgress();
+    }
+  }, [po?.dbId, po?.id]);
+
+  const targetSoQty = packProgress.targetQuantity || po?.totalQuantity || 500;
+  const packedQty = packProgress.packedCount;
+  const remainingPackQty = packProgress.remainingToPack;
 
   // Phase 1: scan box QR
   const [box, setBox] = useState<ActiveBox | null>(null);
   const [showFinishModal, setShowFinishModal] = useState(false);
 
   /* ── Phase 1: Box barcode scan ─────────────────────────────── */
-  const handleScanBox = async (code: string) => {
-    const newBox: ActiveBox = {
-      boxNumber: code,
-      capacity:  so?.boxCapacity || 12,
-      soId:      so?.id || 'SO-77201',
-      status:    'OPEN',
-      items:     [],
+  const handleScanBox = async (rawCode: string) => {
+    const code = rawCode.trim().toUpperCase();
+    const poDbId = po?.dbId || po?.id;
+    const poDisplayNumber = po?.id || (po as any)?.poNumber;
+    const currentPoId = poDbId || poDisplayNumber;
+
+    const isMatchingPo = (b: any) => {
+      if (!b) return false;
+      const boxPo = b.productionOrderId || b.poId;
+      if (!boxPo) return false;
+      return (
+        (poDbId && boxPo === poDbId) ||
+        (poDisplayNumber && boxPo === poDisplayNumber)
+      );
     };
-    setBox(newBox);
-    savePackingBox(newBox);
+
+    const poKey = currentPoId ? `${currentPoId}_${code}` : code;
+    const rawLocalBox = packingBoxes[poKey] || Object.values(packingBoxes).find((b: any) => 
+      b.boxNumber?.toUpperCase() === code && isMatchingPo(b)
+    );
+    const localBox = isMatchingPo(rawLocalBox) ? rawLocalBox : null;
+
+    let dbItems: BoxItem[] = [];
+    let dbStatus = 'OPEN';
+    let dbCapacity = so?.boxCapacity || 12;
+    let apiBoxId: string | undefined = undefined;
+    let isApiSuccess = false;
+
+    try {
+      const targetPoKey = currentPoId || '';
+      const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
+      if (res && res.box) {
+        isApiSuccess = true;
+        apiBoxId = res.box.id;
+        dbCapacity = res.box.capacity || dbCapacity;
+        dbStatus = res.box.status || 'OPEN';
+        if (Array.isArray(res.box.items)) {
+          dbItems = res.box.items.map((i: any) => {
+            const timeStr = i.packed_at ? new Date(i.packed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '06:51';
+            return {
+              qr: i.qr_code || i.qr,
+              scannedAt: timeStr
+            };
+          });
+        }
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      showToast(errMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: errMsg,
+        code,
+      };
+    }
+
+    // When API succeeds, the API response is authoritative for box items on the active PO.
+    // Only fall back to localBox items when offline or API call failed.
+    const finalItems: BoxItem[] = isApiSuccess ? dbItems : (localBox?.items || []);
+    const isCompleted = finalItems.length >= dbCapacity || dbStatus === 'COMPLETE' || dbStatus === 'COMPLETED';
+
+    const loadedBox: ActiveBox & { productionOrderId?: string } = {
+      boxId: apiBoxId || (localBox as any)?.boxId,
+      boxNumber: code,
+      capacity: dbCapacity,
+      soId: so?.id || 'SO-77201',
+      productionOrderId: currentPoId,
+      status: isCompleted ? 'COMPLETED' : 'OPEN',
+      items: finalItems,
+    };
+
+    setBox(loadedBox as any);
+    savePackingBox(loadedBox as any);
+    await fetchPackingProgress();
+
+    const count = finalItems.length;
     return {
-      status:  'accepted' as const,
-      message: `📦 Box ${code} activated — now scan products to pack.`,
+      status: 'accepted' as const,
+      message: count > 0
+        ? `📦 Box ${code} loaded with ${count} existing items.`
+        : `📦 Box ${code} activated — now scan products to pack.`,
       code,
     };
   };
@@ -68,60 +207,78 @@ export const PackingPage: React.FC = () => {
       };
     }
 
-    // Duplicate check inside active box or ANY packed box
-    const packedInBox: any = Object.values(packingBoxes).find((b: any) =>
-      b.items?.some((i: any) => i.qr.toUpperCase() === code.trim().toUpperCase())
-    );
-    if (packedInBox) {
-      return {
-        status:  'duplicate' as const,
-        message: `⚠️ Item ${code} is ALREADY PACKED in Box ${packedInBox.boxNumber}!`,
-        code,
-      };
-    }
 
-    if (box.items.some(i => i.qr.toUpperCase() === code.trim().toUpperCase())) {
-      return {
-        status:  'duplicate' as const,
-        message: `⚠️ Item ${code} is ALREADY PACKED in this Box (${box.boxNumber})!`,
-        code,
-      };
-    }
 
+    let scanRes: any = null;
     // Try API
     try {
-      await apiFetch('/api/packing/items/scan', {
+      scanRes = await apiFetch('/api/packing/items/scan', {
         method: 'POST',
         body: JSON.stringify({
-          boxNumber:      box.boxNumber,
-          itemQr:         code,
-          salesOrderNumber: so?.id || 'SO-77201',
+          boxId:                  box.boxId,
+          boxNumber:              box.boxNumber,
+          itemQr:                 code,
+          productionOrderId:     po?.dbId || po?.id,
+          productionOrderNumber: po?.id || 'PO-2026-0184',
         }),
       });
-    } catch (err: any) {
-      if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED')) {
+      if (scanRes?.isDuplicate) {
         return {
-          status:  'duplicate' as const,
-          message: `⚠️ Item ${code} is ALREADY PACKED in the database!`,
+          status: 'duplicate' as const,
+          message: `⚠️ ${scanRes.message}`,
           code,
         };
       }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (err.message?.includes('already packed') || err.message?.includes('ALREADY_PACKED') || err.error === 'ALREADY_PACKED') {
+        return {
+          status:  'duplicate' as const,
+          message: `⚠️ ${errMsg}`,
+          code,
+        };
+      }
+      showToast(errMsg, 'error');
+      return {
+        status: 'rejected' as const,
+        message: errMsg,
+        code,
+      };
     }
 
+    const currentPoId = po?.id || po?.dbId;
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
     const updatedItems = [{ qr: code, scannedAt: timeStr }, ...box.items];
     const isFull = updatedItems.length >= box.capacity;
 
-    const updatedBox: ActiveBox = {
+    const updatedBox: ActiveBox & { productionOrderId?: string } = {
       ...box,
+      productionOrderId: currentPoId,
       items:  updatedItems,
       status: isFull ? 'COMPLETED' : 'OPEN',
     };
 
-    setBox(updatedBox);
-    savePackingBox(updatedBox);
+    setBox(updatedBox as any);
+    savePackingBox(updatedBox as any);
     incrementPacked();
+
+    if (scanRes?.progress) {
+      setPackProgress({
+        loading: false,
+        targetQuantity: scanRes.progress.targetQuantity,
+        packedCount: scanRes.progress.packedCount,
+        remainingToPack: scanRes.progress.remainingToPack,
+        totalFailCount: scanRes.progress.totalFailCount || 0,
+        operatorStats: {
+          operatorName: scanRes.progress.operatorStats?.operatorName || 'Operator',
+          packedCount: typeof scanRes.progress.operatorStats?.packedCount === 'number' ? scanRes.progress.operatorStats.packedCount : 0,
+          failCount: typeof scanRes.progress.operatorStats?.failCount === 'number' ? scanRes.progress.operatorStats.failCount : 0
+        }
+      });
+    } else {
+      await fetchPackingProgress();
+    }
 
     return {
       status:  'accepted' as const,
@@ -140,6 +297,7 @@ export const PackingPage: React.FC = () => {
     } catch { /* offline */ }
     const completed = { ...box, status: 'COMPLETED' as const };
     savePackingBox(completed);
+    await fetchPackingProgress();
     showToast(`📦 Box ${box.boxNumber} sealed & saved!`, 'success');
     setShowFinishModal(true);
   };
@@ -153,33 +311,62 @@ export const PackingPage: React.FC = () => {
 
   const isFull = box ? box.items.length >= box.capacity : false;
 
+  if (!po || showPoSelector) {
+    return (
+      <div className="workflow-container">
+        <SelectPOForOperation
+          operationName="Packing"
+          isModal={true}
+          selectedPoId={po?.id || po?.dbId}
+          onClose={po ? () => setShowPoSelector(false) : undefined}
+          onSelectPo={(selectedPo) => {
+            setBox(null);
+            setActiveJob({ productionOrder: selectedPo });
+            setShowPoSelector(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* PO/SO Banner */}
+      {/* PO Banner */}
       <div style={styles.banner}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="op-top-banner">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <FileText size={20} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
-                Packing Station • {po?.id || 'PO-2026-904'} | {so?.id || 'SO-77201'}
+                Packing Station • {formatPoDisplayName(po)}
               </h3>
               <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {so?.product || 'Garment'} — {so?.colour || '—'}
-                {so?.productQrPrefix && so?.productSerialStart != null && so?.productSerialEnd != null && (
-                  <span style={{ marginLeft: '8px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-                    • Product Range: {so.productQrPrefix}{so.productSerialStart} → {so.productQrPrefix}{so.productSerialEnd}
-                  </span>
-                )}
+                Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <CheckCircle2 size={16} color="var(--color-green)" />
-            <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
-              Scanner Ready
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setShowPoSelector(true)}
+              className="btn btn-secondary"
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeftRight size={14} /> Switch PO
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CheckCircle2 size={16} color="var(--color-green)" />
+              <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+                Scanner Ready
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -188,31 +375,47 @@ export const PackingPage: React.FC = () => {
       <div className="desktop-split-7-5">
         {/* Left Panel: Active Scanning & Action */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* SO Order Packing Progress & Remaining Counter */}
+          {/* PO Packing Progress & Operator Metrics - Operator Primary */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-blue)', letterSpacing: '0.05em' }}>
-                PACKING QUANTITY PROGRESS
-              </span>
-              <StatusPill label={`Remaining: ${remainingPackQty}`} variant={remainingPackQty === 0 ? 'green' : 'blue'} />
+            {/* PRIMARY / LARGE: Operator Work */}
+            <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#3B82F6' }}>
+                  MY PACKING PROGRESS — {packProgress.operatorStats.operatorName}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#3B82F6' }}>
+                  {Math.round((packProgress.operatorStats.packedCount / (targetSoQty || 1)) * 100)}%
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Packed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#3B82F6' }}>{packProgress.operatorStats.packedCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{packProgress.operatorStats.failCount}</span>
+                </div>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-blue)' }}>
+                    {packProgress.operatorStats.packedCount + packProgress.operatorStats.failCount}
+                  </span>
+                </div>
+              </div>
+              <ProgressBar current={packProgress.operatorStats.packedCount} total={targetSoQty} height={8} color="var(--color-blue)" />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Target Qty</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{targetSoQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#3B82F6', display: 'block' }}>Packed</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: '#3B82F6' }}>{packedQty}</span>
-              </div>
-              <div style={{ backgroundColor: 'rgba(34, 211, 197, 0.1)', padding: '8px 10px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--primary-teal)', display: 'block' }}>Remaining</span>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>{remainingPackQty}</span>
+            {/* SECONDARY / SMALL: PO Total Summary */}
+            <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
+              <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
+                <span>Target: <strong>{targetSoQty}</strong></span>
+                <span>Packed: <strong style={{ color: '#3B82F6' }}>{packedQty}</strong></span>
+                <span>Remaining: <strong style={{ color: 'var(--primary-teal)' }}>{remainingPackQty}</strong></span>
+                <span>Overall: <strong>{Math.round((packedQty / (targetSoQty || 1)) * 100)}%</strong></span>
               </div>
             </div>
-
-            <ProgressBar current={packedQty} total={targetSoQty} height={8} color="var(--color-blue)" />
           </div>
 
           {!box ? (
