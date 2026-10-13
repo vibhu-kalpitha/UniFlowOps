@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
-import { Plus, User, Shield, X, RefreshCw, Search, KeyRound, CheckCircle2, UserCheck, UserX, ShieldAlert } from 'lucide-react';
+import { Plus, User, Shield, X, RefreshCw, Search, KeyRound, CheckCircle2, UserCheck, UserX, ShieldAlert, Trash2 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -16,7 +16,7 @@ interface UserRecord {
 }
 
 export const AdminUsers: React.FC = () => {
-  const { showToast, currentRole } = useApp();
+  const { showToast, currentRole, currentUser } = useApp();
   const isSupervisorUser = currentRole === 'supervisor';
 
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -28,6 +28,10 @@ export const AdminUsers: React.FC = () => {
   const [showResetModal, setShowResetModal] = useState(false);
   const [selectedResetUser, setSelectedResetUser] = useState<UserRecord | null>(null);
   const [newPassword, setNewPassword] = useState('');
+
+  // Permanent Delete Modal State
+  const [deleteTargetUser, setDeleteTargetUser] = useState<UserRecord | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // Form State
   const [name, setName] = useState('');
@@ -150,6 +154,23 @@ export const AdminUsers: React.FC = () => {
       fetchUsers();
     } catch (err: any) {
       showToast(err.message || 'Failed to update user status', 'error');
+    }
+  };
+
+  const handlePermanentlyDelete = async () => {
+    if (!deleteTargetUser) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/admin/users/${deleteTargetUser.id}`, {
+        method: 'DELETE'
+      });
+      showToast(`User @${deleteTargetUser.username} permanently deleted from database`, 'success');
+      setDeleteTargetUser(null);
+      fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete user', 'error');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -372,6 +393,29 @@ export const AdminUsers: React.FC = () => {
                       >
                         <KeyRound size={14} /> Reset Password
                       </button>
+
+                      {currentRole === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTargetUser(u)}
+                          disabled={currentUser?.username === u.username || currentUser?.id === u.id}
+                          title={currentUser?.username === u.username || currentUser?.id === u.id ? 'Cannot delete yourself' : 'Permanently delete user from database'}
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#EF4444',
+                            background: 'none',
+                            border: 'none',
+                            cursor: (currentUser?.username === u.username || currentUser?.id === u.id) ? 'not-allowed' : 'pointer',
+                            opacity: (currentUser?.username === u.username || currentUser?.id === u.id) ? 0.35 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -473,6 +517,69 @@ export const AdminUsers: React.FC = () => {
                 Update Password
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Permanently Delete Confirmation Modal ──────────────── */}
+      {deleteTargetUser && (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modalContent, border: '1.5px solid #EF4444' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ShieldAlert size={20} />
+                </div>
+                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#EF4444' }}>
+                  Permanently Delete User?
+                </h3>
+              </div>
+              <button
+                onClick={() => setDeleteTargetUser(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '14px', backgroundColor: 'rgba(239, 68, 68, 0.08)', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.25)', marginBottom: '16px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5 }}>
+                Are you sure you want to permanently delete user <strong style={{ color: '#EF4444' }}>{deleteTargetUser.name}</strong> (<span style={{ fontFamily: 'monospace' }}>@{deleteTargetUser.username}</span>, Role: <strong>{deleteTargetUser.role}</strong>) from the database?
+              </p>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', margin: 0 }}>
+                ⚠️ <strong>Warning:</strong> This will permanently erase the user account and clear associated active sessions and shift allocations. This action cannot be reversed.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDeleteTargetUser(null)}
+                style={{ padding: '8px 16px', fontSize: '12px' }}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handlePermanentlyDelete}
+                disabled={deleting}
+                style={{
+                  padding: '8px 18px',
+                  fontSize: '12px',
+                  backgroundColor: '#DC2626',
+                  borderColor: '#DC2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Trash2 size={14} />
+                {deleting ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

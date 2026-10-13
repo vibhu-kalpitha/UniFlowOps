@@ -820,6 +820,44 @@ router.patch('/admin/users/:id', authenticateToken, requireRole(['ADMIN', 'SUPER
   }
 });
 
+// DELETE /api/admin/users/:id - Permanently delete user from database
+router.delete('/admin/users/:id', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const userId = req.params.id;
+    if (req.user?.id === userId) {
+      return res.status(400).json({ error: 'CANNOT_DELETE_SELF', message: 'You cannot delete your own active administrator account.' });
+    }
+    const user = await db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as any;
+    if (!user) {
+      return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'User not found in database' });
+    }
+
+    // Clean up dependent child references
+    try {
+      await db.prepare(`DELETE FROM user_sessions WHERE user_id = ?`).run(userId);
+    } catch (_) {}
+    try {
+      await db.prepare(`DELETE FROM shift_members WHERE operator_id = ?`).run(userId);
+    } catch (_) {}
+    try {
+      await db.prepare(`DELETE FROM operator_work_assignments WHERE operator_id = ?`).run(userId);
+    } catch (_) {}
+
+    await db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+
+    await auditLog(req.user!.id, 'PERMANENTLY_DELETE_USER', 'users', userId, {
+      username: user.username,
+      employee_no: user.employee_no,
+      role: user.role,
+      name: user.full_name
+    });
+
+    return res.json({ message: `User @${user.username} was permanently deleted from database` });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── ADMIN STYLE MANAGEMENT ENDPOINTS ──────────────────────────────
 // GET /api/admin/styles
 router.get('/admin/styles', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
