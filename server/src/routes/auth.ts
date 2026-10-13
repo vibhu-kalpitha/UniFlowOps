@@ -1,7 +1,7 @@
 import { Router as ExpressRouter, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { db, formatMySqlDateTime } from '../db/connection.js';
+import { db } from '../db/connection.js';
 import { generateToken, authenticateToken, requireRole, hashToken, AuthRequest } from '../middleware/auth.js';
 import { auditLog } from '../middleware/errorHandler.js';
 
@@ -30,37 +30,27 @@ router.post('/login', async (req, res, next) => {
     // Resolve user's lineId
     let lineId = 'Line 04';
     if (user.role === 'OPERATOR') {
-      try {
-        const member = await db.prepare(`
-          SELECT pl.name FROM shift_members sm
-          JOIN sales_orders so ON so.shift_id = sm.shift_id
-          JOIN production_lines pl ON pl.id = so.line_id
-          WHERE sm.operator_id = ? AND sm.active = 1
-          LIMIT 1
-        `).get(user.id) as any;
-        if (member && member.name) lineId = member.name;
-      } catch (lineErr) {
-        // Fallback safely to default lineId
-      }
+      const member = await db.prepare(`
+        SELECT pl.name FROM shift_members sm
+        JOIN sales_orders so ON so.shift_id = sm.shift_id
+        JOIN production_lines pl ON pl.id = so.line_id
+        WHERE sm.operator_id = ? AND sm.active = 1
+        LIMIT 1
+      `).get(user.id) as any;
+      if (member) lineId = member.name;
     } else if (user.role === 'SUPERVISOR') {
       lineId = 'Line 04 & Line 02';
     } else {
       lineId = 'All Lines';
     }
 
-    const fullNameStr = (user.full_name || user.username || 'User').trim();
-    const initials = fullNameStr
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((n: string) => n[0])
-      .join('')
-      .toUpperCase() || 'U';
+    const initials = user.full_name.split(' ').map((n: string) => n[0]).join('').toUpperCase();
 
     const token = generateToken({
       id: user.id,
       username: user.username,
       role: user.role,
-      fullName: user.full_name || user.username
+      fullName: user.full_name
     });
 
     // Compute token hash for database session tracking
@@ -68,16 +58,12 @@ router.post('/login', async (req, res, next) => {
     const sessionId = `sess-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
     const userAgent = req.get('user-agent') || 'Unknown';
-    const expiresAt = formatMySqlDateTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', '');
 
-    try {
-      await db.execute(`
-        INSERT INTO user_sessions (id, user_id, token_hash, ip_address, user_agent, login_at, last_seen_at, expires_at, active)
-        VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3), ?, 1)
-      `, [sessionId, user.id, tokenHash, ipAddress, userAgent, expiresAt]);
-    } catch (sessionErr) {
-      console.warn('Non-blocking user_sessions insert error:', sessionErr);
-    }
+    await db.execute(`
+      INSERT INTO user_sessions (id, user_id, token_hash, ip_address, user_agent, login_at, last_seen_at, expires_at, active)
+      VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3), ?, 1)
+    `, [sessionId, user.id, tokenHash, ipAddress, userAgent, expiresAt]);
 
     await auditLog(user.id, 'LOGIN', 'user', user.id, { username, ipAddress });
 

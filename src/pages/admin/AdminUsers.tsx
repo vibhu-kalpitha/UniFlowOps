@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
-import { Plus, User, Shield, X, RefreshCw, Search, KeyRound, CheckCircle2, UserCheck, UserX, ShieldAlert, Trash2, Users } from 'lucide-react';
+import { Plus, User, Shield, X, RefreshCw, Search, KeyRound, CheckCircle2, UserCheck, UserX, ShieldAlert, Trash2 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -17,7 +16,6 @@ interface UserRecord {
 }
 
 export const AdminUsers: React.FC = () => {
-  const navigate = useNavigate();
   const { showToast, currentRole, currentUser } = useApp();
   const isSupervisorUser = currentRole === 'supervisor';
 
@@ -194,13 +192,6 @@ export const AdminUsers: React.FC = () => {
             style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
-          </button>
-          <button
-            className="btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-            onClick={() => navigate('/supervisor/shifts')}
-          >
-            <Users size={15} color="var(--primary-teal)" /> Manage Shifts
           </button>
           <button
             className="btn-primary"

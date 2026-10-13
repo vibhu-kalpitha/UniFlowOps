@@ -12,6 +12,19 @@ export const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
+  const [selectedRole, setSelectedRole] = useState<UserRole>('operator');
+
+  const handleRoleSelect = (role: UserRole) => {
+    setSelectedRole(role);
+    setPassword('');
+    if (role === 'operator') {
+      setUsername('chamika');
+    } else if (role === 'supervisor') {
+      setUsername('nimal');
+    } else if (role === 'admin') {
+      setUsername('admin');
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +67,34 @@ export const LoginPage: React.FC = () => {
             </div>
             <h1 style={styles.title}>UniFlow</h1>
             <p style={styles.subtitle}>UNIT FLOW OPERATOR</p>
+          </div>
+
+          {/* Demo Role Mode Box */}
+          <div style={styles.roleBox}>
+            <span style={styles.roleLabel}>DEMO ROLE MODE:</span>
+            <div style={styles.roleButtons}>
+              <button
+                type="button"
+                style={selectedRole === 'operator' ? styles.roleActive : styles.roleBtn}
+                onClick={() => handleRoleSelect('operator')}
+              >
+                Operator
+              </button>
+              <button
+                type="button"
+                style={selectedRole === 'supervisor' ? styles.roleActive : styles.roleBtn}
+                onClick={() => handleRoleSelect('supervisor')}
+              >
+                Supervisor
+              </button>
+              <button
+                type="button"
+                style={selectedRole === 'admin' ? styles.roleActive : styles.roleBtn}
+                onClick={() => handleRoleSelect('admin')}
+              >
+                Admin
+              </button>
+            </div>
           </div>
 
           {/* Login Form */}
@@ -146,6 +187,46 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.18em',
     color: '#8EABB0',
     marginTop: '4px'
+  },
+  roleBox: {
+    backgroundColor: 'rgba(13, 38, 48, 0.7)',
+    border: '1px solid #213C44',
+    borderRadius: '16px',
+    padding: '12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px'
+  },
+  roleLabel: {
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#8EABB0',
+    letterSpacing: '0.05em'
+  },
+  roleButtons: {
+    display: 'flex',
+    gap: '8px'
+  },
+  roleBtn: {
+    flex: 1,
+    height: '36px',
+    borderRadius: '10px',
+    backgroundColor: '#102E38',
+    color: '#8EABB0',
+    fontSize: '12px',
+    fontWeight: 600,
+    border: '1px solid #213C44'
+  },
+  roleActive: {
+    flex: 1,
+    height: '36px',
+    borderRadius: '10px',
+    backgroundColor: '#22D3C5',
+    color: '#041820',
+    fontSize: '12px',
+    fontWeight: 800,
+    border: 'none',
+    boxShadow: '0 4px 12px rgba(34, 211, 197, 0.3)'
   },
   form: {
     display: 'flex',

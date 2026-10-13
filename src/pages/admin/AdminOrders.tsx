@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { Edit2, RefreshCw, X, Box, Zap, Search } from 'lucide-react';
+import { Edit2, RefreshCw, X, Box, Zap } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -12,7 +12,6 @@ export const AdminOrders: React.FC = () => {
   const { showToast } = useApp();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [searchTerm, setSearchTerm] = useState<string>('');
   
   // Edit modal state
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
@@ -84,42 +83,16 @@ export const AdminOrders: React.FC = () => {
     }
   };
 
-  const filteredOrders = orders.filter(po => {
-    if (!searchTerm.trim()) return true;
-    const term = searchTerm.toLowerCase();
-    const poNum = (po.poNumber || po.po_number || '').toLowerCase();
-    const poName = (po.poName || po.po_name || '').toLowerCase();
-    const styleName = (po.styleName || po.style_name || '').toLowerCase();
-    const customer = (po.customer || '').toLowerCase();
-    const status = (po.status || '').toLowerCase();
-    return (
-      poNum.includes(term) ||
-      poName.includes(term) ||
-      styleName.includes(term) ||
-      customer.includes(term) ||
-      status.includes(term)
-    );
-  });
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Responsive Header Bar */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        flexWrap: 'wrap',
-        gap: '14px'
-      }}>
-        <div style={{ flex: '1 1 280px', minWidth: '240px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-            Factory Production Orders & Quantity Config
-          </h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.4' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Factory Production Orders & Quantity Config</h2>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
             Configure target quantities and size allocations with audit logging and safety validations.
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             onClick={fetchOrders}
             className="btn btn-secondary"
@@ -132,63 +105,10 @@ export const AdminOrders: React.FC = () => {
           <button
             onClick={() => navigate('/supervisor/production-orders/new/style')}
             className="btn btn-primary"
-            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
+            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
           >
             <Zap size={14} /> + New Production Order
           </button>
-        </div>
-      </div>
-
-      {/* Search & Filter Bar */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '12px',
-        backgroundColor: 'var(--bg-surface-1)',
-        padding: '10px 14px',
-        borderRadius: '14px',
-        border: '1px solid var(--border-color)'
-      }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: '420px', minWidth: '200px' }}>
-          <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-          <input
-            type="text"
-            placeholder="Search by PO number, batch name, style, customer..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px 8px 36px',
-              borderRadius: '10px',
-              backgroundColor: 'var(--bg-surface-2)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              outline: 'none'
-            }}
-          />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Showing <strong>{filteredOrders.length}</strong> of <strong>{orders.length}</strong> Orders
-          </span>
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--color-teal)',
-                fontSize: '12px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              Clear
-            </button>
-          )}
         </div>
       </div>
 
@@ -200,13 +120,9 @@ export const AdminOrders: React.FC = () => {
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
           No production orders registered.
         </div>
-      ) : filteredOrders.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          No production orders found matching "{searchTerm}".
-        </div>
       ) : (
-        <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-          {filteredOrders.map(po => {
+        <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '14px' }}>
+          {orders.map(po => {
             const packedQty = Number(po.packedCount || po.packed_count || 0);
             const targetQty = Number(po.configuredQuantity || po.total_quantity || 500);
             const configs: any[] = po.configs || [];

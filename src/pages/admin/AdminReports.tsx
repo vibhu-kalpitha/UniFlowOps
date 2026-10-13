@@ -344,17 +344,14 @@ export const AdminReports: React.FC = () => {
 
       {/* ── Comprehensive Production Order Breakdown Table ──────── */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
           <div>
             <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Production Order & Operation Detailed Audit Table</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               Complete breakdown per Production Order & Style covering target, QC, Packing, AQL, transfers, and scrap.
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>↔ Swipe table horizontally</span>
-            <StatusPill label={`${filteredOrders.length} Orders`} variant="teal" />
-          </div>
+          <StatusPill label={`${filteredOrders.length} Orders`} variant="teal" />
         </div>
 
         {filteredOrders.length === 0 ? (
@@ -362,8 +359,8 @@ export const AdminReports: React.FC = () => {
             No production orders found matching the selected report filters.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-            <table style={{ ...styles.table, minWidth: '1050px' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="responsive-table" style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>PO NUMBER</th>
@@ -558,8 +555,8 @@ export const AdminReports: React.FC = () => {
                 No active production orders found.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-                <table style={{ ...styles.table, minWidth: '820px' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="responsive-table" style={styles.table}>
                   <thead>
                     <tr>
                       <th style={styles.th}>PO NUMBER</th>
@@ -627,8 +624,8 @@ export const AdminReports: React.FC = () => {
                 No boxes registered for this filter.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-                <table style={{ ...styles.table, minWidth: '780px' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="responsive-table" style={styles.table}>
                   <thead>
                     <tr>
                       <th style={styles.th}>BOX NUMBER</th>
@@ -820,8 +817,8 @@ export const AdminReports: React.FC = () => {
                 No permanently removed garments logged for this filter.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-                <table style={{ ...styles.table, minWidth: '750px' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="responsive-table" style={styles.table}>
                   <thead>
                     <tr>
                       <th style={styles.th}>ITEM QR BARCODE</th>
@@ -1100,23 +1097,20 @@ const styles: Record<string, any> = {
     textAlign: 'left'
   },
   th: {
-    padding: '10px 12px',
+    padding: '10px 10px',
     borderBottom: '2px solid var(--border-color)',
-    backgroundColor: 'var(--bg-surface-2)',
     color: 'var(--text-muted)',
     fontSize: '11px',
     fontWeight: 700,
-    letterSpacing: '0.05em',
-    whiteSpace: 'nowrap'
+    letterSpacing: '0.05em'
   },
   tr: {
     borderBottom: '1px solid var(--border-color)'
   },
   td: {
-    padding: '10px 12px',
+    padding: '10px 10px',
     color: 'var(--text-primary)',
-    fontSize: '12px',
-    whiteSpace: 'nowrap'
+    fontSize: '12px'
   },
   logTabBtn: (active: boolean) => ({
     padding: '7px 12px',
