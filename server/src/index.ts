@@ -120,7 +120,10 @@ export async function startServer() {
   if (isConnected) {
     console.log('📦 Running database migrations...');
     await runMigrations();
-    await seedDatabase();
+    if (process.env.AUTO_SEED === 'true') {
+      console.log('🌱 Seeding initial demo database records (AUTO_SEED=true)...');
+      await seedDatabase();
+    }
     console.log('✅ Migrations completed successfully.');
   } else {
     console.warn('⚠️ Warning: MySQL database connection not established on server startup.');
