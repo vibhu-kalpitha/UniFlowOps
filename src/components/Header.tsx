@@ -4,12 +4,17 @@ import { useApp } from '../context/AppContext';
 import { ArrowLeft, Bell, Home, ClipboardList, ScanLine, User, BarChart, Package, Menu } from 'lucide-react';
 import '../styles/tokens.css';
 
+interface NavItem {
+  label: string;
+  path: string;
+  icon: any;
+  badge?: number;
+}
+
 export const Header: React.FC<{ title?: string }> = ({ title }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentRole, currentUser, alerts } = useApp();
-
-  const unreadAlertsCount = alerts.filter(a => !a.read).length;
+  const { currentRole, currentUser } = useApp();
 
   const isRootPage = [
     '/operator/home',
@@ -20,19 +25,12 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
 
   if (location.pathname === '/login') return null;
 
-  const handleAlertClick = () => {
-    if (currentRole === 'operator') navigate('/operator/alerts');
-    else if (currentRole === 'supervisor') navigate('/supervisor/alerts');
-    else navigate('/admin/alerts');
-  };
-
-  const getNavItems = () => {
+  const getNavItems = (): NavItem[] => {
     if (currentRole === 'operator') {
       return [
         { label: 'Home', path: '/operator/home', icon: Home },
         { label: 'Orders', path: '/operator/orders', icon: ClipboardList },
         { label: 'Scan', path: '/operator/scan', icon: ScanLine },
-        { label: 'Alerts', path: '/operator/alerts', icon: Bell, badge: unreadAlertsCount },
         { label: 'Profile', path: '/operator/profile', icon: User }
       ];
     } else if (currentRole === 'supervisor') {
@@ -42,15 +40,14 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
         { label: 'Orders', path: '/supervisor/orders', icon: ClipboardList },
         { label: 'Users', path: '/admin/users', icon: User },
         { label: 'Reports', path: '/admin/reports', icon: Package },
-        { label: 'Alerts', path: '/supervisor/alerts', icon: Bell, badge: unreadAlertsCount },
         { label: 'Profile', path: '/supervisor/profile', icon: User }
       ];
     } else {
       return [
         { label: 'Dashboard', path: '/admin/dashboard', icon: BarChart },
         { label: 'Orders', path: '/admin/orders', icon: ClipboardList },
+        { label: 'Users', path: '/admin/users', icon: User },
         { label: 'Reports', path: '/admin/reports', icon: Package },
-        { label: 'Alerts', path: '/admin/alerts', icon: Bell, badge: unreadAlertsCount },
         { label: 'More', path: '/admin/more', icon: Menu }
       ];
     }
@@ -107,10 +104,6 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
         </nav>
 
         <div style={styles.rightGroup}>
-          <button style={styles.bellBtn} onClick={handleAlertClick} aria-label="Notifications">
-            <Bell size={20} color="var(--text-primary)" />
-            {unreadAlertsCount > 0 && <span style={styles.badge}>{unreadAlertsCount}</span>}
-          </button>
 
           <button
             type="button"

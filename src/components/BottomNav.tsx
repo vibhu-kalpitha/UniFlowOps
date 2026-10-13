@@ -42,17 +42,6 @@ export const BottomNav: React.FC = () => {
         </button>
 
         <button
-          style={isActive('/operator/alerts') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/operator/alerts')}
-        >
-          <div style={{ position: 'relative' }}>
-            <Bell size={20} />
-            {unreadAlerts > 0 && <span style={styles.miniBadge}>{unreadAlerts}</span>}
-          </div>
-          <span>Alerts</span>
-        </button>
-
-        <button
           style={isActive('/operator/profile') ? styles.navItemActive : styles.navItem}
           onClick={() => navigate('/operator/profile')}
         >
@@ -74,8 +63,6 @@ export const BottomNav: React.FC = () => {
           <span>Home</span>
         </button>
 
-
-
         <button
           style={isActive('/supervisor/orders') || isActive('/admin/orders') ? styles.navItemActive : styles.navItem}
           onClick={() => navigate('/supervisor/orders')}
@@ -85,14 +72,19 @@ export const BottomNav: React.FC = () => {
         </button>
 
         <button
-          style={isActive('/supervisor/alerts') || isActive('/admin/alerts') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/supervisor/alerts')}
+          style={isActive('/admin/users') ? styles.navItemActive : styles.navItem}
+          onClick={() => navigate('/admin/users')}
         >
-          <div style={{ position: 'relative' }}>
-            <Bell size={20} />
-            {unreadAlerts > 0 && <span style={styles.miniBadge}>{unreadAlerts}</span>}
-          </div>
-          <span>Alerts</span>
+          <User size={20} />
+          <span>Users</span>
+        </button>
+
+        <button
+          style={isActive('/admin/reports') ? styles.navItemActive : styles.navItem}
+          onClick={() => navigate('/admin/reports')}
+        >
+          <Package size={20} />
+          <span>Reports</span>
         </button>
 
         <button
@@ -126,22 +118,19 @@ export const BottomNav: React.FC = () => {
       </button>
 
       <button
+        style={isActive('/admin/users') ? styles.navItemActive : styles.navItem}
+        onClick={() => navigate('/admin/users')}
+      >
+        <User size={20} />
+        <span>Users</span>
+      </button>
+
+      <button
         style={isActive('/admin/reports') ? styles.navItemActive : styles.navItem}
         onClick={() => navigate('/admin/reports')}
       >
         <Package size={20} />
         <span>Reports</span>
-      </button>
-
-      <button
-        style={isActive('/admin/alerts') ? styles.navItemActive : styles.navItem}
-        onClick={() => navigate('/admin/alerts')}
-      >
-        <div style={{ position: 'relative' }}>
-          <Bell size={20} />
-          {unreadAlerts > 0 && <span style={styles.miniBadge}>{unreadAlerts}</span>}
-        </div>
-        <span>Alerts</span>
       </button>
 
       <button

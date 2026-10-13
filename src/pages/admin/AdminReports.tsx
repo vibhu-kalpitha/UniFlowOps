@@ -37,6 +37,10 @@ export const AdminReports: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedBoxModal, setSelectedBoxModal] = useState<any>(null);
 
+  // Pagination / Row limit state (initial 10 rows with See More)
+  const [showAllOrders, setShowAllOrders] = useState<boolean>(false);
+  const [showAllBoxes, setShowAllBoxes] = useState<boolean>(false);
+
   const fetchReports = async () => {
     setLoading(true);
     try {
@@ -375,7 +379,7 @@ export const AdminReports: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((p: any) => (
+                {(showAllOrders ? filteredOrders : filteredOrders.slice(0, 10)).map((p: any) => (
                   <tr key={p.poId} style={styles.tr}>
                     <td data-label="PO NUMBER" style={styles.td}>
                       <strong style={{ color: 'var(--primary-teal)' }}>{p.poNumber}</strong>
@@ -428,6 +432,28 @@ export const AdminReports: React.FC = () => {
                 ))}
               </tbody>
             </table>
+
+            {filteredOrders.length > 10 && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                <button
+                  onClick={() => setShowAllOrders(!showAllOrders)}
+                  className="btn btn-secondary"
+                  style={{
+                    padding: '8px 20px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    border: '1px solid var(--primary-teal)',
+                    color: 'var(--primary-teal)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {showAllOrders
+                    ? '▲ Show Less (First 10 Orders)'
+                    : `▼ See More (${filteredOrders.length - 10} more orders)`}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -613,7 +639,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredBoxes.map((bx: any) => (
+                    {(showAllBoxes ? filteredBoxes : filteredBoxes.slice(0, 10)).map((bx: any) => (
                       <tr key={bx.id} style={styles.tr}>
                         <td data-label="BOX NUMBER" style={styles.td}>
                           <strong style={{ color: 'var(--color-purple)' }}>{bx.boxCode || bx.boxNumber}</strong>
@@ -656,6 +682,28 @@ export const AdminReports: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+
+                {filteredBoxes.length > 10 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                    <button
+                      onClick={() => setShowAllBoxes(!showAllBoxes)}
+                      className="btn btn-secondary"
+                      style={{
+                        padding: '8px 20px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        borderRadius: '8px',
+                        border: '1px solid var(--color-purple)',
+                        color: 'var(--color-purple)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {showAllBoxes
+                        ? '▲ Show Less (First 10 Boxes)'
+                        : `▼ See More (${filteredBoxes.length - 10} more boxes)`}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

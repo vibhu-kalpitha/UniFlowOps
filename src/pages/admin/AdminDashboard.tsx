@@ -261,89 +261,35 @@ export const AdminDashboard: React.FC = () => {
         <Menu size={18} />
       </button>
 
-      {/* ── Top Header & Executive Control Bar ─────────────────── */}
+      {/* Mobile-only compact filter bar */}
       <div
+        className="mobile-only-filter-btn"
         style={{
-          display: 'flex',
+          display: 'none',
           justifyContent: 'space-between',
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-          padding: '16px 20px',
+          padding: '10px 14px',
           backgroundColor: 'var(--bg-surface-1)',
-          borderRadius: '16px',
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+          borderRadius: '12px',
+          border: '1px solid var(--border-color)'
         }}
       >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: '#10B981',
-                boxShadow: '0 0 10px #10B981',
-                display: 'inline-block'
-              }}
-            />
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              FACTORY REAL-TIME MASTER DASHBOARD
-            </span>
-          </div>
-          <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '3px', margin: 0 }}>
-            Executive Operations Command 🏢
-          </h1>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px', margin: 0 }}>
-            Welcome back, <strong>{currentUser?.name || currentUser?.username || 'Admin'}</strong> • Live stream across garment stages
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Mobile Filter Toggle Button */}
-          <button
-            onClick={() => setMobileFilterOpen(!mobileFilterOpen)}
-            className="btn btn-secondary mobile-only-filter-btn"
-            style={{
-              padding: '8px 12px',
-              fontSize: '12px',
-              display: 'none',
-              alignItems: 'center',
-              gap: '6px',
-              borderRadius: '10px'
-            }}
-          >
-            <SlidersHorizontal size={14} color="var(--primary-teal)" />
-            {isFiltered ? 'Filters (Active)' : 'Filters'}
-          </button>
-
-          <button
-            onClick={() => fetchDashboardData(selectedStyle, selectedPoId, selectedYear, fromDate, toDate)}
-            className="btn btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-            disabled={loading}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            {loading ? 'Refreshing...' : 'Refresh Live'}
-          </button>
-
-          <button
-            onClick={() => navigate('/admin/reports')}
-            className="btn btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-          >
-            <BarChart3 size={14} color="var(--primary-teal)" /> Reports & Logs →
-          </button>
-
-          <button
-            onClick={() => navigate('/supervisor/production-orders/new/style')}
-            className="btn btn-primary"
-            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-          >
-            <Zap size={14} /> + New PO
-          </button>
-        </div>
+        <button
+          onClick={() => setMobileFilterOpen(!mobileFilterOpen)}
+          className="btn btn-secondary"
+          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <SlidersHorizontal size={14} color="var(--primary-teal)" />
+          {isFiltered ? 'Filters (Active)' : 'Filters'}
+        </button>
+        <button
+          onClick={() => fetchDashboardData(selectedStyle, selectedPoId, selectedYear, fromDate, toDate)}
+          className="btn btn-secondary"
+          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          disabled={loading}
+        >
+          <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+        </button>
       </div>
 
       {error && (

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { Edit2, RefreshCw, X, Box } from 'lucide-react';
+import { Edit2, RefreshCw, X, Box, Zap } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const AdminOrders: React.FC = () => {
+  const navigate = useNavigate();
   const { showToast } = useApp();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -90,15 +92,24 @@ export const AdminOrders: React.FC = () => {
             Configure target quantities and size allocations with audit logging and safety validations.
           </p>
         </div>
-        <button
-          onClick={fetchOrders}
-          className="btn btn-secondary"
-          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          disabled={loading}
-        >
-          <RefreshCw size={14} className={loading ? 'spin' : ''} />
-          {loading ? 'Refreshing...' : 'Refresh Orders'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            onClick={fetchOrders}
+            className="btn btn-secondary"
+            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+            disabled={loading}
+          >
+            <RefreshCw size={14} className={loading ? 'spin' : ''} />
+            {loading ? 'Refreshing...' : 'Refresh Orders'}
+          </button>
+          <button
+            onClick={() => navigate('/supervisor/production-orders/new/style')}
+            className="btn btn-primary"
+            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+          >
+            <Zap size={14} /> + New Production Order
+          </button>
+        </div>
       </div>
 
       {loading && orders.length === 0 ? (
