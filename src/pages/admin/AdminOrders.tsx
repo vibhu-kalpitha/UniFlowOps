@@ -85,18 +85,18 @@ export const AdminOrders: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Factory Production Orders & Quantity Config</h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ flex: '1 1 280px', minWidth: '220px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>Factory Production Orders & Quantity Config</h2>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
             Configure target quantities and size allocations with audit logging and safety validations.
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="admin-page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <button
             onClick={fetchOrders}
             className="btn btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+            style={{ padding: '9px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
             disabled={loading}
           >
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
@@ -105,7 +105,7 @@ export const AdminOrders: React.FC = () => {
           <button
             onClick={() => navigate('/supervisor/production-orders/new/style')}
             className="btn btn-primary"
-            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+            style={{ padding: '9px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
           >
             <Zap size={14} /> + New Production Order
           </button>
@@ -121,7 +121,7 @@ export const AdminOrders: React.FC = () => {
           No production orders registered.
         </div>
       ) : (
-        <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '14px' }}>
+        <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '14px' }}>
           {orders.map(po => {
             const packedQty = Number(po.packedCount || po.packed_count || 0);
             const targetQty = Number(po.configuredQuantity || po.total_quantity || 500);

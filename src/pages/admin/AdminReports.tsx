@@ -200,7 +200,7 @@ export const AdminReports: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Printable Header & Action Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>
             Executive Operations & Production Reports 📊
@@ -210,7 +210,7 @@ export const AdminReports: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} className="no-print">
+        <div className="admin-page-header-actions no-print" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             onClick={fetchReports}
             className="btn-secondary"
@@ -359,8 +359,8 @@ export const AdminReports: React.FC = () => {
             No production orders found matching the selected report filters.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="responsive-table" style={styles.table}>
+          <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+            <table className="responsive-table" style={{ ...styles.table, minWidth: '1100px' }}>
               <thead>
                 <tr>
                   <th style={styles.th}>PO NUMBER</th>
@@ -555,8 +555,8 @@ export const AdminReports: React.FC = () => {
                 No active production orders found.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="responsive-table" style={styles.table}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '850px' }}>
                   <thead>
                     <tr>
                       <th style={styles.th}>PO NUMBER</th>
@@ -624,8 +624,8 @@ export const AdminReports: React.FC = () => {
                 No boxes registered for this filter.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="responsive-table" style={styles.table}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '850px' }}>
                   <thead>
                     <tr>
                       <th style={styles.th}>BOX NUMBER</th>
@@ -817,8 +817,8 @@ export const AdminReports: React.FC = () => {
                 No permanently removed garments logged for this filter.
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="responsive-table" style={styles.table}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '780px' }}>
                   <thead>
                     <tr>
                       <th style={styles.th}>ITEM QR BARCODE</th>
@@ -1092,25 +1092,29 @@ const styles: Record<string, any> = {
   },
   table: {
     width: '100%',
+    minWidth: '850px',
     borderCollapse: 'collapse',
     fontSize: '12px',
-    textAlign: 'left'
+    textAlign: 'left',
+    whiteSpace: 'nowrap'
   },
   th: {
-    padding: '10px 10px',
+    padding: '10px 12px',
     borderBottom: '2px solid var(--border-color)',
     color: 'var(--text-muted)',
     fontSize: '11px',
     fontWeight: 700,
-    letterSpacing: '0.05em'
+    letterSpacing: '0.05em',
+    whiteSpace: 'nowrap'
   },
   tr: {
     borderBottom: '1px solid var(--border-color)'
   },
   td: {
-    padding: '10px 10px',
+    padding: '10px 12px',
     color: 'var(--text-primary)',
-    fontSize: '12px'
+    fontSize: '12px',
+    whiteSpace: 'nowrap'
   },
   logTabBtn: (active: boolean) => ({
     padding: '7px 12px',

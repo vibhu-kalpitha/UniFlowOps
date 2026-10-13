@@ -5,7 +5,7 @@ import { apiFetch } from '../../services/api';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { formatPoDisplayName } from '../../utils/formatters';
-import { PlusCircle, Clock, AlertTriangle, Box, Package, CheckCircle2, Search, Filter, X, ChevronRight, Eye, Menu } from 'lucide-react';
+import { PlusCircle, Clock, AlertTriangle, Box, Package, CheckCircle2, Search, Filter, X, ChevronRight, Eye, Menu, Users } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const SupervisorHome: React.FC = () => {
@@ -150,13 +150,20 @@ export const SupervisorHome: React.FC = () => {
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             style={styles.actionBtnPrimary}
             onClick={() => navigate('/supervisor/production-orders/new/style')}
           >
             <PlusCircle size={18} color="#041820" />
             <span>+ Create PO</span>
+          </button>
+          <button
+            style={styles.actionBtnSecondary}
+            onClick={() => navigate('/supervisor/shifts')}
+          >
+            <Users size={18} color="var(--primary-teal)" />
+            <span>Manage Shifts</span>
           </button>
         </div>
       </div>
@@ -451,7 +458,24 @@ const styles: Record<string, any> = {
     alignItems: 'center',
     justifyContent: 'center',
     border: 'none',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    gap: '6px'
+  },
+  actionBtnSecondary: {
+    height: '42px',
+    borderRadius: '12px',
+    backgroundColor: 'var(--bg-surface-2)',
+    border: '1.5px solid var(--border-color)',
+    color: 'var(--text-primary)',
+    fontWeight: 700,
+    fontSize: '13px',
+    padding: '0 16px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    gap: '8px',
+    transition: 'all 0.15s ease'
   },
   metricBox: (bgColor: string, borderColor: string) => ({
     backgroundColor: bgColor,
