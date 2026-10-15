@@ -888,9 +888,9 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
   try {
     const orders = await db.query(`
       SELECT 
-        po.id, po.po_number, po.po_name, po.customer, po.start_date, po.due_date, po.status, po.created_at,
+        po.id, po.po_number, po.po_name, po.map_po, po.customer, po.start_date, po.due_date, po.status, po.remarks, po.qc_test_mode, po.shift_id, po.supervisor_id, po.created_at,
         po.allow_no_product_prefix, po.allow_no_box_prefix,
-        s.name as style_name, s.code as style_code, u.full_name as supervisor_name,
+        s.id as style_id, s.name as style_name, s.code as style_code, u.full_name as supervisor_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
         (SELECT COUNT(DISTINCT item_id) FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE (iu.production_order_id = po.id OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS') as qc_passed_count,
         (SELECT COUNT(DISTINCT bi.item_id) FROM box_items bi JOIN boxes b ON b.id = bi.box_id LEFT JOIN item_units iu ON iu.id = bi.item_id WHERE (b.production_order_id = po.id OR iu.production_order_id = po.id OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND bi.active = 1) as packed_count
@@ -900,8 +900,36 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
       ORDER BY po.created_at DESC
     `);
 
+    const allConfigs = await db.prepare(`
+      SELECT id, production_order_id, config_code, product_type, size, quantity, product_qr_prefix, product_serial_start, product_serial_end
+      FROM production_order_configs
+      ORDER BY id ASC
+    `).all() as any[];
+
+    const configsByPoId: Record<string, any[]> = {};
+    for (const c of allConfigs) {
+      if (!configsByPoId[c.production_order_id]) {
+        configsByPoId[c.production_order_id] = [];
+      }
+      configsByPoId[c.production_order_id].push({
+        id: c.id,
+        config_code: c.config_code,
+        configCode: c.config_code,
+        product_type: c.product_type,
+        productType: c.product_type,
+        size: c.size,
+        quantity: Number(c.quantity) || 0,
+        product_qr_prefix: c.product_qr_prefix,
+        productQrPrefix: c.product_qr_prefix,
+        product_serial_start: c.product_serial_start,
+        product_serial_end: c.product_serial_end
+      });
+    }
+
     const formatted = orders.map((p: any) => {
-      const targetQty = Number(p.cfg_qty || p.total_quantity || 500);
+      const orderConfigs = configsByPoId[p.id] || [];
+      const sumConfigQty = orderConfigs.reduce((sum, c) => sum + c.quantity, 0);
+      const targetQty = Number(p.cfg_qty || (sumConfigQty > 0 ? sumConfigQty : (p.total_quantity || 500)));
       const packed = Number(p.packed_count || 0);
       const qcPassed = Number(p.qc_passed_count || 0);
       const completionPct = targetQty > 0 ? Math.min(100, Math.round((packed / targetQty) * 100)) : 0;
@@ -909,19 +937,42 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
       return {
         id: p.id,
         poNumber: p.po_number,
+        po_number: p.po_number,
         poName: p.po_name || null,
+        po_name: p.po_name || null,
+        mapPo: p.map_po,
+        map_po: p.map_po,
+        styleId: p.style_id,
+        style_id: p.style_id,
         styleName: p.style_name || p.style_code || 'Standard Style',
+        style_name: p.style_name || p.style_code || 'Standard Style',
+        styleCode: p.style_code,
+        style_code: p.style_code,
         customer: p.customer || 'Standard',
+        supervisorId: p.supervisor_id,
+        supervisor_id: p.supervisor_id,
         supervisorName: p.supervisor_name || 'Supervisor',
+        supervisor_name: p.supervisor_name || 'Supervisor',
         startDate: p.start_date,
+        start_date: p.start_date,
         dueDate: p.due_date,
+        due_date: p.due_date,
         status: p.status,
+        remarks: p.remarks || '',
+        qcTestMode: p.qc_test_mode,
+        qc_test_mode: p.qc_test_mode,
+        shiftId: p.shift_id,
+        shift_id: p.shift_id,
         allowNoProductPrefix: Boolean(p.allow_no_product_prefix),
         allowNoBoxPrefix: Boolean(p.allow_no_box_prefix),
         configuredQuantity: targetQty,
+        total_quantity: targetQty,
         qcPassedCount: qcPassed,
+        qc_passed_count: qcPassed,
         packedCount: packed,
+        packed_count: packed,
         completionPct,
+        configs: orderConfigs,
         displayName: p.style_name 
           ? (p.po_name ? `${p.style_name} - ${p.po_name} - ${p.po_number}` : `${p.style_name} - ${p.po_number}`)
           : (p.po_name ? `${p.po_name} - ${p.po_number}` : p.po_number)
@@ -938,7 +989,7 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
 router.patch('/admin/orders/:id/quantity', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
   try {
     const poParam = req.params.id;
-    const { newQuantity } = req.body;
+    const { newQuantity, configs: submittedConfigs } = req.body;
     const qty = Number(newQuantity);
 
     if (!qty || isNaN(qty) || qty <= 0) {
@@ -970,23 +1021,51 @@ router.patch('/admin/orders/:id/quantity', authenticateToken, requireRole('ADMIN
 
     const maxProcessed = Math.max(packedCount, qcPassedCount);
 
-    if (qty < maxProcessed) {
-      return res.status(400).json({
-        error: 'QUANTITY_SAFETY_VIOLATION',
-        message: `Cannot reduce quantity to ${qty}. ${maxProcessed} items have already been processed/packed for this Production Order.`
-      });
-    }
+    let effectiveQuantity = Number(newQuantity);
 
-    // Fetch existing configs
-    const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
+    // If specific configs were submitted with individual quantities
+    if (Array.isArray(submittedConfigs) && submittedConfigs.length > 0) {
+      const sumSubmitted = submittedConfigs.reduce((sum: number, c: any) => sum + (Number(c.quantity) || 0), 0);
+      if (sumSubmitted > 0) {
+        effectiveQuantity = sumSubmitted;
+      }
 
-    if (configs.length > 0) {
-      const oldTotal = configs.reduce((sum: number, c: any) => sum + Number(c.quantity || 0), 0);
-      const ratio = oldTotal > 0 ? qty / oldTotal : 1;
+      if (effectiveQuantity < maxProcessed) {
+        return res.status(400).json({
+          error: 'QUANTITY_SAFETY_VIOLATION',
+          message: `Cannot reduce total quantity to ${effectiveQuantity}. ${maxProcessed} items have already been processed/packed for this Production Order.`
+        });
+      }
 
-      for (const cfg of configs) {
-        const updatedCfgQty = Math.max(1, Math.round(cfg.quantity * ratio));
-        await db.prepare(`UPDATE production_order_configs SET quantity = ?, updated_at = NOW(3) WHERE id = ?`).run(updatedCfgQty, cfg.id);
+      for (const sc of submittedConfigs) {
+        const scQty = Number(sc.quantity);
+        if (sc.id && scQty > 0) {
+          await db.prepare(`UPDATE production_order_configs SET quantity = ?, updated_at = NOW(3) WHERE id = ? AND production_order_id = ?`).run(scQty, sc.id, po.id);
+        }
+      }
+    } else {
+      if (!effectiveQuantity || isNaN(effectiveQuantity) || effectiveQuantity <= 0) {
+        return res.status(400).json({ error: 'INVALID_QUANTITY', message: 'Configured quantity must be a positive number' });
+      }
+
+      if (effectiveQuantity < maxProcessed) {
+        return res.status(400).json({
+          error: 'QUANTITY_SAFETY_VIOLATION',
+          message: `Cannot reduce quantity to ${effectiveQuantity}. ${maxProcessed} items have already been processed/packed for this Production Order.`
+        });
+      }
+
+      // Fetch existing configs and distribute proportionally
+      const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
+
+      if (configs.length > 0) {
+        const oldTotal = configs.reduce((sum: number, c: any) => sum + Number(c.quantity || 0), 0);
+        const ratio = oldTotal > 0 ? effectiveQuantity / oldTotal : 1;
+
+        for (const cfg of configs) {
+          const updatedCfgQty = Math.max(1, Math.round(cfg.quantity * ratio));
+          await db.prepare(`UPDATE production_order_configs SET quantity = ?, updated_at = NOW(3) WHERE id = ?`).run(updatedCfgQty, cfg.id);
+        }
       }
     }
 
@@ -995,14 +1074,255 @@ router.patch('/admin/orders/:id/quantity', authenticateToken, requireRole('ADMIN
     await auditLog(req.user!.id, 'UPDATE_PO_QUANTITY', 'production_orders', po.id, {
       poNumber: po.po_number,
       oldQuantity: po.total_quantity || maxProcessed,
-      newQuantity: qty
+      newQuantity: effectiveQuantity
     });
 
     return res.json({
-      message: `Updated configured quantity to ${qty} for PO ${po.po_number}`,
+      message: `Updated configured quantity to ${effectiveQuantity} for PO ${po.po_number}`,
       poId: po.id,
-      newQuantity: qty
+      newQuantity: effectiveQuantity
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/admin/orders/:id - Edit Full PO (ADMIN)
+router.patch('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const poParam = req.params.id;
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const {
+      poNumber, poName, mapPo, customer, styleId, startDate, dueDate,
+      supervisorId, shiftId, qcTestMode, remarks, status,
+      allowNoProductPrefix, allowNoBoxPrefix, configs, totalQuantity
+    } = req.body;
+
+    // Check duplicate po_number if changed
+    if (poNumber && poNumber.trim() !== po.po_number) {
+      const dup = await db.prepare(`SELECT id FROM production_orders WHERE po_number = ? AND id != ?`).get(poNumber.trim(), po.id) as any;
+      if (dup) {
+        return res.status(409).json({ error: 'PO_NUMBER_EXISTS', message: `Production Order number "${poNumber.trim()}" already exists` });
+      }
+    }
+
+    // Validate style if provided
+    if (styleId) {
+      const st = await db.prepare(`SELECT id FROM styles WHERE id = ?`).get(styleId) as any;
+      if (!st) {
+        return res.status(400).json({ error: 'STYLE_NOT_FOUND', message: 'Selected garment style does not exist' });
+      }
+    }
+
+    // Safety checks for processed count
+    const packedRow = await db.prepare(`
+      SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+      JOIN boxes b ON b.id = bi.box_id
+      LEFT JOIN item_units iu ON iu.id = bi.item_id
+      WHERE (b.production_order_id = ? OR iu.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND bi.active = 1
+    `).get(po.id, po.id, po.id) as any;
+    const packedCount = Number(packedRow?.cnt || 0);
+
+    const qcRow = await db.prepare(`
+      SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+      JOIN item_units iu ON iu.id = qr.item_id
+      WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+        AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+    `).get(po.id, po.id, po.id) as any;
+    const qcPassedCount = Number(qcRow?.cnt || 0);
+
+    const maxProcessed = Math.max(packedCount, qcPassedCount);
+
+    if (Array.isArray(configs) && configs.length > 0) {
+      const newTotal = configs.reduce((sum: number, c: any) => sum + (Number(c.quantity) || 0), 0);
+      if (newTotal < maxProcessed) {
+        return res.status(400).json({
+          error: 'QUANTITY_SAFETY_VIOLATION',
+          message: `Cannot reduce total quantity to ${newTotal}. At least ${maxProcessed} items have already been processed/packed for this PO.`
+        });
+      }
+
+      for (const cfg of configs) {
+        if (cfg.id) {
+          const qty = Number(cfg.quantity);
+          if (qty > 0) {
+            await db.prepare(`
+              UPDATE production_order_configs 
+              SET quantity = ?, 
+                  size = COALESCE(?, size),
+                  product_type = COALESCE(?, product_type),
+                  config_code = COALESCE(?, config_code),
+                  updated_at = NOW(3)
+              WHERE id = ? AND production_order_id = ?
+            `).run(qty, cfg.size || null, cfg.productType || cfg.product_type || null, cfg.configCode || cfg.config_code || null, cfg.id, po.id);
+          }
+        }
+      }
+    } else if (totalQuantity != null && !isNaN(Number(totalQuantity))) {
+      const qty = Number(totalQuantity);
+      if (qty < maxProcessed) {
+        return res.status(400).json({
+          error: 'QUANTITY_SAFETY_VIOLATION',
+          message: `Cannot reduce quantity to ${qty}. At least ${maxProcessed} items have already been processed/packed.`
+        });
+      }
+      const existingConfigs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
+      if (existingConfigs.length > 0) {
+        const oldTotal = existingConfigs.reduce((sum: number, c: any) => sum + Number(c.quantity || 0), 0);
+        const ratio = oldTotal > 0 ? qty / oldTotal : 1;
+        for (const cfg of existingConfigs) {
+          const updatedCfgQty = Math.max(1, Math.round(cfg.quantity * ratio));
+          await db.prepare(`UPDATE production_order_configs SET quantity = ?, updated_at = NOW(3) WHERE id = ?`).run(updatedCfgQty, cfg.id);
+        }
+      }
+    }
+
+    // Build update parameters for production_orders table
+    const updates: string[] = ['updated_at = NOW(3)'];
+    const params: any[] = [];
+
+    if (poNumber !== undefined && poNumber.trim()) {
+      updates.push('po_number = ?');
+      params.push(poNumber.trim());
+    }
+    if (poName !== undefined) {
+      updates.push('po_name = ?');
+      params.push(poName ? poName.trim() : null);
+    }
+    if (mapPo !== undefined && mapPo.trim()) {
+      updates.push('map_po = ?');
+      params.push(mapPo.trim());
+    }
+    if (customer !== undefined && customer.trim()) {
+      updates.push('customer = ?');
+      params.push(customer.trim());
+    }
+    if (styleId !== undefined) {
+      updates.push('style_id = ?');
+      params.push(styleId || null);
+    }
+    if (startDate !== undefined && startDate.trim()) {
+      updates.push('start_date = ?');
+      params.push(startDate.trim());
+    }
+    if (dueDate !== undefined && dueDate.trim()) {
+      updates.push('due_date = ?');
+      params.push(dueDate.trim());
+    }
+    if (supervisorId !== undefined) {
+      updates.push('supervisor_id = ?');
+      params.push(supervisorId || null);
+    }
+    if (shiftId !== undefined) {
+      updates.push('shift_id = ?');
+      params.push(shiftId || null);
+    }
+    if (qcTestMode !== undefined) {
+      let dbQc = po.qc_test_mode || 'QC_AND_TEST';
+      if (qcTestMode === 'QC Only' || qcTestMode === 'QC_ONLY') dbQc = 'QC_ONLY';
+      else if (qcTestMode === 'Test Only' || qcTestMode === 'TEST_ONLY') dbQc = 'TEST_ONLY';
+      else if (qcTestMode === 'QC & Test' || qcTestMode === 'QC_AND_TEST') dbQc = 'QC_AND_TEST';
+      updates.push('qc_test_mode = ?');
+      params.push(dbQc);
+    }
+    if (remarks !== undefined) {
+      updates.push('remarks = ?');
+      params.push(remarks != null ? remarks.trim() : '');
+    }
+    if (status !== undefined && status.trim()) {
+      updates.push('status = ?');
+      params.push(status.trim().toUpperCase());
+    }
+    if (allowNoProductPrefix !== undefined) {
+      updates.push('allow_no_product_prefix = ?');
+      params.push(allowNoProductPrefix ? 1 : 0);
+    }
+    if (allowNoBoxPrefix !== undefined) {
+      updates.push('allow_no_box_prefix = ?');
+      params.push(allowNoBoxPrefix ? 1 : 0);
+    }
+
+    params.push(po.id);
+    await db.prepare(`UPDATE production_orders SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+    await auditLog(req.user!.id, 'UPDATE_FULL_PO', 'production_orders', po.id, {
+      poNumber: poNumber || po.po_number,
+      changes: req.body
+    });
+
+    const updatedPo = await db.prepare(`SELECT * FROM production_orders WHERE id = ?`).get(po.id) as any;
+    const formatted = await formatProductionOrder(updatedPo, req.user);
+
+    return res.json({
+      message: `Production Order ${updatedPo.po_number} successfully updated`,
+      order: formatted
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/orders/:id - Permanently delete PO from database (ADMIN)
+router.delete('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), async (req: AuthRequest, res, next) => {
+  try {
+    const poParam = req.params.id;
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found in database' });
+    }
+
+    await db.transaction(async (tx) => {
+      // 1. Boxes and box items
+      const boxRows = await tx.prepare(`
+        SELECT id FROM boxes 
+        WHERE production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      `).all(po.id, po.id) as any[];
+      const boxIds = boxRows.map(b => b.id);
+      if (boxIds.length > 0) {
+        const ph = boxIds.map(() => '?').join(',');
+        await tx.prepare(`DELETE FROM box_items WHERE box_id IN (${ph})`).run(...boxIds);
+        await tx.prepare(`DELETE FROM aql_inspections WHERE box_id IN (${ph})`).run(...boxIds);
+        await tx.prepare(`DELETE FROM boxes WHERE id IN (${ph})`).run(...boxIds);
+      }
+
+      // 2. Items and inspections
+      const itemRows = await tx.prepare(`
+        SELECT id FROM item_units 
+        WHERE production_order_id = ? OR sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
+      `).all(po.id, po.id) as any[];
+      const itemIds = itemRows.map(i => i.id);
+      if (itemIds.length > 0) {
+        const ph = itemIds.map(() => '?').join(',');
+        await tx.prepare(`DELETE FROM qc_results WHERE item_id IN (${ph})`).run(...itemIds);
+        await tx.prepare(`DELETE FROM qc_fail_log WHERE item_id IN (${ph})`).run(...itemIds);
+        await tx.prepare(`DELETE FROM box_items WHERE item_id IN (${ph})`).run(...itemIds);
+        await tx.prepare(`DELETE FROM item_units WHERE id IN (${ph})`).run(...itemIds);
+      }
+
+      // 3. Child tables referencing production_order_id
+      await tx.prepare(`DELETE FROM aql_inspections WHERE production_order_id = ?`).run(po.id);
+      await tx.prepare(`DELETE FROM operator_work_assignments WHERE production_order_id = ?`).run(po.id);
+      await tx.prepare(`DELETE FROM production_order_boxes WHERE production_order_id = ?`).run(po.id);
+      await tx.prepare(`DELETE FROM production_order_configs WHERE production_order_id = ?`).run(po.id);
+      await tx.prepare(`DELETE FROM production_order_operations WHERE production_order_id = ?`).run(po.id);
+      await tx.prepare(`DELETE FROM sales_orders WHERE production_order_id = ?`).run(po.id);
+
+      // 4. Finally delete the PO record
+      await tx.prepare(`DELETE FROM production_orders WHERE id = ?`).run(po.id);
+    });
+
+    await auditLog(req.user!.id, 'DELETE_PRODUCTION_ORDER', 'production_orders', po.id, {
+      poNumber: po.po_number,
+      poName: po.po_name,
+      customer: po.customer
+    });
+
+    return res.json({ message: `Production Order ${po.po_number} was permanently deleted from database` });
   } catch (err) {
     next(err);
   }

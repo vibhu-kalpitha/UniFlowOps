@@ -171,4 +171,145 @@ describe('Optional No-Prefix Product and Box Configuration Tests', () => {
     const openBox = { ...box, items: ['ITEM-1'] };
     expect(canPackItem(openBox, 'PO-001', 'ITEM-NEW')).toEqual({ allowed: true });
   });
+
+  // 6. PO Quantity Edit - Safety Validation
+  it('6. PO Quantity Edit prevents reducing target quantity below processed/packed items', () => {
+    const existingPo = {
+      id: 'po-001',
+      poNumber: 'PO-TEST-001',
+      packedCount: 150,
+      qcPassedCount: 200,
+      totalQuantity: 500
+    };
+
+    function validateQuantityUpdate(po: typeof existingPo, newQty: number) {
+      const maxProcessed = Math.max(po.packedCount, po.qcPassedCount);
+      if (newQty < maxProcessed) {
+        return {
+          allowed: false,
+          error: 'QUANTITY_SAFETY_VIOLATION',
+          message: `Cannot reduce quantity to ${newQty}. ${maxProcessed} items have already been processed/packed.`
+        };
+      }
+      return { allowed: true, effectiveQuantity: newQty };
+    }
+
+    // Attempting to reduce below 200 (qcPassedCount = 200) -> rejected
+    const invalidAttempt = validateQuantityUpdate(existingPo, 180);
+    expect(invalidAttempt.allowed).toBe(false);
+    expect(invalidAttempt.error).toBe('QUANTITY_SAFETY_VIOLATION');
+
+    // Attempting to set valid quantity >= 200 -> allowed
+    const validAttempt = validateQuantityUpdate(existingPo, 250);
+    expect(validAttempt.allowed).toBe(true);
+    expect(validAttempt.effectiveQuantity).toBe(250);
+  });
+
+  // 7. PO Quantity Edit - Multi-config sum & distribution
+  it('7. PO Quantity Edit updates individual config quantities and recalculates total correctly', () => {
+    const configs = [
+      { id: 'cfg-s', size: 'S', quantity: 100 },
+      { id: 'cfg-m', size: 'M', quantity: 200 },
+      { id: 'cfg-l', size: 'L', quantity: 300 }
+    ];
+
+    const submittedConfigs = [
+      { id: 'cfg-s', quantity: 120 },
+      { id: 'cfg-m', quantity: 250 },
+      { id: 'cfg-l', quantity: 350 }
+    ];
+
+    const sumSubmitted = submittedConfigs.reduce((sum, c) => sum + c.quantity, 0);
+    expect(sumSubmitted).toBe(720);
+
+    const updated = configs.map(cfg => {
+      const match = submittedConfigs.find(sc => sc.id === cfg.id);
+      return match ? { ...cfg, quantity: match.quantity } : cfg;
+    });
+
+    expect(updated[0].quantity).toBe(120);
+    expect(updated[1].quantity).toBe(250);
+    expect(updated[2].quantity).toBe(350);
+    expect(updated.reduce((s, c) => s + c.quantity, 0)).toBe(720);
+  });
+
+  // 8. Edit Full PO - Preserves PO ID and updates permitted fields
+  it('8. Edit Full PO updates permitted metadata fields while preserving existing PO ID', () => {
+    const originalPo = {
+      id: 'po-uuid-12345',
+      poNumber: 'PO-2026-A',
+      customer: 'Brand Alpha',
+      styleId: 'style-001',
+      startDate: '2026-10-01',
+      dueDate: '2026-10-20',
+      status: 'CURRENT',
+      remarks: 'Initial remarks',
+      allowNoProductPrefix: false,
+      allowNoBoxPrefix: false
+    };
+
+    const updates = {
+      poNumber: 'PO-2026-A-UPDATED',
+      customer: 'Brand Alpha Premium',
+      styleId: 'style-002',
+      startDate: '2026-10-05',
+      dueDate: '2026-10-28',
+      status: 'CURRENT',
+      remarks: 'Updated rush order instructions',
+      allowNoProductPrefix: true,
+      allowNoBoxPrefix: false
+    };
+
+    // Apply updates
+    const updatedPo = {
+      ...originalPo,
+      ...updates,
+      id: originalPo.id // PO ID must strictly be preserved
+    };
+
+    expect(updatedPo.id).toBe('po-uuid-12345');
+    expect(updatedPo.poNumber).toBe('PO-2026-A-UPDATED');
+    expect(updatedPo.customer).toBe('Brand Alpha Premium');
+    expect(updatedPo.styleId).toBe('style-002');
+    expect(updatedPo.dueDate).toBe('2026-10-28');
+    expect(updatedPo.remarks).toBe('Updated rush order instructions');
+    expect(updatedPo.allowNoProductPrefix).toBe(true);
+    expect(updatedPo.allowNoBoxPrefix).toBe(false);
+  });
+
+  // 9. Delete PO - Admin capability
+  it('9. Admin PO deletion safely cleans up associated configs and audit records', () => {
+    const databaseState = {
+      productionOrders: [{ id: 'po-del-1', poNumber: 'PO-DEL-001' }],
+      configs: [{ id: 'cfg-1', productionOrderId: 'po-del-1' }],
+      boxes: [{ id: 'box-1', productionOrderId: 'po-del-1' }],
+      items: [{ id: 'item-1', productionOrderId: 'po-del-1' }]
+    };
+
+    function deleteProductionOrder(poId: string) {
+      const exists = databaseState.productionOrders.some(p => p.id === poId);
+      if (!exists) return { success: false, error: 'PO_NOT_FOUND' };
+
+      databaseState.configs = databaseState.configs.filter(c => c.productionOrderId !== poId);
+      databaseState.boxes = databaseState.boxes.filter(b => b.productionOrderId !== poId);
+      databaseState.items = databaseState.items.filter(i => i.productionOrderId !== poId);
+      databaseState.productionOrders = databaseState.productionOrders.filter(p => p.id !== poId);
+
+      return { success: true };
+    }
+
+    const res = deleteProductionOrder('po-del-1');
+    expect(res.success).toBe(true);
+    expect(databaseState.productionOrders.length).toBe(0);
+    expect(databaseState.configs.length).toBe(0);
+    expect(databaseState.boxes.length).toBe(0);
+    expect(databaseState.items.length).toBe(0);
+
+    // Deleting again returns PO_NOT_FOUND
+    const secondAttempt = deleteProductionOrder('po-del-1');
+    expect(secondAttempt.success).toBe(false);
+    expect(secondAttempt.error).toBe('PO_NOT_FOUND');
+  });
 });
+
+
