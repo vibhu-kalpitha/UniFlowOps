@@ -195,10 +195,31 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
   if (!po) {
     return { valid: false, error: 'PO_NOT_FOUND', message: 'Production Order not found' };
   }
-  const code = rawCode.trim().toUpperCase();
+  const code = rawCode ? rawCode.trim().toUpperCase() : '';
+  if (!code) {
+    return { valid: false, error: 'INVALID_QR', message: 'Barcode is required' };
+  }
 
+  const allowNoProductPrefix = Boolean(po.allow_no_product_prefix || po.allowNoProductPrefix);
   const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
 
+  // If no-prefix mode is explicitly enabled for this PO:
+  if (allowNoProductPrefix) {
+    // 1. If code matches one of the configured configs, associate with it
+    for (const cfg of configs) {
+      const configCode = (cfg.config_code || '').trim().toUpperCase();
+      if (configCode && code.startsWith(configCode)) {
+        return { valid: true, config: cfg };
+      }
+    }
+    // 2. If no prefix matches, still allow the product serial number
+    return {
+      valid: true,
+      config: configs.length > 0 ? configs[0] : { config_code: 'FREE_SERIAL', configCode: 'FREE_SERIAL', quantity: po.total_quantity || 1000 }
+    };
+  }
+
+  // Standard validation when allowNoProductPrefix is not enabled
   if (configs.length === 0) {
     return {
       valid: false,
@@ -209,7 +230,6 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
 
   for (const cfg of configs) {
     const configCode = (cfg.config_code || '').trim().toUpperCase();
-    const productType = (cfg.product_type || '').trim().toUpperCase();
 
     // 1. Config code prefix match (e.g. PNFLSS09260001 matches PNFLSS)
     if (configCode && code.startsWith(configCode)) {
@@ -256,18 +276,15 @@ export async function validateBoxForProductionOrder(
     return { valid: false, error: 'INVALID_BOX_QR', message: 'Box QR cannot be empty.' };
   }
 
+  const allowNoBoxPrefix = Boolean(po.allow_no_box_prefix || po.allowNoBoxPrefix);
+
   const configs = await db.prepare(`
     SELECT * FROM production_order_box_configs
     WHERE production_order_id = ?
     ORDER BY CHAR_LENGTH(CONCAT(prefix, size)) DESC
   `).all(po.id) as any[];
 
-  // Fallback for legacy POs with no box configuration rows defined
-  if (configs.length === 0) {
-    return { valid: true, capacity: 12 };
-  }
-
-  // Check prefix + size matches
+  // 1. Check prefix + size matches
   for (const cfg of configs) {
     const prefix = (cfg.prefix || '').trim().toUpperCase();
     const size = (cfg.size || '').trim().toUpperCase();
@@ -286,6 +303,21 @@ export async function validateBoxForProductionOrder(
         };
       }
     }
+  }
+
+  // 2. If allowNoBoxPrefix is explicitly enabled: allow any box identifier without requiring prefix match!
+  if (allowNoBoxPrefix) {
+    const defaultCapacity = configs.length > 0 ? (Number(configs[0].capacity) || 12) : 12;
+    return {
+      valid: true,
+      config: configs.length > 0 ? configs[0] : undefined,
+      capacity: defaultCapacity
+    };
+  }
+
+  // Fallback for legacy POs with no box configuration rows defined
+  if (configs.length === 0) {
+    return { valid: true, capacity: 12 };
   }
 
   // If no prefix + size matched, check if prefix matches to provide specific error message
@@ -321,6 +353,9 @@ export async function validateProductQrRangeForPO(po: any, rawCode: string) {
 
 export function validateProductQrRange(targetObj: any, rawCode: string) {
   if (!targetObj) return { valid: false, error: 'PO_NOT_FOUND', message: 'Target not found' };
+  if (targetObj.allow_no_product_prefix || targetObj.allowNoProductPrefix) {
+    return { valid: true };
+  }
   const configCode = (targetObj?.config_code || targetObj?.configCode || '').trim().toUpperCase();
   const code = rawCode.trim().toUpperCase();
   if (configCode && code.startsWith(configCode)) {

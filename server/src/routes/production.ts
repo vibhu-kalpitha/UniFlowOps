@@ -305,6 +305,8 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     stationCount: qcStationCount,
     productConfigurations,
     boxConfigurations,
+    allowNoProductPrefix: Boolean(po.allow_no_product_prefix),
+    allowNoBoxPrefix: Boolean(po.allow_no_box_prefix),
     totalQuantity: calcTotalQty,
     allocations: poAllocations,
     shifts,
@@ -407,6 +409,10 @@ const createPoSchema = z.object({
   stationCount: z.union([z.number(), z.string()]).optional(),
   shiftId: z.string().optional(),
   shift_id: z.string().optional(),
+  allowNoProductPrefix: z.boolean().optional(),
+  allow_no_product_prefix: z.union([z.boolean(), z.number()]).optional(),
+  allowNoBoxPrefix: z.boolean().optional(),
+  allow_no_box_prefix: z.union([z.boolean(), z.number()]).optional(),
   productConfigurations: z.array(createPoProductConfigSchema).optional(),
   boxConfigurations: z.array(createPoBoxConfigSchema).optional(),
   shifts: z.array(z.any()).optional(),
@@ -556,12 +562,14 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     }
 
     const poNameVal = (body.poName || body.po_name || '').trim() || null;
+    const allowNoProductPrefix = (body.allowNoProductPrefix || (body as any).allow_no_product_prefix) ? 1 : 0;
+    const allowNoBoxPrefix = (body.allowNoBoxPrefix || (body as any).allow_no_box_prefix) ? 1 : 0;
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, qc_station_count, shift_id, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, dbQcStationCount, poShiftId, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, dbQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = opStr;
@@ -881,6 +889,7 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
     const orders = await db.query(`
       SELECT 
         po.id, po.po_number, po.po_name, po.customer, po.start_date, po.due_date, po.status, po.created_at,
+        po.allow_no_product_prefix, po.allow_no_box_prefix,
         s.name as style_name, s.code as style_code, u.full_name as supervisor_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
         (SELECT COUNT(DISTINCT item_id) FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE (iu.production_order_id = po.id OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS') as qc_passed_count,
@@ -907,6 +916,8 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
         startDate: p.start_date,
         dueDate: p.due_date,
         status: p.status,
+        allowNoProductPrefix: Boolean(p.allow_no_product_prefix),
+        allowNoBoxPrefix: Boolean(p.allow_no_box_prefix),
         configuredQuantity: targetQty,
         qcPassedCount: qcPassed,
         packedCount: packed,
@@ -991,6 +1002,50 @@ router.patch('/admin/orders/:id/quantity', authenticateToken, requireRole('ADMIN
       message: `Updated configured quantity to ${qty} for PO ${po.po_number}`,
       poId: po.id,
       newQuantity: qty
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/production-orders/:id/no-prefix-config (SUPERVISOR / ADMIN)
+router.patch('/production-orders/:id/no-prefix-config', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const poParam = req.params.id;
+    const { allowNoProductPrefix, allowNoBoxPrefix } = req.body;
+
+    const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
+    if (!po) {
+      return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+
+    const updates: string[] = ['updated_at = NOW(3)'];
+    const params: any[] = [];
+
+    if (allowNoProductPrefix !== undefined) {
+      updates.push('allow_no_product_prefix = ?');
+      params.push(allowNoProductPrefix ? 1 : 0);
+    }
+    if (allowNoBoxPrefix !== undefined) {
+      updates.push('allow_no_box_prefix = ?');
+      params.push(allowNoBoxPrefix ? 1 : 0);
+    }
+
+    params.push(po.id);
+    await db.prepare(`UPDATE production_orders SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+    await auditLog(req.user!.id, 'UPDATE_PO_NO_PREFIX_CONFIG', 'production_orders', po.id, {
+      poNumber: po.po_number,
+      allowNoProductPrefix,
+      allowNoBoxPrefix
+    });
+
+    const updated = await db.prepare(`SELECT * FROM production_orders WHERE id = ?`).get(po.id);
+    const formatted = await formatProductionOrder(updated);
+
+    return res.json({
+      message: `Updated validation rules for PO ${po.po_number || po.id}`,
+      productionOrder: formatted
     });
   } catch (err) {
     next(err);

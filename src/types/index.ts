@@ -128,6 +128,8 @@ export interface ProductionOrder {
   qc_station_count?: number;
   productConfigurations?: ProductConfiguration[];
   boxConfigurations?: PoBoxConfiguration[];
+  allowNoProductPrefix?: boolean;
+  allowNoBoxPrefix?: boolean;
   totalQuantity?: number;
   shifts?: ShiftAssignment[];
   allocations?: any[];

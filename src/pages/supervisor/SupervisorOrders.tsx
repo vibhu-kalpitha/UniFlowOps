@@ -4,11 +4,13 @@ import { ProductionOrder } from '../../types';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ChevronRight, X } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const SupervisorOrders: React.FC = () => {
-  const { productionOrders, refreshProductionOrders } = useApp();
+  const { productionOrders, refreshProductionOrders, showToast } = useApp();
   const [selectedPo, setSelectedPo] = useState<ProductionOrder | null>(null);
+  const [updatingPrefix, setUpdatingPrefix] = useState<boolean>(false);
 
   useEffect(() => {
     refreshProductionOrders();
@@ -24,6 +26,45 @@ export const SupervisorOrders: React.FC = () => {
       }
     }
   }, [productionOrders]);
+
+  const handleTogglePrefix = async (type: 'product' | 'box') => {
+    if (!selectedPo) return;
+    const targetId = selectedPo.dbId || selectedPo.id;
+    const newProductVal = type === 'product' ? !selectedPo.allowNoProductPrefix : selectedPo.allowNoProductPrefix;
+    const newBoxVal = type === 'box' ? !selectedPo.allowNoBoxPrefix : selectedPo.allowNoBoxPrefix;
+
+    setUpdatingPrefix(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; allowNoProductPrefix: boolean; allowNoBoxPrefix: boolean }>(
+        `/api/production-orders/${targetId}/no-prefix-config`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            allowNoProductPrefix: newProductVal,
+            allowNoBoxPrefix: newBoxVal
+          })
+        }
+      );
+
+      setSelectedPo(prev => prev ? {
+        ...prev,
+        allowNoProductPrefix: res.allowNoProductPrefix,
+        allowNoBoxPrefix: res.allowNoBoxPrefix
+      } : null);
+
+      await refreshProductionOrders();
+      showToast(
+        type === 'product'
+          ? `Product serial prefix validation ${res.allowNoProductPrefix ? 'disabled (Free serials allowed)' : 'enforced'}`
+          : `Box identifier prefix validation ${res.allowNoBoxPrefix ? 'disabled (Free box IDs allowed)' : 'enforced'}`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update prefix validation settings', 'error');
+    } finally {
+      setUpdatingPrefix(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -58,6 +99,21 @@ export const SupervisorOrders: React.FC = () => {
                 <span>Customer: {po.customer || 'Factory Customer'}</span>
                 <span>{configsCount} Product Configurations</span>
               </div>
+
+              {(po.allowNoProductPrefix || po.allowNoBoxPrefix) && (
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                  {po.allowNoProductPrefix && (
+                    <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(22, 184, 174, 0.15)', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                      🔓 Free Serials
+                    </span>
+                  )}
+                  {po.allowNoBoxPrefix && (
+                    <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(22, 184, 174, 0.15)', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                      📦 Free Box IDs
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div style={{ marginTop: '10px' }}>
                 <ProgressBar current={qcPassed} total={totalQty} />
@@ -110,6 +166,58 @@ export const SupervisorOrders: React.FC = () => {
                 <p style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '2px' }}>{selectedPo.remarks}</p>
               </div>
             )}
+
+            {/* Prefix Validation Modes Controls */}
+            <div style={{ marginBottom: '14px', padding: '12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Prefix Validation Modes
+                </span>
+                {updatingPrefix && <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 600 }}>Updating...</span>}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Product Serials:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePrefix('product')}
+                    disabled={updatingPrefix}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: selectedPo.allowNoProductPrefix ? '1px solid var(--primary-teal)' : '1px solid var(--border-color)',
+                      backgroundColor: selectedPo.allowNoProductPrefix ? 'rgba(22, 184, 174, 0.2)' : 'var(--bg-surface-1)',
+                      color: selectedPo.allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    {selectedPo.allowNoProductPrefix ? '🔓 Free Serial Numbers (Enabled)' : '🔒 Enforce Config Prefix'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Box Identifiers:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePrefix('box')}
+                    disabled={updatingPrefix}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: selectedPo.allowNoBoxPrefix ? '1px solid var(--primary-teal)' : '1px solid var(--border-color)',
+                      backgroundColor: selectedPo.allowNoBoxPrefix ? 'rgba(22, 184, 174, 0.2)' : 'var(--bg-surface-1)',
+                      color: selectedPo.allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    {selectedPo.allowNoBoxPrefix ? '🔓 Free Box Identifiers (Enabled)' : '🔒 Enforce Box Prefix'}
+                  </button>
+                </div>
+              </div>
+            </div>
 
             <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px' }}>
               Product Configurations ({selectedPo.productConfigurations?.length || 0})

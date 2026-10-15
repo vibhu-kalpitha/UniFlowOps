@@ -404,6 +404,22 @@ async function runStartupColumnChecks(): Promise<void> {
         } catch (e: any) { console.warn('  ⚠️ shift_id:', e.message); }
       }
 
+      // allow_no_product_prefix
+      if (!(await columnExists('production_orders', 'allow_no_product_prefix'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN allow_no_product_prefix TINYINT NOT NULL DEFAULT 0`);
+          console.log('  ✅ Added production_orders.allow_no_product_prefix');
+        } catch (e: any) { console.warn('  ⚠️ allow_no_product_prefix:', e.message); }
+      }
+
+      // allow_no_box_prefix
+      if (!(await columnExists('production_orders', 'allow_no_box_prefix'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN allow_no_box_prefix TINYINT NOT NULL DEFAULT 0`);
+          console.log('  ✅ Added production_orders.allow_no_box_prefix');
+        } catch (e: any) { console.warn('  ⚠️ allow_no_box_prefix:', e.message); }
+      }
+
       // FK fk_po_shift (only if shifts table exists and FK not already there)
       try {
         if (await tableExists('shifts')
@@ -741,6 +757,17 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
           await db.exec(`ALTER TABLE operator_work_assignments ADD CONSTRAINT fk_owa_po FOREIGN KEY (production_order_id) REFERENCES production_orders(id) ON DELETE CASCADE`);
         }
       } catch (_) { /* non-fatal */ }
+    } else if (file === '010_po_no_prefix_options.sql') {
+      if (await tableExists('production_orders')) {
+        if (!(await columnExists('production_orders', 'allow_no_product_prefix'))) {
+          try { await db.exec(`ALTER TABLE production_orders ADD COLUMN allow_no_product_prefix TINYINT NOT NULL DEFAULT 0`); }
+          catch (e: any) { console.warn('  010: allow_no_product_prefix warning (non-fatal):', e?.message); }
+        }
+        if (!(await columnExists('production_orders', 'allow_no_box_prefix'))) {
+          try { await db.exec(`ALTER TABLE production_orders ADD COLUMN allow_no_box_prefix TINYINT NOT NULL DEFAULT 0`); }
+          catch (e: any) { console.warn('  010: allow_no_box_prefix warning (non-fatal):', e?.message); }
+        }
+      }
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);

@@ -144,6 +144,20 @@ export const AdminOrders: React.FC = () => {
                       </span>
                     )}
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
+                    {(po.allowNoProductPrefix || po.allowNoBoxPrefix) && (
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                        {po.allowNoProductPrefix && (
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(20, 184, 166, 0.15)', color: 'var(--color-teal)', fontWeight: 700 }}>
+                            🔓 Free Serials
+                          </span>
+                        )}
+                        {po.allowNoBoxPrefix && (
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(20, 184, 166, 0.15)', color: 'var(--color-teal)', fontWeight: 700 }}>
+                            📦 Free Box IDs
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
                     <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />

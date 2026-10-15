@@ -40,6 +40,10 @@ export const CreatePOSalesOrders: React.FC = () => {
     { prefix: 'BX', size: 'M', capacity: 12 }
   ]);
 
+  // Optional No-Prefix Mode Flags
+  const [allowNoProductPrefix, setAllowNoProductPrefix] = useState<boolean>(false);
+  const [allowNoBoxPrefix, setAllowNoBoxPrefix] = useState<boolean>(false);
+
 
 
   const fetchMasterConfigTypes = async () => {
@@ -111,6 +115,16 @@ export const CreatePOSalesOrders: React.FC = () => {
           setBoxConfigs(parsedBoxConfigs);
         }
       } catch (e) {}
+    }
+
+    const savedNoProd = sessionStorage.getItem('uniflow_draft_po_allow_no_product_prefix');
+    if (savedNoProd !== null) {
+      setAllowNoProductPrefix(savedNoProd === 'true');
+    }
+
+    const savedNoBox = sessionStorage.getItem('uniflow_draft_po_allow_no_box_prefix');
+    if (savedNoBox !== null) {
+      setAllowNoBoxPrefix(savedNoBox === 'true');
     }
 
     fetchMasterConfigTypes();
@@ -274,12 +288,12 @@ export const CreatePOSalesOrders: React.FC = () => {
   };
 
   const handleNext = () => {
-    if (configs.length === 0) {
-      showToast('Please select or create at least one product configuration.', 'warning');
+    if (configs.length === 0 && !allowNoProductPrefix) {
+      showToast('Please select or create at least one product configuration or enable Free Serial Numbers.', 'warning');
       return;
     }
 
-    const normalizedConfigs: ProductConfiguration[] = configs.map(c => {
+    let normalizedConfigs: ProductConfiguration[] = configs.map(c => {
       const qNum = typeof c.quantity === 'number' ? c.quantity : (parseInt(String(c.quantity || '0'), 10) || 0);
       return {
         ...c,
@@ -288,6 +302,18 @@ export const CreatePOSalesOrders: React.FC = () => {
         productSerialEnd: qNum
       };
     });
+
+    if (normalizedConfigs.length === 0 && allowNoProductPrefix) {
+      const defaultQty = draftPoGeneral?.totalQuantity || draftPoGeneral?.quantity || 1000;
+      normalizedConfigs = [{
+        configCode: 'FREE_SERIAL',
+        productType: 'FREE_SERIAL',
+        productQrPrefix: '',
+        productSerialStart: 1,
+        productSerialEnd: defaultQty,
+        quantity: defaultQty
+      }];
+    }
 
     for (const cfg of normalizedConfigs) {
       if (!cfg.configCode.trim()) {
@@ -300,12 +326,12 @@ export const CreatePOSalesOrders: React.FC = () => {
       }
     }
 
-    if (boxConfigs.length === 0) {
-      showToast('Please add at least one box configuration.', 'warning');
+    if (boxConfigs.length === 0 && !allowNoBoxPrefix) {
+      showToast('Please add at least one box configuration or enable Free Box Identifiers.', 'warning');
       return;
     }
 
-    const normalizedBoxConfigs: PoBoxConfiguration[] = boxConfigs.map(b => {
+    let normalizedBoxConfigs: PoBoxConfiguration[] = boxConfigs.map(b => {
       const capNum = typeof b.capacity === 'number' ? b.capacity : (parseInt(String(b.capacity || '0'), 10) || 0);
       return {
         ...b,
@@ -313,8 +339,16 @@ export const CreatePOSalesOrders: React.FC = () => {
       };
     });
 
+    if (normalizedBoxConfigs.length === 0 && allowNoBoxPrefix) {
+      normalizedBoxConfigs = [{
+        prefix: '',
+        size: 'STANDARD',
+        capacity: 12
+      }];
+    }
+
     for (const bCfg of normalizedBoxConfigs) {
-      if (!bCfg.prefix.trim()) {
+      if (!allowNoBoxPrefix && !bCfg.prefix.trim()) {
         showToast('Box prefix cannot be empty.', 'warning');
         return;
       }
@@ -328,6 +362,8 @@ export const CreatePOSalesOrders: React.FC = () => {
       }
     }
 
+    sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(allowNoProductPrefix));
+    sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(allowNoBoxPrefix));
     sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(normalizedConfigs));
     sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(normalizedBoxConfigs));
     navigate('/supervisor/production-orders/new/review');
@@ -386,6 +422,55 @@ export const CreatePOSalesOrders: React.FC = () => {
           >
             <Settings size={14} /> Manage Master Types & Sizes
           </button>
+        </div>
+
+        {/* Optional No-Prefix Mode for Product Configuration */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            border: `2px solid ${allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+            backgroundColor: allowNoProductPrefix ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+          onClick={() => {
+            const nextVal = !allowNoProductPrefix;
+            setAllowNoProductPrefix(nextVal);
+            sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(nextVal));
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {allowNoProductPrefix ? (
+              <CheckSquare size={22} color="var(--primary-teal)" />
+            ) : (
+              <Square size={22} color="var(--text-muted)" />
+            )}
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 800, color: allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--text-primary)' }}>
+                No Prefix / Free Serial Numbers
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Optional: Allow product serial numbers without requiring them to match a configured product prefix or serial pattern.
+              </div>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 800,
+              padding: '4px 10px',
+              borderRadius: '6px',
+              backgroundColor: allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
+              color: allowNoProductPrefix ? '#071B23' : 'var(--text-muted)',
+              textTransform: 'uppercase'
+            }}
+          >
+            {allowNoProductPrefix ? 'Option Enabled' : 'Disabled'}
+          </span>
         </div>
 
         {/* Dynamic Types Selection */}
@@ -589,6 +674,55 @@ export const CreatePOSalesOrders: React.FC = () => {
           >
             <Plus size={14} /> Add Box Configuration
           </button>
+        </div>
+
+        {/* Optional No-Box-Prefix Mode */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            border: `2px solid ${allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+            backgroundColor: allowNoBoxPrefix ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+          onClick={() => {
+            const nextVal = !allowNoBoxPrefix;
+            setAllowNoBoxPrefix(nextVal);
+            sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(nextVal));
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {allowNoBoxPrefix ? (
+              <CheckSquare size={22} color="var(--primary-teal)" />
+            ) : (
+              <Square size={22} color="var(--text-muted)" />
+            )}
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 800, color: allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--text-primary)' }}>
+                No Box Prefix / Free Box Identifiers
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Optional: Allow box identifiers without requiring them to match a configured box prefix. Capacity limits and duplicate prevention remain enforced.
+              </div>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 800,
+              padding: '4px 10px',
+              borderRadius: '6px',
+              backgroundColor: allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
+              color: allowNoBoxPrefix ? '#071B23' : 'var(--text-muted)',
+              textTransform: 'uppercase'
+            }}
+          >
+            {allowNoBoxPrefix ? 'Option Enabled' : 'Disabled'}
+          </span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

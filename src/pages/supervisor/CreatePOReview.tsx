@@ -14,6 +14,8 @@ export const CreatePOReview: React.FC = () => {
   const [draftConfigs, setDraftConfigs] = useState<ProductConfiguration[]>([]);
   const [draftBoxConfigs, setDraftBoxConfigs] = useState<PoBoxConfiguration[]>([]);
   const [draftShifts, setDraftShifts] = useState<ShiftAssignment[]>([]);
+  const [draftAllowNoProductPrefix, setDraftAllowNoProductPrefix] = useState<boolean>(false);
+  const [draftAllowNoBoxPrefix, setDraftAllowNoBoxPrefix] = useState<boolean>(false);
   const [makeCurrent, setMakeCurrent] = useState(true);
   const [isCreated, setIsCreated] = useState(false);
   const [createdPo, setCreatedPo] = useState<ProductionOrder | null>(null);
@@ -23,11 +25,15 @@ export const CreatePOReview: React.FC = () => {
     const configsData = sessionStorage.getItem('uniflow_draft_po_configs');
     const boxConfigsData = sessionStorage.getItem('uniflow_draft_po_box_configs');
     const shiftsData = sessionStorage.getItem('uniflow_draft_po_shifts');
+    const noProdData = sessionStorage.getItem('uniflow_draft_po_allow_no_product_prefix');
+    const noBoxData = sessionStorage.getItem('uniflow_draft_po_allow_no_box_prefix');
 
     if (genData) setDraftPoGeneral(JSON.parse(genData));
     if (configsData) setDraftConfigs(JSON.parse(configsData));
     if (boxConfigsData) setDraftBoxConfigs(JSON.parse(boxConfigsData));
     if (shiftsData) setDraftShifts(JSON.parse(shiftsData));
+    if (noProdData !== null) setDraftAllowNoProductPrefix(noProdData === 'true');
+    if (noBoxData !== null) setDraftAllowNoBoxPrefix(noBoxData === 'true');
   }, []);
 
   if (!draftPoGeneral) {
@@ -68,6 +74,8 @@ export const CreatePOReview: React.FC = () => {
       selectedOperations: draftPoGeneral.selectedOperations,
       qcTestMode: draftPoGeneral.qcTestMode,
       qcStationCount: draftPoGeneral.qcStationCount || 1,
+      allowNoProductPrefix: draftAllowNoProductPrefix,
+      allowNoBoxPrefix: draftAllowNoBoxPrefix,
       productConfigurations: draftConfigs,
       boxConfigurations: draftBoxConfigs,
       shifts: effectiveAllocations,
@@ -126,6 +134,8 @@ export const CreatePOReview: React.FC = () => {
     sessionStorage.removeItem('uniflow_draft_po_shifts');
     sessionStorage.removeItem('uniflow_draft_po_sos');
     sessionStorage.removeItem('uniflow_draft_po_style_id');
+    sessionStorage.removeItem('uniflow_draft_po_allow_no_product_prefix');
+    sessionStorage.removeItem('uniflow_draft_po_allow_no_box_prefix');
 
     setCreatedPo(savedPo);
     setIsCreated(true);
@@ -289,7 +299,14 @@ export const CreatePOReview: React.FC = () => {
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <span style={styles.cardSubTitle}>PRODUCT CONFIGURATIONS ({draftConfigs.length})</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={styles.cardSubTitle}>PRODUCT CONFIGURATIONS ({draftConfigs.length})</span>
+              {draftAllowNoProductPrefix && (
+                <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(22, 184, 174, 0.2)', color: 'var(--primary-teal)' }}>
+                  FREE SERIAL NUMBERS (NO PREFIX)
+                </span>
+              )}
+            </div>
             <h4 style={{ fontSize: '16px', fontWeight: 800 }}>Total Quantity: {totalQuantity} pcs</h4>
           </div>
           <button
@@ -332,7 +349,14 @@ export const CreatePOReview: React.FC = () => {
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <span style={styles.cardSubTitle}>BOX CONFIGURATIONS ({draftBoxConfigs.length})</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={styles.cardSubTitle}>BOX CONFIGURATIONS ({draftBoxConfigs.length})</span>
+              {draftAllowNoBoxPrefix && (
+                <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(22, 184, 174, 0.2)', color: 'var(--primary-teal)' }}>
+                  FREE BOX IDENTIFIERS (NO PREFIX)
+                </span>
+              )}
+            </div>
             <h4 style={{ fontSize: '16px', fontWeight: 800 }}>Box QR & Packing Rules</h4>
           </div>
           <button
