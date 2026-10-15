@@ -5,8 +5,35 @@ dotenv.config();
 
 let pool: Pool | null = null;
 
+/**
+ * Development safety guard.
+ * When NODE_ENV=development the app MUST connect to `uniflow_ops_dev`.
+ * If DB_NAME is absent or resolves to the production database name,
+ * we refuse to start rather than silently migrating production data.
+ */
+function assertDevDbConfig(): void {
+  if (process.env.NODE_ENV !== 'development') return;
+  const dbName = process.env.DB_NAME;
+  const dbUser = process.env.DB_USER;
+  if (!dbName || dbName.trim() === '' || dbName === 'uniflow_ops') {
+    throw new Error(
+      `[DEV GUARD] Refusing to start: DB_NAME is "${dbName || '(unset)'}". ` +
+      `Development must use DB_NAME=uniflow_ops_dev. ` +
+      `Check your .env.dev file. Do NOT run the dev container against the production database.`
+    );
+  }
+  if (!dbUser || dbUser.trim() === '' || dbUser === 'uniflow_ops_app') {
+    throw new Error(
+      `[DEV GUARD] Refusing to start: DB_USER is "${dbUser || '(unset)'}". ` +
+      `Development must use DB_USER=uniflow_ops_dev. ` +
+      `Check your .env.dev file.`
+    );
+  }
+}
+
 export function getPool(): Pool {
   if (!pool) {
+    assertDevDbConfig();
     pool = mysql.createPool({
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '3306', 10),

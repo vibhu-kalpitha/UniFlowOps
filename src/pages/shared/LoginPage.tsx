@@ -69,34 +69,6 @@ export const LoginPage: React.FC = () => {
             <p style={styles.subtitle}>UNIT FLOW OPERATOR</p>
           </div>
 
-          {/* Demo Role Mode Box */}
-          <div style={styles.roleBox}>
-            <span style={styles.roleLabel}>DEMO ROLE MODE:</span>
-            <div style={styles.roleButtons}>
-              <button
-                type="button"
-                style={selectedRole === 'operator' ? styles.roleActive : styles.roleBtn}
-                onClick={() => handleRoleSelect('operator')}
-              >
-                Operator
-              </button>
-              <button
-                type="button"
-                style={selectedRole === 'supervisor' ? styles.roleActive : styles.roleBtn}
-                onClick={() => handleRoleSelect('supervisor')}
-              >
-                Supervisor
-              </button>
-              <button
-                type="button"
-                style={selectedRole === 'admin' ? styles.roleActive : styles.roleBtn}
-                onClick={() => handleRoleSelect('admin')}
-              >
-                Admin
-              </button>
-            </div>
-          </div>
-
           {/* Login Form */}
           <form onSubmit={handleLogin} style={styles.form}>
             <div style={styles.inputGroup}>

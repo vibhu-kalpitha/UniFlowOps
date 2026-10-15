@@ -324,48 +324,97 @@ button:disabled {
 }
 
 /* ── RESPONSIVE TABLE PATTERN ────────────────────────────────────────────── */
+.table-responsive-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.responsive-table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.responsive-table th,
+.responsive-table td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 @media (max-width: 768px) {
   .responsive-table {
-    display: block !important;
-    width: 100% !important;
+    display: table !important;
+    white-space: nowrap !important;
+    font-size: 11px !important;
   }
-  .responsive-table thead, .responsive-table tbody, .responsive-table th, .responsive-table td, .responsive-table tr {
-    display: block !important;
+  .responsive-table thead {
+    display: table-header-group !important;
+    position: static !important;
   }
-  .responsive-table thead tr {
-    position: absolute;
-    top: -9999px;
-    left: -9999px;
+  .responsive-table tbody {
+    display: table-row-group !important;
   }
   .responsive-table tr {
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    margin-bottom: 16px;
-    padding: 12px;
-    background-color: var(--bg-surface-2);
+    display: table-row !important;
+    border: none !important;
+    background-color: transparent !important;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+  }
+  .responsive-table th {
+    display: table-cell !important;
+    padding: 8px 10px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    position: static !important;
   }
   .responsive-table td {
-    border: none !important;
-    position: relative;
-    padding: 8px 0 8px 45% !important;
-    text-align: right !important;
-    min-height: 32px;
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
+    display: table-cell !important;
+    padding: 8px 10px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    text-align: left !important;
+    min-height: auto !important;
+    position: static !important;
   }
   .responsive-table td:before {
-    content: attr(data-label);
-    position: absolute;
-    left: 0;
-    width: 40%;
-    text-align: left;
-    font-weight: 700;
-    color: var(--text-secondary);
-    font-size: 11px;
-    text-transform: uppercase;
-    display: flex;
-    align-items: center;
+    display: none !important;
+    content: none !important;
+  }
+}
+
+/* ── Admin Page Header Responsive Styles ─────────────────────────────────── */
+.admin-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .admin-page-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+  .admin-page-header > div:first-child {
+    width: 100% !important;
+  }
+  .admin-page-header-actions {
+    width: 100% !important;
+    display: flex !important;
+    gap: 8px !important;
+  }
+  .admin-page-header-actions .btn,
+  .admin-page-header-actions button {
+    flex: 1 1 0 !important;
+    justify-content: center !important;
+    text-align: center !important;
+    padding: 9px 12px !important;
+    white-space: nowrap !important;
   }
 }
 

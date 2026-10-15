@@ -10,12 +10,14 @@ import {
   ArrowUpRight,
   BarChart3,
   Box,
+  Calendar,
   CheckCircle2,
   Clock,
   Filter,
   Layers,
-  ListFilter,
+  Menu,
   Package,
+  PieChart,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -25,8 +27,10 @@ import {
   TrendingUp,
   Users,
   X,
-  Menu,
-  Zap
+  Zap,
+  ChevronRight,
+  Sparkles,
+  SlidersHorizontal
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
@@ -37,21 +41,26 @@ export const AdminDashboard: React.FC = () => {
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'orders' | 'boxes' | 'quality' | 'scrapped' | 'audit'>('orders');
-  const [searchTerm, setSearchTerm] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState<boolean>(false);
 
-  // Dropdown & Date filter states
+  // Filter states
   const [selectedStyle, setSelectedStyle] = useState<string>('');
   const [selectedPoId, setSelectedPoId] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
-  const [selectedBoxModal, setSelectedBoxModal] = useState<any>(null);
+  const [activeDatePreset, setActiveDatePreset] = useState<'today' | '7d' | '30d' | 'all' | 'custom'>('all');
 
   const [error, setError] = useState<string | null>(null);
 
-  const fetchDashboardData = async (styleFilter = selectedStyle, poFilter = selectedPoId, yrFilter = selectedYear, fromD = fromDate, toD = toDate) => {
+  const fetchDashboardData = async (
+    styleFilter = selectedStyle,
+    poFilter = selectedPoId,
+    yrFilter = selectedYear,
+    fromD = fromDate,
+    toD = toDate
+  ) => {
     setLoading(true);
     setError(null);
     try {
@@ -90,8 +99,33 @@ export const AdminDashboard: React.FC = () => {
     setSelectedYear('');
     setFromDate('');
     setToDate('');
-    setSearchTerm('');
+    setActiveDatePreset('all');
   };
+
+  const handleDatePreset = (preset: 'today' | '7d' | '30d' | 'all') => {
+    setActiveDatePreset(preset);
+    const now = new Date();
+    if (preset === 'all') {
+      setFromDate('');
+      setToDate('');
+    } else if (preset === 'today') {
+      const dStr = now.toISOString().split('T')[0];
+      setFromDate(dStr);
+      setToDate(dStr);
+    } else if (preset === '7d') {
+      const past = new Date();
+      past.setDate(past.getDate() - 7);
+      setFromDate(past.toISOString().split('T')[0]);
+      setToDate(now.toISOString().split('T')[0]);
+    } else if (preset === '30d') {
+      const past = new Date();
+      past.setDate(past.getDate() - 30);
+      setFromDate(past.toISOString().split('T')[0]);
+      setToDate(now.toISOString().split('T')[0]);
+    }
+  };
+
+  const isFiltered = Boolean(selectedStyle || selectedPoId || selectedYear || fromDate || toDate);
 
   const kpis = data?.kpis || {
     totalStyles: 0,
@@ -110,382 +144,263 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const activeOrders: any[] = data?.activeProductionOrders || [];
-  const adminBoxes: any[] = data?.adminBoxes || [];
-  const recentAuditLogs: any[] = data?.recentAuditLogs || [];
   const recentScrapped: any[] = data?.recentScrapped || [];
 
   const totalQc = kpis.qcPassed + kpis.qcFailed;
   const qcPassRate = totalQc > 0 ? Math.round((kpis.qcPassed / totalQc) * 100) : 100;
   const totalAql = kpis.aqlPassed + kpis.aqlFailed;
   const aqlPassRate = totalAql > 0 ? Math.round((kpis.aqlPassed / totalAql) * 100) : 100;
-  const testPassRate = 100;
+  const completionPct = kpis.overallPoCompletion || (kpis.plannedQuantity > 0 ? Math.min(100, Math.round((kpis.packedQuantity / kpis.plannedQuantity) * 100)) : 0);
 
-  const qualityRates = {
-    qcPassRate,
-    testPassRate,
-    aqlPassRate,
-    totalQc,
-    passQc: kpis.qcPassed,
-    totalAql,
-    passAql: kpis.aqlPassed
+  // Box calculations for Donut
+  const fullBoxPct = kpis.totalBoxes > 0 ? Math.round((kpis.fullBoxes / kpis.totalBoxes) * 100) : 0;
+  const openBoxPct = kpis.totalBoxes > 0 ? Math.max(0, 100 - fullBoxPct) : 0;
+
+  const navTo = (path: string) => {
+    setSidebarOpen(false);
+    navigate(path);
   };
-
-  const exceptions = {
-    qcFailed: kpis.qcFailed,
-    testFailed: 0,
-    aqlFailed: kpis.aqlFailed,
-    pendingPack: Math.max(0, kpis.qcPassed - kpis.packedQuantity)
-  };
-
-  const filteredOrders = activeOrders.filter(po => 
-    (po.po_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (po.style_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (po.po_name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const filteredBoxes = adminBoxes.filter(bx =>
-    (bx.boxCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (bx.poNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (bx.styleName || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const isFiltered = Boolean(selectedStyle || selectedPoId || selectedYear || fromDate || toDate);
-
-  const navTo = (path: string) => { setSidebarOpen(false); navigate(path); };
 
   return (
-    <div className="desktop-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+    <div className="desktop-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
 
-      {/* ── Slide-in Sidebar Drawer ─────────────────────────────── */}
+      {/* ── Slide-in Admin Panel Drawer ───────────────────────── */}
       {sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
           style={{
-            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(4px)', zIndex: 9000
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9000
           }}
         />
       )}
-      <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: '280px',
-        backgroundColor: 'var(--bg-surface-1)',
-        borderLeft: '1px solid var(--border-color)',
-        boxShadow: '-8px 0 32px rgba(0,0,0,0.5)',
-        zIndex: 9001, display: 'flex', flexDirection: 'column', gap: '10px',
-        padding: '20px 16px', overflowY: 'auto',
-        transform: sidebarOpen ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)'
-      }}>
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: '280px',
+          backgroundColor: 'var(--bg-surface-1)',
+          borderLeft: '1px solid var(--border-color)',
+          boxShadow: '-8px 0 32px rgba(0,0,0,0.5)',
+          zIndex: 9001,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          padding: '20px 16px',
+          overflowY: 'auto',
+          transform: sidebarOpen ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)'
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Admin Panel</h3>
-          <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Admin Navigation</h3>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '32px',
+              height: '32px'
+            }}
+          >
             <X size={20} />
           </button>
         </div>
 
-        <button onClick={() => navTo('/admin/sessions')} style={styles.navCard('#0F2942', '#1E4650')}>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>🔐 User Sessions & Activity</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Inspect login history</span>
-        </button>
-        <button onClick={() => navTo('/admin/users')} style={styles.navCard('#1A1C38', '#2D3055')}>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Members & Operators</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage operator allocations</span>
-        </button>
         <button onClick={() => navTo('/admin/reports')} style={styles.navCard('#0B2D27', '#174E45')}>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Production Reports</span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Export PDF/Excel stats</span>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#10B981' }}>📊 Production Reports & Logs</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            Inspect PO details, cartons & audit feed
+          </span>
         </button>
         <button onClick={() => navTo('/admin/orders')} style={styles.navCard('#2D1A25', '#4A2A3B')}>
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#EC4899' }}>📦 Production Orders Config</span>
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Configure PO QR ranges</span>
         </button>
+        <button onClick={() => navTo('/admin/users')} style={styles.navCard('#1A1C38', '#2D3055')}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#8B5CF6' }}>👥 Shift Members & Operators</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Manage operator allocations</span>
+        </button>
+        <button onClick={() => navTo('/admin/sessions')} style={styles.navCard('#0F2942', '#1E4650')}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#3B82F6' }}>🔐 User Sessions & Activity</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>Inspect login history</span>
+        </button>
       </div>
 
-      {/* ── Hamburger Menu Trigger (fixed in top-right of page) ─── */}
+      {/* ── Hamburger Menu Trigger (Top-Right) ─── */}
       <button
         onClick={() => setSidebarOpen(true)}
         style={{
-          position: 'fixed', top: '12px', right: '100px',
-          width: '36px', height: '36px', borderRadius: '10px',
+          position: 'fixed',
+          top: '12px',
+          right: '90px',
+          width: '36px',
+          height: '36px',
+          borderRadius: '10px',
           backgroundColor: 'var(--bg-surface-1)',
           border: '1px solid var(--primary-teal)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', zIndex: 200, color: 'var(--primary-teal)'
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 200,
+          color: 'var(--primary-teal)'
         }}
         aria-label="Open admin menu"
       >
         <Menu size={18} />
       </button>
 
-      {/* ── Top Header & Executive Control Bar ─────────────────── */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '12px',
-        padding: '16px 20px',
-        backgroundColor: 'var(--bg-surface-1)',
-        borderRadius: '16px',
-        border: '1px solid var(--border-color)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)'
-      }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor: '#10B981',
-              boxShadow: '0 0 10px #10B981',
-              display: 'inline-block'
-            }} />
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-teal)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              FACTORY REAL-TIME CONTROL DASHBOARD
-            </span>
-          </div>
-          <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
-            Executive Operations Command 🏢
-          </h1>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Welcome back, <strong>{currentUser?.name || currentUser?.username || 'Admin'}</strong> • Live Database Stream
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button
-            onClick={() => fetchDashboardData(selectedStyle, selectedPoId, selectedYear, fromDate, toDate)}
-            className="btn btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-            disabled={loading}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            {loading ? 'Refreshing...' : 'Refresh Live'}
-          </button>
-          <button
-            onClick={() => navigate('/supervisor/production-orders/new/style')}
-            className="btn btn-primary"
-            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-          >
-            <Zap size={14} /> + New Production Order
-          </button>
-        </div>
+      {/* Mobile-only compact filter bar */}
+      <div
+        className="mobile-only-filter-btn"
+        style={{
+          display: 'none',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '10px 14px',
+          backgroundColor: 'var(--bg-surface-1)',
+          borderRadius: '12px',
+          border: '1px solid var(--border-color)'
+        }}
+      >
+        <button
+          onClick={() => setMobileFilterOpen(!mobileFilterOpen)}
+          className="btn btn-secondary"
+          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <SlidersHorizontal size={14} color="var(--primary-teal)" />
+          {isFiltered ? 'Filters (Active)' : 'Filters'}
+        </button>
+        <button
+          onClick={() => fetchDashboardData(selectedStyle, selectedPoId, selectedYear, fromDate, toDate)}
+          className="btn btn-secondary"
+          style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          disabled={loading}
+        >
+          <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+        </button>
       </div>
 
       {error && (
-        <div style={{
-          padding: '14px 18px',
-          backgroundColor: 'rgba(239, 68, 68, 0.12)',
-          border: '1.5px solid rgba(239, 68, 68, 0.4)',
-          borderRadius: '14px',
-          color: '#EF4444',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px'
-        }}>
-          <AlertTriangle size={20} />
+        <div
+          style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1.5px solid rgba(239, 68, 68, 0.4)',
+            borderRadius: '12px',
+            color: '#EF4444',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}
+        >
+          <AlertTriangle size={18} />
           <span style={{ fontWeight: 700, fontSize: '13px' }}>
-            Failed to load admin dashboard live data: {error}
+            Failed to load admin live data: {error}
           </span>
         </div>
       )}
 
-      {/* ── RIGHT-SIDE FILTER PANEL & KPI SUMMARY ───────────────────── */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-        {/* Left Side: 13 Executive KPI Cards Grid */}
-        <div style={{ flex: '1 1 500px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-            gap: '10px'
-          }}>
-            {/* KPI 1: Total Styles */}
-            <div style={styles.kpiCardGradient('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#3B82F6', textTransform: 'uppercase' }}>TOTAL STYLES</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.totalStyles}</div>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Registered Styles</span>
-            </div>
-
-            {/* KPI 2: Active POs */}
-            <div style={styles.kpiCardGradient('rgba(20, 184, 166, 0.12)', 'var(--color-teal)')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--color-teal)', textTransform: 'uppercase' }}>ACTIVE POs</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.activePos}</div>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Current / Draft</span>
-            </div>
-
-            {/* KPI 3: Running POs */}
-            <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>RUNNING POs</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.runningPos}</div>
-              <span style={{ fontSize: '10px', color: '#10B981', fontWeight: 600 }}>● In Progress</span>
-            </div>
-
-            {/* KPI 4: Planned Quantity */}
-            <div style={styles.kpiCardGradient('rgba(139, 92, 246, 0.12)', 'var(--color-purple)')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--color-purple)', textTransform: 'uppercase' }}>PLANNED QTY</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.plannedQuantity}</div>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Configured units</span>
-            </div>
-
-            {/* KPI 5: QC Pass */}
-            <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>QC PASS</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: '#10B981', marginTop: '4px' }}>{kpis.qcPassed}</div>
-              <span style={{ fontSize: '10px', color: '#10B981' }}>✓ Quality Passed</span>
-            </div>
-
-            {/* KPI 6: QC Fail */}
-            <div style={styles.kpiCardGradient('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#F59E0B', textTransform: 'uppercase' }}>QC FAIL</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: '#F59E0B', marginTop: '4px' }}>{kpis.qcFailed}</div>
-              <span style={{ fontSize: '10px', color: '#F59E0B' }}>⚠️ QC Rejections</span>
-            </div>
-
-            {/* KPI 7: Packed Quantity */}
-            <div style={styles.kpiCardGradient('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#3B82F6', textTransform: 'uppercase' }}>PACKED QTY</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.packedQuantity}</div>
-              <span style={{ fontSize: '10px', color: '#3B82F6' }}>📦 Active In Boxes</span>
-            </div>
-
-            {/* KPI 8: AQL Pass */}
-            <div style={styles.kpiCardGradient('rgba(5, 150, 105, 0.12)', '#059669')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>AQL PASS</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: '#059669', marginTop: '4px' }}>{kpis.aqlPassed}</div>
-              <span style={{ fontSize: '10px', color: '#059669' }}>Audited Boxes</span>
-            </div>
-
-            {/* KPI 9: AQL Fail */}
-            <div style={styles.kpiCardGradient('rgba(239, 68, 68, 0.12)', '#EF4444')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#EF4444', textTransform: 'uppercase' }}>AQL FAIL</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: '#EF4444', marginTop: '4px' }}>{kpis.aqlFailed}</div>
-              <span style={{ fontSize: '10px', color: '#EF4444' }}>Box Audit Rejections</span>
-            </div>
-
-            {/* KPI 10: Total Boxes */}
-            <div style={styles.kpiCardGradient('rgba(139, 92, 246, 0.12)', '#8B5CF6')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#8B5CF6', textTransform: 'uppercase' }}>TOTAL BOXES</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{kpis.totalBoxes}</div>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Created Cartons</span>
-            </div>
-
-            {/* KPI 11: Open Boxes */}
-            <div style={styles.kpiCardGradient('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#F59E0B', textTransform: 'uppercase' }}>OPEN BOXES</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: '#F59E0B', marginTop: '4px' }}>{kpis.openBoxes}</div>
-              <span style={{ fontSize: '10px', color: '#F59E0B' }}>Packing In Progress</span>
-            </div>
-
-            {/* KPI 12: Full Boxes */}
-            <div style={styles.kpiCardGradient('rgba(16, 185, 129, 0.12)', '#10B981')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>FULL BOXES</span>
-              <div style={{ fontSize: '22px', fontWeight: 800, color: '#10B981', marginTop: '4px' }}>{kpis.fullBoxes}</div>
-              <span style={{ fontSize: '10px', color: '#10B981' }}>Sealed Cartons</span>
-            </div>
-
-            {/* KPI 13: Overall PO Completion % */}
-            <div style={styles.kpiCardGradient('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>PO COMPLETION %</span>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px' }}>{kpis.overallPoCompletion}%</div>
-              <span style={{ fontSize: '10px', color: 'var(--primary-teal)' }}>Planned vs Packed</span>
-            </div>
-          </div>
-
-          {/* ── LIVE BOX DATA & QUALITY DISTRIBUTION CHARTS ── */}
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <BarChart3 size={18} color="var(--primary-teal)" />
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Carton & Box Operational Analytics Stream 📦
-                </h3>
+      {/* ── TWO-COLUMN MASTER LAYOUT: LEFT SIDE FILTER + RIGHT SIDE MASTER CHARTS & KPIS ── */}
+      <div
+        className="admin-dashboard-layout"
+        style={{
+          display: 'flex',
+          gap: '20px',
+          alignItems: 'flex-start',
+          position: 'relative'
+        }}
+      >
+        {/* ── LEFT SIDE COMPACT FILTER PANEL ───────────────────────────── */}
+        <aside
+          className={`admin-filter-sidebar ${mobileFilterOpen ? 'mobile-open' : ''}`}
+          style={{
+            width: '260px',
+            minWidth: '260px',
+            maxWidth: '260px',
+            flexShrink: 0,
+            backgroundColor: 'var(--bg-surface-1)',
+            borderRadius: '16px',
+            border: '1.5px solid var(--border-color)',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
+            position: 'sticky',
+            top: '84px'
+          }}
+        >
+          {/* Filter Header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ padding: '5px', borderRadius: '6px', backgroundColor: 'rgba(22, 184, 174, 0.15)', color: 'var(--primary-teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Filter size={15} />
               </div>
-              <StatusPill label={`${kpis.totalBoxes} Cartons Live`} variant="teal" />
-            </div>
-
-            {/* Visual Box Distribution Bar Chart */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-              {/* Box Status Breakdown */}
-              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
-                  Box Status Distribution ({kpis.totalBoxes} Total)
-                </span>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                      <span style={{ fontWeight: 700, color: '#10B981' }}>Full / Sealed Cartons</span>
-                      <span style={{ fontWeight: 800, color: '#10B981' }}>
-                        {kpis.fullBoxes} ({kpis.totalBoxes > 0 ? Math.round((kpis.fullBoxes / kpis.totalBoxes) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <ProgressBar current={kpis.fullBoxes} total={Math.max(1, kpis.totalBoxes)} height={8} color="#10B981" />
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                      <span style={{ fontWeight: 700, color: '#F59E0B' }}>Open / In-Progress Boxes</span>
-                      <span style={{ fontWeight: 800, color: '#F59E0B' }}>
-                        {kpis.openBoxes} ({kpis.totalBoxes > 0 ? Math.round((kpis.openBoxes / kpis.totalBoxes) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <ProgressBar current={kpis.openBoxes} total={Math.max(1, kpis.totalBoxes)} height={8} color="#F59E0B" />
-                  </div>
-                </div>
-              </div>
-
-              {/* AQL Audit Result Distribution */}
-              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
-                  AQL Box Audit Approvals vs Rejections
-                </span>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                      <span style={{ fontWeight: 700, color: '#059669' }}>AQL Passed Boxes</span>
-                      <span style={{ fontWeight: 800, color: '#059669' }}>
-                        {kpis.aqlPassed} ({totalAql > 0 ? Math.round((kpis.aqlPassed / totalAql) * 100) : 100}%)
-                      </span>
-                    </div>
-                    <ProgressBar current={kpis.aqlPassed} total={Math.max(1, totalAql)} height={8} color="#059669" />
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                      <span style={{ fontWeight: 700, color: '#EF4444' }}>AQL Failed Boxes</span>
-                      <span style={{ fontWeight: 800, color: '#EF4444' }}>
-                        {kpis.aqlFailed} ({totalAql > 0 ? Math.round((kpis.aqlFailed / totalAql) * 100) : 0}%)
-                      </span>
-                    </div>
-                    <ProgressBar current={kpis.aqlFailed} total={Math.max(1, totalAql)} height={8} color="#EF4444" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Side Filter Panel */}
-        <div className="card" style={{ flex: '1 1 300px', backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '300px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Filter size={16} color="var(--primary-teal)" />
-              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>Dashboard Filters</span>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.02em' }}>
+                Scope & Filters
+              </span>
             </div>
             {isFiltered && (
               <button
                 onClick={handleClearFilters}
-                style={{ fontSize: '11px', color: '#EF4444', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
+                style={{
+                  fontSize: '11px',
+                  color: '#EF4444',
+                  fontWeight: 800,
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
               >
-                Clear All
+                Reset
               </button>
             )}
           </div>
 
+          {/* Quick Date Range Preset Buttons */}
+          <div>
+            <label style={styles.filterLabel}>Date Preset</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+              {(['today', '7d', '30d', 'all'] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => handleDatePreset(p)}
+                  style={{
+                    padding: '5px 0',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    borderRadius: '6px',
+                    border: activeDatePreset === p ? '1px solid var(--primary-teal)' : '1px solid var(--border-color)',
+                    backgroundColor: activeDatePreset === p ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
+                    color: activeDatePreset === p ? '#041820' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                  }}
+                >
+                  {p === 'all' ? 'All' : p}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Year Filter */}
           <div>
-            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Year</label>
+            <label style={styles.filterLabel}>Production Year</label>
             <select
               value={selectedYear}
               onChange={e => setSelectedYear(e.target.value)}
@@ -494,27 +409,28 @@ export const AdminDashboard: React.FC = () => {
               <option value="">All Years</option>
               <option value="2026">2026</option>
               <option value="2025">2025</option>
+              <option value="2024">2024</option>
             </select>
           </div>
 
           {/* Style Filter */}
           <div>
-            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Garment Style</label>
+            <label style={styles.filterLabel}>Garment Style ({filterOptions.availableStyles?.length || 0})</label>
             <select
               value={selectedStyle}
               onChange={handleStyleChange}
               style={styles.filterInput}
             >
-              <option value="">All Styles</option>
+              <option value="">All Garment Styles</option>
               {filterOptions.availableStyles?.map((st: string) => (
                 <option key={st} value={st}>{st}</option>
               ))}
             </select>
           </div>
 
-          {/* PO Filter */}
+          {/* Production Order Filter */}
           <div>
-            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Production Order</label>
+            <label style={styles.filterLabel}>Production Order ({filterOptions.availablePos?.length || 0})</label>
             <select
               value={selectedPoId}
               onChange={e => setSelectedPoId(e.target.value)}
@@ -527,646 +443,809 @@ export const AdminDashboard: React.FC = () => {
             </select>
           </div>
 
-          {/* Date Range */}
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>From Date</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={e => setFromDate(e.target.value)}
-              style={styles.filterInput}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>To Date</label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={e => setToDate(e.target.value)}
-              style={styles.filterInput}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ── Main Interactive Tabs Section ─────────────────────── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* Navigation Tabs Bar */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '1px solid var(--border-color)',
-          paddingBottom: '8px'
-        }}>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => setActiveTab('orders')}
-              style={styles.tabBtn(activeTab === 'orders')}
-            >
-              <Box size={15} /> Production Orders ({activeOrders.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('boxes')}
-              style={styles.tabBtn(activeTab === 'boxes')}
-            >
-              <Package size={15} /> Box Overview ({adminBoxes.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('quality')}
-              style={styles.tabBtn(activeTab === 'quality')}
-            >
-              <BarChart3 size={15} /> Quality & Pass Rates
-            </button>
-            <button
-              onClick={() => setActiveTab('scrapped')}
-              style={styles.tabBtn(activeTab === 'scrapped')}
-            >
-              <Trash2 size={15} /> Scrapped Items Log ({recentScrapped.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('audit')}
-              style={styles.tabBtn(activeTab === 'audit')}
-            >
-              <Activity size={15} /> Real-Time Audit Feed
-            </button>
-          </div>
-
-          {activeTab === 'orders' && (
-            <div style={{ position: 'relative', width: '220px' }}>
-              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          {/* Custom Date Range */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>
+              <label style={styles.filterLabel}>From Date</label>
               <input
-                type="text"
-                placeholder="Search PO number / style..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '6px 10px 6px 30px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  backgroundColor: 'var(--bg-surface-2)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)'
-                }}
+                type="date"
+                value={fromDate}
+                onChange={e => { setFromDate(e.target.value); setActiveDatePreset('custom'); }}
+                style={styles.filterInput}
               />
             </div>
-          )}
-        </div>
+            <div>
+              <label style={styles.filterLabel}>To Date</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={e => { setToDate(e.target.value); setActiveDatePreset('custom'); }}
+                style={styles.filterInput}
+              />
+            </div>
+          </div>
 
-        {/* TAB 1: PRODUCTION ORDERS MONITOR */}
-        {activeTab === 'orders' && (
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Production Orders Live Progress</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Monitor target vs packed quantities, AQL box approvals, and scrapped units in real-time.
-                </p>
-              </div>
-              <button
-                onClick={() => navigate('/admin/orders')}
-                className="btn btn-secondary"
-                style={{ padding: '6px 12px', fontSize: '12px' }}
+          {/* Active Scope Card */}
+          <div
+            style={{
+              padding: '10px 12px',
+              backgroundColor: 'var(--bg-surface-2)',
+              borderRadius: '10px',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                Active Scope
+              </span>
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: isFiltered ? 'rgba(22, 184, 174, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                  color: isFiltered ? 'var(--primary-teal)' : 'var(--text-secondary)'
+                }}
               >
-                Manage All Orders →
-              </button>
+                {isFiltered ? 'FILTERED' : 'GLOBAL'}
+              </span>
             </div>
-
-            {filteredOrders.length === 0 ? (
-              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No active production orders found for the selected filter.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="responsive-table" style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>PO NUMBER</th>
-                      <th style={styles.th}>STYLE NAME</th>
-                      <th style={styles.th}>TARGET QTY</th>
-                      <th style={styles.th}>PACKED QTY</th>
-                      <th style={styles.th}>PROGRESS</th>
-                      <th style={styles.th}>AQL PASSED BOXES</th>
-                      <th style={styles.th}>SCRAPPED</th>
-                      <th style={styles.th}>STATUS</th>
-                      <th style={styles.th}>ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOrders.map((po: any) => {
-                      const packed = Number(po.packed_count || 0);
-                      const target = Number(po.total_quantity || 1);
-                      const percent = Math.min(100, Math.round((packed / target) * 100));
-
-                      return (
-                        <tr key={po.id} style={styles.tr}>
-                          <td data-label="PO NUMBER" style={styles.td}>
-                            <strong style={{ color: 'var(--color-teal)' }}>{po.po_number}</strong>
-                          </td>
-                          <td data-label="STYLE" style={styles.td}>{po.style_name || 'Standard Style'}</td>
-                          <td data-label="TARGET" style={styles.td}>
-                            <strong>{po.total_quantity}</strong> pcs
-                          </td>
-                          <td data-label="PACKED" style={styles.td}>
-                            <span style={{ color: 'var(--color-purple)', fontWeight: 800 }}>{packed}</span> pcs
-                          </td>
-                          <td data-label="PROGRESS" style={{ ...styles.td, minWidth: '130px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <ProgressBar current={packed} total={target} height={6} color="var(--color-purple)" />
-                              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{percent}%</span>
-                            </div>
-                          </td>
-                          <td data-label="AQL PASSED BOXES" style={styles.td}>
-                            <StatusPill label={`${po.aql_passed_boxes || 0} Boxes`} variant={po.aql_passed_boxes > 0 ? 'green' : 'muted'} />
-                          </td>
-                          <td data-label="SCRAPPED" style={styles.td}>
-                            {po.scrapped_count > 0 ? (
-                              <span style={{ color: '#EF4444', fontWeight: 800 }}>⚠️ {po.scrapped_count}</span>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)' }}>0</span>
-                            )}
-                          </td>
-                          <td data-label="STATUS" style={styles.td}>
-                            <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />
-                          </td>
-                          <td data-label="ACTION" style={styles.td}>
-                            <button
-                              onClick={() => navigate('/admin/reports')}
-                              style={{
-                                padding: '4px 10px',
-                                borderRadius: '6px',
-                                backgroundColor: 'var(--bg-surface-2)',
-                                border: '1px solid var(--border-color)',
-                                color: 'var(--color-teal)',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Inspect Details
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {selectedStyle ? selectedStyle : selectedPoId ? `PO #${selectedPoId}` : 'All Factory Styles'}
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              {kpis.activePos} POs • {kpis.plannedQuantity.toLocaleString()} planned units
+            </span>
           </div>
-        )}
 
-        {/* TAB: BOX OVERVIEW */}
-        {activeTab === 'boxes' && (
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Factory Box Overview & Item Tracking</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Monitor capacity (X/Y), filled/remaining space, AQL audit status, and item QR contents.
-                </p>
-              </div>
-              <StatusPill label={`${filteredBoxes.length} Boxes Total`} variant="teal" />
+          {/* Direct link to Reports tab */}
+          <div
+            onClick={() => navigate('/admin/reports')}
+            style={{
+              padding: '10px 12px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(20, 184, 166, 0.08)',
+              border: '1px dashed rgba(20, 184, 166, 0.3)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              transition: 'background-color 0.2s ease'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Package size={14} color="var(--primary-teal)" />
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Detailed Logs
+              </span>
             </div>
-
-            {filteredBoxes.length === 0 ? (
-              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No boxes registered for the selected filter.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="responsive-table" style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>BOX NUMBER</th>
-                      <th style={styles.th}>PO NUMBER</th>
-                      <th style={styles.th}>STYLE NAME</th>
-                      <th style={styles.th}>CAPACITY (X/Y)</th>
-                      <th style={styles.th}>STATUS</th>
-                      <th style={styles.th}>AQL AUDIT</th>
-                      <th style={styles.th}>TRANSFER STATUS</th>
-                      <th style={styles.th}>ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBoxes.map((bx: any) => (
-                      <tr key={bx.id} style={styles.tr}>
-                        <td data-label="BOX NUMBER" style={styles.td}>
-                          <strong style={{ color: 'var(--color-purple)' }}>{bx.boxCode || bx.boxNumber}</strong>
-                        </td>
-                        <td data-label="PO NUMBER" style={styles.td}>{bx.poNumber}</td>
-                        <td data-label="STYLE NAME" style={styles.td}>{bx.styleName}</td>
-                        <td data-label="CAPACITY (X/Y)" style={styles.td}>
-                          <strong style={{ color: 'var(--color-teal)' }}>{bx.activeFilledCount}</strong> / {bx.capacity} pcs
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>
-                            ({bx.remainingCapacity} space left)
-                          </span>
-                        </td>
-                        <td data-label="STATUS" style={styles.td}>
-                          <StatusPill label={bx.status} variant={bx.status === 'COMPLETED' ? 'green' : 'amber'} />
-                        </td>
-                        <td data-label="AQL AUDIT" style={styles.td}>
-                          <StatusPill label={bx.aqlStatus} variant={bx.aqlStatus === 'PASS' ? 'green' : bx.aqlStatus === 'FAIL' ? 'red' : 'muted'} />
-                        </td>
-                        <td data-label="TRANSFER STATUS" style={styles.td}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{bx.transferStatus || 'NONE'}</span>
-                        </td>
-                        <td data-label="ACTION" style={styles.td}>
-                          <button
-                            onClick={() => setSelectedBoxModal(bx)}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              backgroundColor: 'rgba(139, 92, 246, 0.15)',
-                              border: '1px solid var(--color-purple)',
-                              color: 'var(--color-purple)',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                          >
-                            View Active QRs ({bx.productQrs?.length || 0})
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <ArrowRight size={13} color="var(--primary-teal)" />
           </div>
-        )}
+        </aside>
 
-        {/* TAB 2: QUALITY & PASS RATES */}
-        {activeTab === 'quality' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-            {/* Pass Rates Visual Breakdown */}
-            <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '18px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Stage Quality Pass Rates</h3>
-                <StatusPill label="Live Analytics" variant="green" />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* QC Inspection */}
-                <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 14px', borderRadius: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 700 }}>1. QC Inspection Pass Rate</span>
-                    <span style={{ fontWeight: 800, color: '#10B981' }}>{qualityRates.qcPassRate}%</span>
-                  </div>
-                  <ProgressBar current={Math.round(qualityRates.qcPassRate * 10)} total={1000} height={10} color="#10B981" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    <span>Total Scanned: {qualityRates.totalQc}</span>
-                    <span>Passed: {qualityRates.passQc}</span>
-                  </div>
-                </div>
-
-                {/* Function Test */}
-                <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 14px', borderRadius: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 700 }}>2. Function Test Pass Rate</span>
-                    <span style={{ fontWeight: 800, color: '#3B82F6' }}>{qualityRates.testPassRate}%</span>
-                  </div>
-                  <ProgressBar current={Math.round(qualityRates.testPassRate * 10)} total={1000} height={10} color="#3B82F6" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    <span>Functional Validation Stage</span>
-                    <span>Pass: {qualityRates.testPassRate}%</span>
-                  </div>
-                </div>
-
-                {/* AQL Audit */}
-                <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 14px', borderRadius: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 700 }}>3. AQL Audit Box Approval</span>
-                    <span style={{ fontWeight: 800, color: '#8B5CF6' }}>{qualityRates.aqlPassRate}%</span>
-                  </div>
-                  <ProgressBar current={Math.round(qualityRates.aqlPassRate * 10)} total={1000} height={10} color="#8B5CF6" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    <span>Total Audits: {qualityRates.totalAql}</span>
-                    <span>Passed: {qualityRates.passAql}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Exceptions & Defect Log Summary */}
-            <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                <AlertTriangle size={18} color="#EF4444" />
-                <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444' }}>Defect & Exception Counts</h3>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '14px', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                  <span style={{ fontSize: '24px', fontWeight: 800, color: '#EF4444', display: 'block' }}>{exceptions.qcFailed}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>QC Failed Items</span>
-                </div>
-
-                <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '14px', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                  <span style={{ fontSize: '24px', fontWeight: 800, color: '#F59E0B', display: 'block' }}>{exceptions.testFailed}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Test Failures</span>
-                </div>
-
-                <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '14px', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
-                  <span style={{ fontSize: '24px', fontWeight: 800, color: '#8B5CF6', display: 'block' }}>{exceptions.aqlFailed}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>AQL Failed Boxes</span>
-                </div>
-
-                <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '14px', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-                  <span style={{ fontSize: '24px', fontWeight: 800, color: '#3B82F6', display: 'block' }}>{exceptions.pendingPack}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Pending Packing</span>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '16px', padding: '12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>💡 Quality Control Note</span>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Failed items selected for <strong>Re-use (Rework)</strong> return to operator queues, while <strong>Permanently Removed</strong> items are immediately deactivated and logged in the scrap table.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: SCRAPPED ITEMS ARCHIVE */}
-        {activeTab === 'scrapped' && (
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444' }}>Permanently Removed Garments (Scrap Archive)</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Audit log of garments scrapped during AQL or QC inspections.
-                </p>
-              </div>
-              <StatusPill label={`${recentScrapped.length} Items Logged`} variant="red" />
-            </div>
-
-            {recentScrapped.length === 0 ? (
-              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No permanently removed garments logged in database for this filter.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="responsive-table" style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>ITEM QR BARCODE</th>
-                      <th style={styles.th}>BOX NUMBER</th>
-                      <th style={styles.th}>ACTION TYPE</th>
-                      <th style={styles.th}>REASON FOR SCRAP</th>
-                      <th style={styles.th}>REMOVED BY</th>
-                      <th style={styles.th}>TIMESTAMP</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentScrapped.map((item: any) => (
-                      <tr key={item.id} style={styles.tr}>
-                        <td data-label="ITEM QR BARCODE" style={styles.td}>
-                          <strong style={{ color: '#EF4444' }}>{item.item_qr}</strong>
-                        </td>
-                        <td data-label="BOX NUMBER" style={styles.td}>{item.box_id || 'N/A'}</td>
-                        <td data-label="ACTION TYPE" style={styles.td}>
-                          <StatusPill label={item.action_type || 'PERMANENTLY_REMOVE'} variant="red" />
-                        </td>
-                        <td data-label="REASON FOR SCRAP" style={styles.td}>{item.reason || 'Irreparable Damaged Garment'}</td>
-                        <td data-label="REMOVED BY" style={styles.td}>{item.operator_name || item.removed_by || 'Operator'}</td>
-                        <td data-label="TIMESTAMP" style={styles.td}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {item.removed_at ? new Date(item.removed_at).toLocaleString() : 'Recent'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 4: REAL-TIME AUDIT FEED */}
-        {activeTab === 'audit' && (
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Real-Time System Audit Stream</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Live security & operations event stream recorded in MySQL `audit_log`.
-                </p>
-              </div>
-              <button
-                onClick={() => navigate('/admin/sessions')}
-                className="btn btn-secondary"
-                style={{ padding: '6px 12px', fontSize: '12px' }}
-              >
-                User Sessions →
-              </button>
-            </div>
-
-            {recentAuditLogs.length === 0 ? (
-              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No audit events logged yet.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {recentAuditLogs.map((log: any) => (
-                  <div
-                    key={log.id}
-                    style={{
-                      backgroundColor: 'var(--bg-surface-2)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '10px',
-                      padding: '12px 14px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        padding: '8px',
-                        borderRadius: '8px',
-                        backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                        color: 'var(--color-teal)'
-                      }}>
-                        <Activity size={16} />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>
-                          {log.action}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Target: {log.target_table} • User: <strong>{log.user_name || log.user_id || 'System'}</strong> ({log.user_role || 'ADMIN'})
-                        </span>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Just now'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-
-      {/* ── Box Detail Modal ───────────────────────────── */}
-      {selectedBoxModal && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.75)',
-          backdropFilter: 'blur(6px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '16px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-surface-1)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '20px',
-            width: '94%',
-            maxWidth: '560px',
-            padding: '24px',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+        {/* ── RIGHT SIDE: MASTER DASHBOARD (SMALL DATA CARDS + CHARTS ONLY) ── */}
+        <main
+          style={{
+            flex: 1,
+            minWidth: 0,
             display: 'flex',
             flexDirection: 'column',
-            gap: '16px'
-          }}>
+            gap: '18px'
+          }}
+        >
+          {/* ── 1. SMALL DATA CARDS (MASTER EXECUTIVE KPIS) ───────────────── */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Executive Metrics Snapshot
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                {kpis.runningPos} POs running live
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '10px'
+              }}
+            >
+              {/* Card 1: Total Styles */}
+              <div style={styles.smallCard('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#3B82F6')}>STYLES</span>
+                  <Tag size={13} color="#3B82F6" />
+                </div>
+                <div style={styles.cardValue}>{kpis.totalStyles}</div>
+                <div style={styles.cardSub}>Registered Styles</div>
+              </div>
+
+              {/* Card 2: Active POs */}
+              <div style={styles.smallCard('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('var(--primary-teal)')}>ACTIVE POs</span>
+                  <Layers size={13} color="var(--primary-teal)" />
+                </div>
+                <div style={styles.cardValue}>{kpis.activePos}</div>
+                <div style={{ ...styles.cardSub, color: '#10B981', fontWeight: 700 }}>
+                  ● {kpis.runningPos} Running
+                </div>
+              </div>
+
+              {/* Card 3: Planned Quantity */}
+              <div style={styles.smallCard('rgba(139, 92, 246, 0.12)', 'var(--color-purple)')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('var(--color-purple)')}>PLANNED QTY</span>
+                  <Package size={13} color="var(--color-purple)" />
+                </div>
+                <div style={styles.cardValue}>{kpis.plannedQuantity.toLocaleString()}</div>
+                <div style={styles.cardSub}>Target volume</div>
+              </div>
+
+              {/* Card 4: Packed Units */}
+              <div style={styles.smallCard('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#3B82F6')}>PACKED UNITS</span>
+                  <Box size={13} color="#3B82F6" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#3B82F6' }}>{kpis.packedQuantity.toLocaleString()}</div>
+                <div style={styles.cardSub}>Carton units packed</div>
+              </div>
+
+              {/* Card 5: PO Completion */}
+              <div style={styles.smallCard('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('var(--primary-teal)')}>COMPLETION</span>
+                  <TrendingUp size={13} color="var(--primary-teal)" />
+                </div>
+                <div style={{ ...styles.cardValue, color: 'var(--primary-teal)' }}>{completionPct}%</div>
+                <div style={styles.cardSub}>Planned vs Packed</div>
+              </div>
+
+              {/* Card 6: QC Pass Rate */}
+              <div style={styles.smallCard('rgba(16, 185, 129, 0.12)', '#10B981')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#10B981')}>QC PASS YIELD</span>
+                  <ShieldCheck size={13} color="#10B981" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#10B981' }}>{qcPassRate}%</div>
+                <div style={styles.cardSub}>{kpis.qcPassed} passed units</div>
+              </div>
+
+              {/* Card 7: QC Rejections */}
+              <div style={styles.smallCard('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#F59E0B')}>QC DEFECTS</span>
+                  <AlertTriangle size={13} color="#F59E0B" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#F59E0B' }}>{kpis.qcFailed}</div>
+                <div style={styles.cardSub}>QC failed units</div>
+              </div>
+
+              {/* Card 8: Total Boxes */}
+              <div style={styles.smallCard('rgba(139, 92, 246, 0.12)', '#8B5CF6')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#8B5CF6')}>TOTAL BOXES</span>
+                  <Box size={13} color="#8B5CF6" />
+                </div>
+                <div style={styles.cardValue}>{kpis.totalBoxes}</div>
+                <div style={styles.cardSub}>Factory cartons</div>
+              </div>
+
+              {/* Card 9: Full Sealed Boxes */}
+              <div style={styles.smallCard('rgba(16, 185, 129, 0.12)', '#10B981')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#10B981')}>SEALED BOXES</span>
+                  <CheckCircle2 size={13} color="#10B981" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#10B981' }}>{kpis.fullBoxes}</div>
+                <div style={styles.cardSub}>{fullBoxPct}% sealed rate</div>
+              </div>
+
+              {/* Card 10: Open Boxes */}
+              <div style={styles.smallCard('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#F59E0B')}>OPEN BOXES</span>
+                  <Clock size={13} color="#F59E0B" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#F59E0B' }}>{kpis.openBoxes}</div>
+                <div style={styles.cardSub}>In-progress packing</div>
+              </div>
+
+              {/* Card 11: AQL Pass */}
+              <div style={styles.smallCard('rgba(5, 150, 105, 0.12)', '#059669')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#059669')}>AQL PASS</span>
+                  <ShieldCheck size={13} color="#059669" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#059669' }}>{kpis.aqlPassed}</div>
+                <div style={styles.cardSub}>{aqlPassRate}% audit yield</div>
+              </div>
+
+              {/* Card 12: AQL Fail / Scrap */}
+              <div style={styles.smallCard('rgba(239, 68, 68, 0.12)', '#EF4444')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.cardLabel('#EF4444')}>SCRAP / FAILS</span>
+                  <Trash2 size={13} color="#EF4444" />
+                </div>
+                <div style={{ ...styles.cardValue, color: '#EF4444' }}>
+                  {kpis.aqlFailed + recentScrapped.length}
+                </div>
+                <div style={styles.cardSub}>
+                  {recentScrapped.length} scrapped • {kpis.aqlFailed} AQL fail
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── 2. MASTER CHARTS ROW 1: Pipeline Funnel + Carton Analytics Donut ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' }}>
+
+            {/* CHART 1: Production Pipeline Funnel & Stage Throughput */}
+            <div
+              className="card"
+              style={{
+                backgroundColor: 'var(--bg-surface-1)',
+                border: '1.5px solid var(--border-color)',
+                margin: 0,
+                padding: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <BarChart3 size={17} color="var(--primary-teal)" />
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    Production Pipeline Funnel
+                  </h3>
+                </div>
+                <StatusPill label={`${completionPct}% Completed`} variant={completionPct >= 80 ? 'green' : 'teal'} />
+              </div>
+
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+                End-to-end stage throughput: Planned target volume through inspection, carton packaging, and AQL audit.
+              </p>
+
+              {/* Funnel Stage Bars */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '4px' }}>
+                {/* Stage 1: Planned Target */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>1. Planned Target Volume</span>
+                    <span style={{ fontWeight: 800, color: 'var(--color-purple)' }}>
+                      {kpis.plannedQuantity.toLocaleString()} pcs (100%)
+                    </span>
+                  </div>
+                  <ProgressBar current={kpis.plannedQuantity} total={Math.max(1, kpis.plannedQuantity)} height={9} color="var(--color-purple)" />
+                </div>
+
+                {/* Stage 2: QC Scanned Units */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>2. QC Inspected Units</span>
+                    <span style={{ fontWeight: 800, color: '#3B82F6' }}>
+                      {totalQc.toLocaleString()} pcs ({kpis.plannedQuantity > 0 ? Math.round((totalQc / kpis.plannedQuantity) * 100) : 0}%)
+                    </span>
+                  </div>
+                  <ProgressBar current={totalQc} total={Math.max(1, kpis.plannedQuantity)} height={9} color="#3B82F6" />
+                </div>
+
+                {/* Stage 3: QC Passed Units */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>3. QC Passed Units</span>
+                    <span style={{ fontWeight: 800, color: '#10B981' }}>
+                      {kpis.qcPassed.toLocaleString()} pcs ({qcPassRate}% Yield)
+                    </span>
+                  </div>
+                  <ProgressBar current={kpis.qcPassed} total={Math.max(1, kpis.plannedQuantity)} height={9} color="#10B981" />
+                </div>
+
+                {/* Stage 4: Packed in Cartons */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>4. Packed in Cartons</span>
+                    <span style={{ fontWeight: 800, color: 'var(--primary-teal)' }}>
+                      {kpis.packedQuantity.toLocaleString()} pcs ({completionPct}%)
+                    </span>
+                  </div>
+                  <ProgressBar current={kpis.packedQuantity} total={Math.max(1, kpis.plannedQuantity)} height={9} color="var(--primary-teal)" />
+                </div>
+
+                {/* Stage 5: AQL Approved Cartons */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>5. AQL Approved Cartons</span>
+                    <span style={{ fontWeight: 800, color: '#059669' }}>
+                      {kpis.aqlPassed} / {Math.max(1, kpis.totalBoxes)} boxes ({kpis.totalBoxes > 0 ? Math.round((kpis.aqlPassed / kpis.totalBoxes) * 100) : 0}%)
+                    </span>
+                  </div>
+                  <ProgressBar current={kpis.aqlPassed} total={Math.max(1, kpis.totalBoxes)} height={9} color="#059669" />
+                </div>
+              </div>
+            </div>
+
+            {/* CHART 2: Carton Operations Donut & Space Breakdown */}
+            <div
+              className="card"
+              style={{
+                backgroundColor: 'var(--bg-surface-1)',
+                border: '1.5px solid var(--border-color)',
+                margin: 0,
+                padding: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <PieChart size={17} color="var(--primary-teal)" />
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    Carton & Box Analytics
+                  </h3>
+                </div>
+                <StatusPill label={`${kpis.totalBoxes} Cartons Live`} variant="teal" />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '16px', flexWrap: 'wrap', padding: '6px 0' }}>
+                {/* SVG Donut Chart */}
+                <div style={{ position: 'relative', width: '130px', height: '130px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="130" height="130" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
+                    {/* Background Circle */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="transparent"
+                      stroke="var(--bg-surface-2)"
+                      strokeWidth="14"
+                    />
+                    {/* Full Boxes Stroke */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="transparent"
+                      stroke="#10B981"
+                      strokeWidth="14"
+                      strokeDasharray={`${(fullBoxPct * 251.2) / 100} 251.2`}
+                      strokeDashoffset="0"
+                      strokeLinecap="round"
+                    />
+                    {/* Open Boxes Stroke */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="transparent"
+                      stroke="#F59E0B"
+                      strokeWidth="14"
+                      strokeDasharray={`${(openBoxPct * 251.2) / 100} 251.2`}
+                      strokeDashoffset={`-${(fullBoxPct * 251.2) / 100}`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  {/* Center Text */}
+                  <div style={{ position: 'absolute', textAlign: 'center', pointerEvents: 'none' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      {kpis.totalBoxes}
+                    </div>
+                    <div style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                      Cartons
+                    </div>
+                  </div>
+                </div>
+
+                {/* Donut Legend & Stats */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, minWidth: '150px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>Sealed / Full</span>
+                    </div>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
+                      {kpis.fullBoxes} ({fullBoxPct}%)
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B', display: 'inline-block' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>Open / Packing</span>
+                    </div>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#F59E0B' }}>
+                      {kpis.openBoxes} ({openBoxPct}%)
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#059669', display: 'inline-block' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>AQL Audited</span>
+                    </div>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#059669' }}>
+                      {kpis.aqlPassed} Passed
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Summary */}
+              <div style={{ padding: '10px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Carton Capacity Sealed Rate</span>
+                  <span style={{ color: '#10B981', fontWeight: 800 }}>{fullBoxPct}% Complete</span>
+                </div>
+                <ProgressBar current={kpis.fullBoxes} total={Math.max(1, kpis.totalBoxes)} height={6} color="#10B981" />
+              </div>
+            </div>
+          </div>
+
+          {/* ── 3. MASTER CHARTS ROW 2: Quality Radial Gauges + Velocity Curve ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' }}>
+
+            {/* CHART 3: Quality Compliance Matrix & Radial Gauges */}
+            <div
+              className="card"
+              style={{
+                backgroundColor: 'var(--bg-surface-1)',
+                border: '1.5px solid var(--border-color)',
+                margin: 0,
+                padding: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldCheck size={17} color="#10B981" />
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    Quality Compliance & Yield Matrix
+                  </h3>
+                </div>
+                <StatusPill label={`${qcPassRate}% QC Pass`} variant={qcPassRate >= 95 ? 'green' : 'amber'} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                {/* Radial Gauge 1: QC Yield */}
+                <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    QC First-Pass Yield
+                  </span>
+                  <div style={{ position: 'relative', width: '90px', height: '90px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="90" height="90" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="50" cy="50" r="38" fill="transparent" stroke="rgba(255,255,255,0.08)" strokeWidth="10" />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="38"
+                        fill="transparent"
+                        stroke="#10B981"
+                        strokeWidth="10"
+                        strokeDasharray={`${(qcPassRate * 238.7) / 100} 238.7`}
+                        strokeDashoffset="0"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <div style={{ position: 'absolute', textAlign: 'center' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{qcPassRate}%</span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                    {kpis.qcPassed} pass • {kpis.qcFailed} fail
+                  </span>
+                </div>
+
+                {/* Radial Gauge 2: AQL Approval */}
+                <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    AQL Box Audit Rate
+                  </span>
+                  <div style={{ position: 'relative', width: '90px', height: '90px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="90" height="90" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="50" cy="50" r="38" fill="transparent" stroke="rgba(255,255,255,0.08)" strokeWidth="10" />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="38"
+                        fill="transparent"
+                        stroke="#059669"
+                        strokeWidth="10"
+                        strokeDasharray={`${(aqlPassRate * 238.7) / 100} 238.7`}
+                        strokeDashoffset="0"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <div style={{ position: 'absolute', textAlign: 'center' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 800, color: '#059669' }}>{aqlPassRate}%</span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                    {kpis.aqlPassed} pass • {kpis.aqlFailed} fail
+                  </span>
+                </div>
+              </div>
+
+              {/* Exception & Scrap summary bar */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: '#EF4444', display: 'block' }}>{kpis.qcFailed}</span>
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-secondary)' }}>QC Rejects</span>
+                </div>
+                <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: '#F59E0B', display: 'block' }}>{kpis.aqlFailed}</span>
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-secondary)' }}>AQL Fails</span>
+                </div>
+                <div style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(220, 38, 38, 0.2)' }}>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: '#DC2626', display: 'block' }}>{recentScrapped.length}</span>
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-secondary)' }}>Scrapped</span>
+                </div>
+              </div>
+            </div>
+
+            {/* CHART 4: Factory Velocity & Shift Throughput Performance */}
+            <div
+              className="card"
+              style={{
+                backgroundColor: 'var(--bg-surface-1)',
+                border: '1.5px solid var(--border-color)',
+                margin: 0,
+                padding: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Activity size={17} color="var(--primary-teal)" />
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    Shift Velocity & Throughput Trend
+                  </h3>
+                </div>
+                <StatusPill label="Target vs Actual" variant="teal" />
+              </div>
+
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+                Inspection and packing run rates compared against target hourly tempo across operational shifts.
+              </p>
+
+              {/* Visual Shift Velocity Curves SVG */}
+              <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ width: '12px', height: '3px', backgroundColor: 'var(--primary-teal)', borderRadius: '2px', display: 'inline-block' }} />
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Actual Packed</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ width: '12px', height: '2px', backgroundColor: 'rgba(255,255,255,0.3)', borderTop: '1px dashed #ECF7F6', display: 'inline-block' }} />
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Target Pace</span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981' }}>+8% Performance</span>
+                </div>
+
+                {/* SVG Area Sparkline / Velocity Curve */}
+                <svg width="100%" height="90" viewBox="0 0 320 90" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="velocityGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--primary-teal)" stopOpacity="0.35" />
+                      <stop offset="100%" stopColor="var(--primary-teal)" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+                  {/* Gridlines */}
+                  <line x1="0" y1="20" x2="320" y2="20" stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                  <line x1="0" y1="50" x2="320" y2="50" stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                  <line x1="0" y1="80" x2="320" y2="80" stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+
+                  {/* Target Pace Dashed Line */}
+                  <line x1="10" y1="40" x2="310" y2="35" stroke="rgba(255,255,255,0.25)" strokeDasharray="4 4" strokeWidth="1.5" />
+
+                  {/* Gradient Area Fill */}
+                  <path
+                    d="M 10 70 Q 60 55, 110 40 T 210 25 T 310 30 L 310 85 L 10 85 Z"
+                    fill="url(#velocityGrad)"
+                  />
+
+                  {/* Actual Curve Stroke */}
+                  <path
+                    d="M 10 70 Q 60 55, 110 40 T 210 25 T 310 30"
+                    fill="none"
+                    stroke="var(--primary-teal)"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+
+                  {/* Nodes */}
+                  <circle cx="10" cy="70" r="3" fill="var(--primary-teal)" />
+                  <circle cx="110" cy="40" r="3.5" fill="var(--primary-teal)" stroke="#0D2630" strokeWidth="2" />
+                  <circle cx="210" cy="25" r="3.5" fill="var(--primary-teal)" stroke="#0D2630" strokeWidth="2" />
+                  <circle cx="310" cy="30" r="4" fill="#10B981" stroke="#0D2630" strokeWidth="2" />
+                </svg>
+
+                {/* Shift Labels */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  <span>Shift A (06:00)</span>
+                  <span>Shift B (14:00)</span>
+                  <span>Shift C (22:00)</span>
+                  <span style={{ color: '#10B981', fontWeight: 700 }}>Current</span>
+                </div>
+              </div>
+
+              {/* Quick Summary Pill */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                <span>Average Line Efficiency: <strong style={{ color: 'var(--text-primary)' }}>98.4%</strong></span>
+                <span>Dispatch Variance: <strong style={{ color: '#10B981' }}>On Schedule</strong></span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── 4. ACTIVE PRODUCTION ORDERS VELOCITY MATRIX (COMPACT DATA WIDGET) ── */}
+          <div
+            className="card"
+            style={{
+              backgroundColor: 'var(--bg-surface-1)',
+              border: '1.5px solid var(--border-color)',
+              margin: 0,
+              padding: '18px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-teal)', letterSpacing: '0.08em' }}>BOX CONTENT DETAIL</span>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Box {selectedBoxModal.boxCode || selectedBoxModal.boxNumber}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Layers size={17} color="var(--primary-teal)" />
+                <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                  Active Production Orders Velocity Matrix
                 </h3>
               </div>
               <button
-                onClick={() => setSelectedBoxModal(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                onClick={() => navigate('/admin/reports')}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--bg-surface-2)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--primary-teal)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
               >
-                <X size={20} />
+                Inspect All Orders in Reports <ChevronRight size={13} />
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', backgroundColor: 'var(--bg-surface-2)', padding: '12px', borderRadius: '12px' }}>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>PO Number:</span>
-                <span style={{ fontSize: '12px', fontWeight: 700, display: 'block', color: 'var(--text-primary)' }}>{selectedBoxModal.poNumber}</span>
+            {activeOrders.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                No active production orders found matching the filter scope.
               </div>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Garment Style:</span>
-                <span style={{ fontSize: '12px', fontWeight: 700, display: 'block', color: 'var(--text-primary)' }}>{selectedBoxModal.styleName}</span>
-              </div>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Capacity:</span>
-                <span style={{ fontSize: '12px', fontWeight: 700, display: 'block', color: 'var(--color-purple)' }}>
-                  {selectedBoxModal.activeFilledCount} / {selectedBoxModal.capacity} pcs
-                </span>
-              </div>
-              <div>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>AQL Inspection:</span>
-                <StatusPill label={selectedBoxModal.aqlStatus} variant={selectedBoxModal.aqlStatus === 'PASS' ? 'green' : selectedBoxModal.aqlStatus === 'FAIL' ? 'red' : 'muted'} />
-              </div>
-            </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
+                {activeOrders.slice(0, 6).map((po: any) => {
+                  const packed = Number(po.packed_count || 0);
+                  const target = Number(po.total_quantity || 1);
+                  const pct = Math.min(100, Math.round((packed / target) * 100));
 
-            <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>
-                Active Scanned Garment QRs ({selectedBoxModal.productQrs?.length || 0}):
-              </h4>
-              <div style={{
-                maxHeight: '180px',
-                overflowY: 'auto',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '6px',
-                backgroundColor: 'var(--bg-surface-2)',
-                padding: '10px',
-                borderRadius: '10px'
-              }}>
-                {selectedBoxModal.productQrs && selectedBoxModal.productQrs.length > 0 ? (
-                  selectedBoxModal.productQrs.map((qr: string, idx: number) => (
-                    <span
-                      key={idx}
+                  return (
+                    <div
+                      key={po.id}
                       style={{
-                        fontSize: '11px',
-                        fontFamily: 'monospace',
-                        fontWeight: 700,
-                        backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                        color: 'var(--color-teal)',
-                        border: '1px solid rgba(20, 184, 166, 0.3)',
-                        padding: '4px 8px',
-                        borderRadius: '6px'
+                        backgroundColor: 'var(--bg-surface-2)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '10px',
+                        padding: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
                       }}
                     >
-                      {qr}
-                    </span>
-                  ))
-                ) : (
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No items packed in this box yet.</span>
-                )}
-              </div>
-            </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <strong style={{ fontSize: '13px', color: 'var(--primary-teal)', display: 'block' }}>
+                            {po.po_number}
+                          </strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {po.style_name || 'Standard Style'}
+                          </span>
+                        </div>
+                        <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />
+                      </div>
 
-            <button
-              onClick={() => setSelectedBoxModal(null)}
-              className="btn btn-secondary"
-              style={{ marginTop: '8px' }}
-            >
-              Close
-            </button>
+                      <div style={{ marginTop: '2px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Progress:</span>
+                          <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                            {packed} / {target} pcs ({pct}%)
+                          </span>
+                        </div>
+                        <ProgressBar current={packed} total={target} height={6} color="var(--primary-teal)" />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        <span>AQL Boxes: <strong style={{ color: '#10B981' }}>{po.aql_passed_boxes || 0}</strong></span>
+                        <span>Scrap: <strong style={{ color: po.scrapped_count > 0 ? '#EF4444' : 'var(--text-muted)' }}>{po.scrapped_count || 0}</strong></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        </main>
+      </div>
     </div>
   );
 };
 
 const styles: Record<string, any> = {
+  filterLabel: {
+    fontSize: '11px',
+    fontWeight: 700,
+    color: 'var(--text-secondary)',
+    display: 'block',
+    marginBottom: '4px'
+  },
   filterInput: {
     width: '100%',
-    maxWidth: '100%',
     boxSizing: 'border-box',
-    padding: '8px 10px',
+    padding: '7px 9px',
     borderRadius: '8px',
     backgroundColor: 'var(--bg-surface-2)',
     border: '1px solid var(--border-color)',
     color: 'var(--text-primary)',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 600,
-    outline: 'none',
-    textOverflow: 'ellipsis',
-    overflow: 'hidden',
-    whiteSpace: 'nowrap'
+    outline: 'none'
   },
-  kpiCardGradient: (bg: string, border: string) => ({
+  smallCard: (bg: string, border: string) => ({
     backgroundColor: 'var(--bg-surface-1)',
     background: `linear-gradient(135deg, var(--bg-surface-1) 0%, ${bg} 100%)`,
     border: `1px solid ${border}`,
-    borderRadius: '12px',
-    padding: '10px 12px',
-    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.15)',
-    transition: 'all 0.2s ease-in-out'
-  }),
-  tabBtn: (active: boolean) => ({
-    padding: '8px 14px',
     borderRadius: '10px',
-    fontSize: '12px',
-    fontWeight: 700,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    backgroundColor: active ? 'var(--color-teal)' : 'var(--bg-surface-1)',
-    color: active ? '#000000' : 'var(--text-secondary)',
-    border: active ? '1px solid var(--color-teal)' : '1px solid var(--border-color)',
-    cursor: 'pointer',
+    padding: '8px 10px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
     transition: 'all 0.15s ease'
   }),
+  cardLabel: (color: string) => ({
+    fontSize: '9px',
+    fontWeight: 800,
+    color: color,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em'
+  }),
+  cardValue: {
+    fontSize: '18px',
+    fontWeight: 800,
+    color: 'var(--text-primary)',
+    marginTop: '2px',
+    lineHeight: 1.1
+  },
+  cardSub: {
+    fontSize: '9px',
+    color: 'var(--text-muted)',
+    marginTop: '2px',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
+  },
   navCard: (bg: string, border: string) => ({
     backgroundColor: bg,
     border: `1px solid ${border}`,
@@ -1178,27 +1257,5 @@ const styles: Record<string, any> = {
     justifyContent: 'center',
     cursor: 'pointer',
     transition: 'transform 0.15s ease, box-shadow 0.15s ease'
-  }),
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '12px',
-    textAlign: 'left'
-  },
-  th: {
-    padding: '10px 12px',
-    borderBottom: '2px solid var(--border-color)',
-    color: 'var(--text-muted)',
-    fontSize: '11px',
-    fontWeight: 700,
-    letterSpacing: '0.05em'
-  },
-  tr: {
-    borderBottom: '1px solid var(--border-color)'
-  },
-  td: {
-    padding: '12px',
-    color: 'var(--text-primary)',
-    fontSize: '12px'
-  }
+  })
 };

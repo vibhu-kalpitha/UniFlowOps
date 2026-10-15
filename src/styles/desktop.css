@@ -406,3 +406,24 @@
     gap: 16px !important;
   }
 }
+
+/* ── Admin Dashboard Layout & Filter Sidebar Responsiveness ─────────── */
+@media (max-width: 900px) {
+  .admin-dashboard-layout {
+    flex-direction: column !important;
+  }
+  .admin-filter-sidebar {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    position: static !important;
+    display: none !important;
+  }
+  .admin-filter-sidebar.mobile-open {
+    display: flex !important;
+  }
+  .mobile-only-filter-btn {
+    display: flex !important;
+  }
+}
+
