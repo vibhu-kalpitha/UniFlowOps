@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert } from 'lucide-react';
+import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -27,6 +27,7 @@ interface FullPoFormData {
   shiftId: string;
   startDate: string;
   dueDate: string;
+  plant?: string;
   status: string;
   qcTestMode: string;
   remarks: string;
@@ -66,6 +67,7 @@ export const AdminOrders: React.FC = () => {
     shiftId: '',
     startDate: '',
     dueDate: '',
+    plant: '',
     status: 'CURRENT',
     qcTestMode: 'QC & Test',
     remarks: '',
@@ -199,6 +201,7 @@ export const AdminOrders: React.FC = () => {
       shiftId: po.shiftId || po.shift_id || '',
       startDate: po.startDate || po.start_date || new Date().toISOString().split('T')[0],
       dueDate: po.dueDate || po.due_date || new Date().toISOString().split('T')[0],
+      plant: po.plant || '',
       status: (po.status || 'CURRENT').toUpperCase(),
       qcTestMode: resolvedQcMode,
       remarks: po.remarks || '',
@@ -247,6 +250,7 @@ export const AdminOrders: React.FC = () => {
         styleId: fullForm.styleId || null,
         supervisorId: fullForm.supervisorId || null,
         shiftId: fullForm.shiftId || null,
+        plant: fullForm.plant?.trim() || null,
         startDate: fullForm.startDate,
         dueDate: fullForm.dueDate,
         status: fullForm.status,
@@ -300,6 +304,41 @@ export const AdminOrders: React.FC = () => {
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleCopyPoToNew = (po: any) => {
+    const newPoId = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const draftGen = {
+      id: newPoId,
+      poName: po.poName || po.po_name ? `${po.poName || po.po_name} (Copy)` : `${po.poNumber || po.po_number || po.id} Copy`,
+      mapPo: po.mapPo || po.map_po ? `${po.mapPo || po.map_po}-COPY` : `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`,
+      customer: po.customer,
+      styleId: po.styleId || po.style_id,
+      styleCode: po.styleCode || po.style_code,
+      styleName: po.styleName || po.style_name,
+      startDate: po.startDate || po.start_date,
+      dueDate: po.dueDate || po.due_date,
+      supervisorId: po.supervisorId || po.supervisor_id,
+      shiftId: po.shiftId || po.shift_id,
+      shiftName: po.shiftName || po.shift_name,
+      remarks: po.remarks,
+      selectedOperations: po.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'],
+      qcTestMode: po.qcTestMode || 'QC & Test',
+      qcStationCount: po.qcStationCount || po.qc_station_count || 1,
+      allocations: po.allocations || po.shifts || []
+    };
+
+    sessionStorage.setItem('uniflow_draft_po_style_id', po.styleId || po.style_id || '');
+    sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftGen));
+    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(po.allocations || po.shifts || []));
+    sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(po.productConfigurations || []));
+    sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(po.boxConfigurations || []));
+    sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(Boolean(po.allowNoProductPrefix || po.allow_no_product_prefix)));
+    sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(Boolean(po.allowNoBoxPrefix || po.allow_no_box_prefix)));
+    sessionStorage.setItem('uniflow_copy_source_po_id', po.poNumber || po.po_number || po.id);
+
+    showToast(`Configurations copied from ${po.poNumber || po.po_number || po.id}! Customizing new PO...`, 'info');
+    navigate('/supervisor/production-orders/new/general');
   };
 
   return (
@@ -362,7 +401,21 @@ export const AdminOrders: React.FC = () => {
                         🏷️ {po.poName || po.po_name}
                       </span>
                     )}
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
+                      {po.plant && (
+                        <span style={{
+                          fontSize: '10px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                          color: '#60a5fa',
+                          fontWeight: 700
+                        }}>
+                          🏢 {po.plant}
+                        </span>
+                      )}
+                    </div>
                     {(po.allowNoProductPrefix || po.allowNoBoxPrefix) && (
                       <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
                         {po.allowNoProductPrefix && (
@@ -420,6 +473,25 @@ export const AdminOrders: React.FC = () => {
                         title="Edit all fields of this PO"
                       >
                         <Edit3 size={12} /> Edit Full PO
+                      </button>
+                      <button
+                        onClick={() => handleCopyPoToNew(po)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '5px 9px',
+                          borderRadius: '7px',
+                          backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                          border: '1px solid #3b82f6',
+                          color: '#60a5fa',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                        title="Copy this PO configurations to create a new Production Order"
+                      >
+                        <Copy size={12} /> Copy to New PO
                       </button>
                       <button
                         onClick={() => setDeleteTargetPo(po)}
@@ -830,6 +902,31 @@ export const AdminOrders: React.FC = () => {
                       <option value="DRAFT">DRAFT</option>
                       <option value="CANCELLED">CANCELLED</option>
                     </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                      Plant / Garment Location
+                    </label>
+                    <input
+                      type="text"
+                      list="edit-po-plant-suggestions"
+                      placeholder="e.g. Biyagama, Katunayake"
+                      value={fullForm.plant || ''}
+                      onChange={e => {
+                        setFullForm({ ...fullForm, plant: e.target.value });
+                        setIsFullDirty(true);
+                      }}
+                      style={styles.input}
+                    />
+                    <datalist id="edit-po-plant-suggestions">
+                      <option value="Biyagama" />
+                      <option value="Katunayake" />
+                      <option value="Mawathagama" />
+                      <option value="Avissawella" />
+                      <option value="Koggala" />
+                      <option value="Wathupitiwala" />
+                    </datalist>
                   </div>
                 </div>
               </div>

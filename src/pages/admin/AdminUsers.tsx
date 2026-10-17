@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
-import { Plus, User, Shield, X, RefreshCw, Search, KeyRound, CheckCircle2, UserCheck, UserX, ShieldAlert, Trash2, Users } from 'lucide-react';
+import { Plus, User, Shield, X, RefreshCw, Search, KeyRound, CheckCircle2, UserCheck, UserX, ShieldAlert, Trash2, Users, Building2, Edit2 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -14,6 +14,7 @@ interface UserRecord {
   role: 'Operator' | 'Supervisor' | 'Admin';
   lineId: string;
   status: 'Active' | 'Inactive';
+  plant?: string;
 }
 
 export const AdminUsers: React.FC = () => {
@@ -24,6 +25,7 @@ export const AdminUsers: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [roleFilter, setRoleFilter] = useState<'All' | 'Operator' | 'Supervisor' | 'Admin'>('All');
+  const [plantFilter, setPlantFilter] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -35,12 +37,19 @@ export const AdminUsers: React.FC = () => {
   const [deleteTargetUser, setDeleteTargetUser] = useState<UserRecord | null>(null);
   const [deleting, setDeleting] = useState<boolean>(false);
 
+  // Edit Plant Modal State
+  const [showEditPlantModal, setShowEditPlantModal] = useState(false);
+  const [selectedEditUser, setSelectedEditUser] = useState<UserRecord | null>(null);
+  const [editPlantValue, setEditPlantValue] = useState('');
+  const [savingPlant, setSavingPlant] = useState(false);
+
   // Form State
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'Operator' | 'Supervisor' | 'Admin'>('Operator');
   const [lineId, setLineId] = useState('Line 04');
+  const [plant, setPlant] = useState('Biyagama');
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -59,7 +68,8 @@ export const AdminUsers: React.FC = () => {
             employeeNo: u.employeeNo || u.employee_no || u.id,
             role: normalizedRole,
             lineId: u.lineId || (u.shift_name ? `Shift: ${u.shift_name}` : normalizedRole === 'Operator' ? 'Line 04' : normalizedRole === 'Supervisor' ? 'Line 04 & 02' : 'All Lines'),
-            status: (u.active === 0 || u.is_active === 0 || u.status === 'Inactive') ? 'Inactive' : 'Active'
+            status: (u.active === 0 || u.is_active === 0 || u.status === 'Inactive') ? 'Inactive' : 'Active',
+            plant: u.plant || ''
           };
         });
         setUsers(formatted);
@@ -75,14 +85,19 @@ export const AdminUsers: React.FC = () => {
     fetchUsers();
   }, []);
 
+  // Unique plants for dropdown
+  const uniquePlants = Array.from(new Set(users.map(u => u.plant).filter(Boolean))) as string[];
+
   // Filtered Users List
   const filteredUsers = users.filter(u => {
     const matchesRole = roleFilter === 'All' || u.role.toLowerCase() === roleFilter.toLowerCase();
+    const matchesPlant = plantFilter === 'All' || (u.plant && u.plant.toLowerCase() === plantFilter.toLowerCase());
     const matchesSearch = !searchTerm.trim() || 
       u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (u.employeeNo && u.employeeNo.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesRole && matchesSearch;
+      (u.employeeNo && u.employeeNo.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (u.plant && u.plant.toLowerCase().includes(searchTerm.toLowerCase()));
+    return matchesRole && matchesPlant && matchesSearch;
   });
 
   // Role Stats
@@ -105,18 +120,41 @@ export const AdminUsers: React.FC = () => {
           fullName: name,
           username,
           password,
-          role: role.toUpperCase()
+          role: role.toUpperCase(),
+          plant: plant.trim() || null
         })
       });
 
-      showToast(`Added new user ${name} (${role})`, 'success');
+      showToast(`Added new user ${name} (${role}) - Plant: ${plant.trim() || 'None'}`, 'success');
       setShowAddModal(false);
       setName('');
       setUsername('');
       setPassword('');
+      setPlant('Biyagama');
       fetchUsers();
     } catch (err: any) {
       showToast(err.message || 'Failed to add user', 'error');
+    }
+  };
+
+  const handleUpdatePlantSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEditUser) return;
+    setSavingPlant(true);
+    try {
+      await apiFetch(`/api/admin/users/${selectedEditUser.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ plant: editPlantValue.trim() })
+      });
+      showToast(`Updated plant for @${selectedEditUser.username} to ${editPlantValue.trim() || 'None'}`, 'success');
+      setShowEditPlantModal(false);
+      setSelectedEditUser(null);
+      setEditPlantValue('');
+      fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update plant', 'error');
+    } finally {
+      setSavingPlant(false);
     }
   };
 
@@ -266,25 +304,51 @@ export const AdminUsers: React.FC = () => {
           </button>
         </div>
 
-        {/* Search Input */}
-        <div style={{ position: 'relative', minWidth: '220px' }}>
-          <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-          <input
-            type="text"
-            placeholder="Search name or username..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px 8px 36px',
-              borderRadius: '10px',
-              backgroundColor: 'var(--bg-surface-2)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              outline: 'none'
-            }}
-          />
+        {/* Right Controls: Plant Filter + Search Input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Building2 size={15} color="var(--primary-teal)" />
+            <select
+              value={plantFilter}
+              onChange={e => setPlantFilter(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '10px',
+                backgroundColor: 'var(--bg-surface-2)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="All">All Plants</option>
+              {uniquePlants.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Search Input */}
+          <div style={{ position: 'relative', minWidth: '220px' }}>
+            <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              placeholder="Search name, username, plant..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                borderRadius: '10px',
+                backgroundColor: 'var(--bg-surface-2)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                outline: 'none'
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -342,7 +406,59 @@ export const AdminUsers: React.FC = () => {
                     </div>
                     <div>
                       <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{u.name}</h4>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>@{u.username}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>@{u.username}</span>
+                        {u.plant ? (
+                          <span
+                            onClick={() => {
+                              if (currentRole === 'admin') {
+                                setSelectedEditUser(u);
+                                setEditPlantValue(u.plant || '');
+                                setShowEditPlantModal(true);
+                              }
+                            }}
+                            title={currentRole === 'admin' ? "Click to change plant" : undefined}
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                              color: 'var(--primary-teal)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              cursor: currentRole === 'admin' ? 'pointer' : 'default'
+                            }}
+                          >
+                            <Building2 size={11} /> {u.plant}
+                            {currentRole === 'admin' && <Edit2 size={10} style={{ opacity: 0.6 }} />}
+                          </span>
+                        ) : currentRole === 'admin' ? (
+                          <span
+                            onClick={() => {
+                              setSelectedEditUser(u);
+                              setEditPlantValue('');
+                              setShowEditPlantModal(true);
+                            }}
+                            title="Click to assign plant"
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 6px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              color: 'var(--text-muted)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Building2 size={10} /> + Assign Plant
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                   <StatusPill label={u.role} variant={u.role === 'Admin' ? 'purple' : u.role === 'Supervisor' ? 'blue' : 'teal'} />
@@ -486,9 +602,87 @@ export const AdminUsers: React.FC = () => {
                 </div>
               </div>
 
+              <div>
+                <label style={styles.label}>Plant / Garment Location</label>
+                <input
+                  type="text"
+                  list="plant-suggestions"
+                  className="input-field"
+                  placeholder="e.g. Biyagama, Katunayake"
+                  value={plant}
+                  onChange={e => setPlant(e.target.value)}
+                />
+                <datalist id="plant-suggestions">
+                  <option value="Biyagama" />
+                  <option value="Katunayake" />
+                  <option value="Mawathagama" />
+                  <option value="Avissawella" />
+                  <option value="Koggala" />
+                  <option value="Wathupitiwala" />
+                </datalist>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
+                  Supervisors assigned to this plant will only see production orders and progress for this plant.
+                </span>
+              </div>
+
               <button type="submit" className="btn-primary" style={{ marginTop: '10px', width: '100%' }}>
                 {isSupervisorUser ? 'Create Operator Account' : 'Create User Account'}
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Plant Modal */}
+      {showEditPlantModal && selectedEditUser && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Building2 size={20} color="var(--primary-teal)" />
+                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Assign Plant</h3>
+              </div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setShowEditPlantModal(false)}>
+                <X size={20} color="var(--text-secondary)" />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+              Assign or change garment plant for <strong>@{selectedEditUser.username}</strong> ({selectedEditUser.name}).
+            </p>
+
+            <form onSubmit={handleUpdatePlantSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={styles.label}>Plant Name</label>
+                <input
+                  type="text"
+                  list="plant-suggestions"
+                  className="input-field"
+                  placeholder="e.g. Biyagama, Katunayake"
+                  value={editPlantValue}
+                  onChange={e => setEditPlantValue(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setShowEditPlantModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={savingPlant}
+                >
+                  {savingPlant ? 'Saving...' : 'Save Plant'}
+                </button>
+              </div>
             </form>
           </div>
         </div>

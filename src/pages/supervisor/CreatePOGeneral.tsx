@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { apiFetch } from '../../services/api';
-import { OperationType, QcTestMode } from '../../types';
-import { ArrowRight, CheckSquare, Square, Plus, X, Users, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { OperationType, QcTestMode, ProductionOrder } from '../../types';
+import { ArrowRight, CheckSquare, Square, Plus, X, Users, Clock, ChevronDown, ChevronRight, Copy, Sparkles, Check, FileText, Building2 } from 'lucide-react';
 import '../../styles/tokens.css';
 
 interface StyleItem {
@@ -25,6 +25,7 @@ interface ShiftRosterRow {
   full_name: string;
   username: string;
   employee_no: string;
+  plant?: string;
 }
 
 // A single allocation added to the PO
@@ -47,7 +48,7 @@ const SHIFT_COLORS: Record<string, { bg: string; border: string; text: string }>
 
 export const CreatePOGeneral: React.FC = () => {
   const navigate = useNavigate();
-  const { showToast } = useApp();
+  const { showToast, currentUser } = useApp();
 
   const [stylesList, setStylesList] = useState<StyleItem[]>([]);
   const [loadingStyles, setLoadingStyles] = useState(true);
@@ -59,6 +60,7 @@ export const CreatePOGeneral: React.FC = () => {
   const [startDate, setStartDate] = useState('2026-09-15');
   const [dueDate, setDueDate] = useState('2026-10-10');
   const [supervisor, setSupervisor] = useState('Nimal Perera');
+  const [plant, setPlant] = useState(() => currentUser?.plant || 'Biyagama');
   const [remarks, setRemarks] = useState('Export batch for Q4 delivery');
 
   const [selectedOps, setSelectedOps] = useState<OperationType[]>([
@@ -77,11 +79,18 @@ export const CreatePOGeneral: React.FC = () => {
   // Expanded shifts in roster view
   const [expandedShiftGroups, setExpandedShiftGroups] = useState<Set<string>>(new Set());
 
-  // Load styles and roster
+  // Copy Previous PO state
+  const [previousOrders, setPreviousOrders] = useState<ProductionOrder[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [selectedCopyPoId, setSelectedCopyPoId] = useState<string>('');
+  const [copiedSourcePo, setCopiedSourcePo] = useState<ProductionOrder | null>(null);
+
+  // Load styles, roster, and previous POs
   const loadData = useCallback(async () => {
-    const [stylesResult, rosterResult] = await Promise.allSettled([
+    const [stylesResult, rosterResult, posResult] = await Promise.allSettled([
       apiFetch<StyleItem[]>('/api/styles'),
       apiFetch<ShiftRosterRow[]>('/api/shifts/all-members'),
+      apiFetch<ProductionOrder[]>('/api/production-orders'),
     ]);
 
     if (stylesResult.status === 'fulfilled') {
@@ -111,9 +120,147 @@ export const CreatePOGeneral: React.FC = () => {
       setExpandedShiftGroups(new Set(['shift-a', 'shift-b', 'shift-c', 'shift-d']));
     }
     setLoadingRoster(false);
+
+    if (posResult.status === 'fulfilled' && Array.isArray(posResult.value)) {
+      setPreviousOrders(posResult.value);
+      const copySourceId = sessionStorage.getItem('uniflow_copy_source_po_id');
+      if (copySourceId) {
+        const found = posResult.value.find(p => p.id === copySourceId || p.dbId === copySourceId);
+        if (found) {
+          setCopiedSourcePo(found);
+          setSelectedCopyPoId(found.id);
+        }
+      }
+    }
+    setLoadingOrders(false);
   }, [showToast]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Load existing draft if returning to general page or pre-loaded
+  useEffect(() => {
+    const draftGen = sessionStorage.getItem('uniflow_draft_po_general');
+    if (draftGen) {
+      try {
+        const parsed = JSON.parse(draftGen);
+        if (parsed.id) setPoId(parsed.id);
+        if (parsed.poName) setPoName(parsed.poName);
+        if (parsed.mapPo) setMapPo(parsed.mapPo);
+        if (parsed.styleId) setSelectedStyleId(parsed.styleId);
+        if (parsed.startDate) setStartDate(parsed.startDate);
+        if (parsed.dueDate) setDueDate(parsed.dueDate);
+        if (parsed.supervisorId) setSupervisor(parsed.supervisorId);
+        if (parsed.plant) setPlant(parsed.plant);
+        if (parsed.remarks) setRemarks(parsed.remarks);
+        if (parsed.selectedOperations && Array.isArray(parsed.selectedOperations)) {
+          setSelectedOps(parsed.selectedOperations);
+        }
+        if (parsed.qcTestMode) setQcTestMode(parsed.qcTestMode);
+        if (parsed.qcStationCount) setQcStationCount(parsed.qcStationCount);
+        if (parsed.allocations && Array.isArray(parsed.allocations)) {
+          setPoAllocations(parsed.allocations.map((a: any) => ({
+            operatorId: a.operatorId || a.workerId,
+            operatorName: a.operatorName || a.workerName,
+            shiftId: a.shiftId || '',
+            shiftName: a.shiftName || a.shiftCode || '',
+            shiftCode: a.shiftCode || '',
+            startTime: a.startTime || '06:00',
+            endTime: a.endTime || '14:00',
+          })));
+        }
+      } catch (e) {}
+    }
+  }, []);
+
+  // Handler to apply all configurations from a source PO
+  const applyPoConfig = (sourcePo: ProductionOrder) => {
+    // Generate a fresh unique PO ID
+    const newPoId = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    setPoId(newPoId);
+
+    // PO Name (editable by user)
+    const copiedName = sourcePo.poName
+      ? `${sourcePo.poName} (Copy)`
+      : `${sourcePo.id} Copy`;
+    setPoName(copiedName);
+
+    // Map PO (editable by user)
+    const copiedMapPo = sourcePo.mapPo
+      ? `${sourcePo.mapPo}-COPY`
+      : `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`;
+    setMapPo(copiedMapPo);
+
+    // Garment Style
+    if (sourcePo.styleId) {
+      setSelectedStyleId(sourcePo.styleId);
+      sessionStorage.setItem('uniflow_draft_po_style_id', sourcePo.styleId);
+    }
+
+    // Dates, supervisor, remarks
+    if (sourcePo.startDate) setStartDate(sourcePo.startDate);
+    if (sourcePo.dueDate) setDueDate(sourcePo.dueDate);
+    if (sourcePo.supervisorId) setSupervisor(sourcePo.supervisorId);
+    if (sourcePo.plant) setPlant(sourcePo.plant);
+    if (sourcePo.remarks) setRemarks(sourcePo.remarks);
+
+    // Selected operations & QC mode
+    if (sourcePo.selectedOperations && Array.isArray(sourcePo.selectedOperations) && sourcePo.selectedOperations.length > 0) {
+      setSelectedOps(sourcePo.selectedOperations as OperationType[]);
+    }
+    if (sourcePo.qcTestMode) setQcTestMode(sourcePo.qcTestMode);
+    if (sourcePo.qcStationCount) setQcStationCount(sourcePo.qcStationCount as 1 | 2);
+
+    // Operator Shift Allocations
+    const rawAllocations = sourcePo.allocations || sourcePo.shifts || [];
+    if (Array.isArray(rawAllocations) && rawAllocations.length > 0) {
+      const mapped: PoAllocation[] = rawAllocations.map((a: any) => ({
+        operatorId: a.operatorId || a.workerId,
+        operatorName: a.operatorName || a.workerName,
+        shiftId: a.shiftId || '',
+        shiftName: a.shiftName || a.shiftCode || 'Shift',
+        shiftCode: a.shiftCode || 'A',
+        startTime: a.startTime || '06:00',
+        endTime: a.endTime || '14:00',
+      }));
+      setPoAllocations(mapped);
+      sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(mapped.map(a => ({
+        workerId: a.operatorId,
+        workerName: a.operatorName,
+        operatorId: a.operatorId,
+        operatorName: a.operatorName,
+        shiftId: a.shiftId,
+        shiftCode: a.shiftCode,
+        enabledOperations: sourcePo.selectedOperations || selectedOps,
+      }))));
+    }
+
+    // Product Configurations
+    if (sourcePo.productConfigurations && Array.isArray(sourcePo.productConfigurations) && sourcePo.productConfigurations.length > 0) {
+      const cleaned = sourcePo.productConfigurations.map(c => ({
+        configCode: c.configCode,
+        productType: c.productType,
+        size: c.size,
+        productQrPrefix: c.productQrPrefix,
+        productSerialStart: c.productSerialStart || 1,
+        productSerialEnd: c.productSerialEnd || c.quantity || 500,
+        quantity: c.quantity || 500,
+      }));
+      sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(cleaned));
+    }
+
+    // Box Configurations
+    if (sourcePo.boxConfigurations && Array.isArray(sourcePo.boxConfigurations) && sourcePo.boxConfigurations.length > 0) {
+      sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(sourcePo.boxConfigurations));
+    }
+
+    // No-Prefix Settings
+    sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(Boolean(sourcePo.allowNoProductPrefix)));
+    sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(Boolean(sourcePo.allowNoBoxPrefix)));
+    sessionStorage.setItem('uniflow_copy_source_po_id', sourcePo.id);
+
+    setCopiedSourcePo(sourcePo);
+    showToast(`Copied all configurations from ${sourcePo.id}! You can now customize the PO Name, Number, or any setting.`, 'success');
+  };
 
   // Group roster rows by shift
   const rosterByShift = rosterRows.reduce<Record<string, { shift: ShiftRosterRow; members: ShiftRosterRow[] }>>((acc, row) => {
@@ -195,6 +342,7 @@ export const CreatePOGeneral: React.FC = () => {
       startDate,
       dueDate,
       supervisorId: supervisor,
+      plant,
       // Primary shift = first allocation's shift (for `production_orders.shift_id`)
       shiftId: poAllocations[0]?.shiftId,
       shiftName: poAllocations[0]?.shiftName,
@@ -245,6 +393,165 @@ export const CreatePOGeneral: React.FC = () => {
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
           Step 2 of 4: Select Garment Style, define PO details, and pick operator–shift allocations.
         </p>
+      </div>
+
+      {/* ── Copy Settings from Previous PO Card ────────────────────────── */}
+      <div style={{
+        backgroundColor: 'var(--bg-surface-2)',
+        border: '1.5px solid rgba(20, 184, 166, 0.35)',
+        borderRadius: '16px',
+        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(20, 184, 166, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--primary-teal)'
+            }}>
+              <Copy size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>Copy Settings from Previous PO</span>
+                <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '12px', background: 'rgba(20, 184, 166, 0.15)', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                  Optional Fast Setup
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, marginTop: '2px' }}>
+                Clone Style, Operations, Roster Allocations, Product & Box Configs from an existing PO. You can modify any setting or name after copying.
+              </p>
+            </div>
+          </div>
+          {copiedSourcePo && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '11px',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              backgroundColor: 'rgba(16, 185, 129, 0.15)',
+              color: '#10B981',
+              fontWeight: 700,
+              border: '1px solid rgba(16, 185, 129, 0.3)'
+            }}>
+              <Check size={13} /> Loaded from {copiedSourcePo.id}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            className="input-field"
+            style={{ flex: '1 1 280px', minWidth: '220px', backgroundColor: 'var(--bg-surface-1)' }}
+            value={selectedCopyPoId}
+            onChange={e => setSelectedCopyPoId(e.target.value)}
+          >
+            <option value="">-- Select a previous PO to copy its settings --</option>
+            {loadingOrders ? (
+              <option disabled>Loading previous orders...</option>
+            ) : previousOrders.length === 0 ? (
+              <option disabled>No previous orders found</option>
+            ) : (
+              previousOrders.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.id} {p.poName ? `• ${p.poName}` : ''} ({p.styleName || p.styleCode || 'Style'} — {p.customer || 'Customer'} — {p.productConfigurations?.length || 0} configs, {p.totalQuantity || 0} pcs)
+                </option>
+              ))
+            )}
+          </select>
+
+          <button
+            type="button"
+            disabled={!selectedCopyPoId}
+            onClick={() => {
+              const found = previousOrders.find(p => p.id === selectedCopyPoId);
+              if (found) {
+                applyPoConfig(found);
+              }
+            }}
+            className="btn-primary"
+            style={{
+              padding: '9px 16px',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderRadius: '10px',
+              whiteSpace: 'nowrap',
+              opacity: selectedCopyPoId ? 1 : 0.6,
+              cursor: selectedCopyPoId ? 'pointer' : 'not-allowed'
+            }}
+          >
+            <Copy size={14} /> Apply All Settings
+          </button>
+        </div>
+
+        {/* Selected PO Preview Card */}
+        {selectedCopyPoId && (() => {
+          const previewPo = previousOrders.find(p => p.id === selectedCopyPoId);
+          if (!previewPo) return null;
+          return (
+            <div style={{
+              backgroundColor: 'var(--bg-surface-1)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '12px',
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                  Settings preview for {previewPo.id} {previewPo.poName ? `("${previewPo.poName}")` : ''}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Customer: {previewPo.customer || 'Factory'}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                <div><strong>Garment Style:</strong> {previewPo.styleName || previewPo.styleCode || 'Standard'}</div>
+                <div><strong>Operations:</strong> {previewPo.selectedOperations?.join(', ') || 'Standard 5'}</div>
+                <div><strong>QC Mode:</strong> {previewPo.qcTestMode || 'QC & Test'} ({previewPo.qcStationCount || 1} stn)</div>
+                <div><strong>Allocations:</strong> {(previewPo.allocations || previewPo.shifts || []).length} operators</div>
+                <div><strong>Product Configs:</strong> {previewPo.productConfigurations?.length || 0} types ({previewPo.totalQuantity || 0} pcs)</div>
+                <div><strong>Box Configs:</strong> {previewPo.boxConfigurations?.map(b => `${b.prefix}-${b.size} (${b.capacity})`).join(', ') || 'BX (12)'}</div>
+                <div><strong>No-Prefix Flags:</strong> {previewPo.allowNoProductPrefix ? 'Free Product SNs' : 'Prefixed'}, {previewPo.allowNoBoxPrefix ? 'Free Box IDs' : 'Prefixed'}</div>
+                <div><strong>Plant:</strong> {previewPo.plant || 'Standard'}</div>
+                <div><strong>Supervisor:</strong> {previewPo.supervisorId || 'N/A'}</div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {copiedSourcePo && (
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--text-primary)',
+            backgroundColor: 'rgba(20, 184, 166, 0.1)',
+            border: '1px dashed var(--primary-teal)',
+            padding: '8px 12px',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <Sparkles size={15} color="var(--primary-teal)" />
+            <span>
+              All settings from <strong>{copiedSourcePo.id}</strong> are currently applied! You can change the <strong>PO Name</strong>, <strong>PO Number</strong>, or any values below.
+            </span>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleNext} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -325,6 +632,33 @@ export const CreatePOGeneral: React.FC = () => {
           <div>
             <label style={styles.label}>Responsible Supervisor</label>
             <input type="text" className="input-field" value={supervisor} onChange={e => setSupervisor(e.target.value)} />
+          </div>
+
+          {/* Plant Location */}
+          <div>
+            <label style={styles.label}>Plant / Garment Location (Required)</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                list="po-plant-suggestions"
+                className="input-field"
+                placeholder="e.g. Biyagama, Katunayake"
+                value={plant}
+                onChange={e => setPlant(e.target.value)}
+                required
+              />
+              <datalist id="po-plant-suggestions">
+                <option value="Biyagama" />
+                <option value="Katunayake" />
+                <option value="Mawathagama" />
+                <option value="Avissawella" />
+                <option value="Koggala" />
+                <option value="Wathupitiwala" />
+              </datalist>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
+              Supervisors assigned to this plant will monitor and manage this PO.
+            </span>
           </div>
         </div>
 
@@ -461,7 +795,21 @@ export const CreatePOGeneral: React.FC = () => {
                                 </div>
                                 <div>
                                   <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{member.full_name}</div>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{member.employee_no} · @{member.username}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '1px' }}>
+                                    <span>{member.employee_no} · @{member.username}</span>
+                                    {member.plant && (
+                                      <span style={{
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        padding: '1px 6px',
+                                        borderRadius: '4px',
+                                        backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                                        color: 'var(--primary-teal)'
+                                      }}>
+                                        {member.plant}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               {selected && (

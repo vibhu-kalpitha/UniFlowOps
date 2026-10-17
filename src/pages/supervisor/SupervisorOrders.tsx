@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { ProductionOrder } from '../../types';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, X, Copy } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
 export const SupervisorOrders: React.FC = () => {
+  const navigate = useNavigate();
   const { productionOrders, refreshProductionOrders, showToast } = useApp();
   const [selectedPo, setSelectedPo] = useState<ProductionOrder | null>(null);
   const [updatingPrefix, setUpdatingPrefix] = useState<boolean>(false);
@@ -66,6 +68,42 @@ export const SupervisorOrders: React.FC = () => {
     }
   };
 
+  const handleCopyPoToNew = (po: ProductionOrder) => {
+    const newPoId = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const draftGen = {
+      id: newPoId,
+      poName: po.poName ? `${po.poName} (Copy)` : `${po.id} Copy`,
+      mapPo: po.mapPo ? `${po.mapPo}-COPY` : `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`,
+      customer: po.customer,
+      styleId: po.styleId,
+      styleCode: po.styleCode,
+      styleName: po.styleName,
+      startDate: po.startDate,
+      dueDate: po.dueDate,
+      supervisorId: po.supervisorId,
+      plant: po.plant,
+      shiftId: po.shiftId,
+      shiftName: po.shiftName,
+      remarks: po.remarks,
+      selectedOperations: po.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer'],
+      qcTestMode: po.qcTestMode || 'QC & Test',
+      qcStationCount: po.qcStationCount || 1,
+      allocations: po.allocations || po.shifts || []
+    };
+
+    sessionStorage.setItem('uniflow_draft_po_style_id', po.styleId || '');
+    sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftGen));
+    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(po.allocations || po.shifts || []));
+    sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(po.productConfigurations || []));
+    sessionStorage.setItem('uniflow_draft_po_box_configs', JSON.stringify(po.boxConfigurations || []));
+    sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(Boolean(po.allowNoProductPrefix)));
+    sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(Boolean(po.allowNoBoxPrefix)));
+    sessionStorage.setItem('uniflow_copy_source_po_id', po.id);
+
+    showToast(`Configurations copied from ${po.id}! Customizing new PO...`, 'info');
+    navigate('/supervisor/production-orders/new/general');
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Supervisor Order Oversight</h2>
@@ -90,7 +128,21 @@ export const SupervisorOrders: React.FC = () => {
                   <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
                     {po.id} — {po.styleName || po.styleCode || 'Garment Style'}
                   </h3>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Map PO: {po.mapPo}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Map PO: {po.mapPo}</span>
+                    {po.plant && (
+                      <span style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                        color: '#60a5fa',
+                        fontWeight: 700
+                      }}>
+                        🏢 {po.plant}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <StatusPill label={po.status || 'Current'} variant={po.status === 'Current' ? 'teal' : 'muted'} />
               </div>
@@ -127,7 +179,32 @@ export const SupervisorOrders: React.FC = () => {
                 <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
                   View PO Configurations & Progress
                 </span>
-                <ChevronRight size={16} color="var(--primary-teal)" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyPoToNew(po);
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                      border: '1px solid #3b82f6',
+                      color: '#60a5fa',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Copy this PO configurations into a new order"
+                  >
+                    <Copy size={12} /> Copy PO
+                  </button>
+                  <ChevronRight size={16} color="var(--primary-teal)" />
+                </div>
               </div>
             </div>
           );
@@ -153,6 +230,8 @@ export const SupervisorOrders: React.FC = () => {
               <span><strong>Map PO:</strong> {selectedPo.mapPo}</span>
               <span><strong>Customer:</strong> {selectedPo.customer}</span>
               <span><strong>Due Date:</strong> {selectedPo.dueDate}</span>
+              <span><strong>Plant:</strong> {selectedPo.plant || 'Standard'}</span>
+              <span><strong>Supervisor:</strong> {selectedPo.supervisorId || 'N/A'}</span>
               {selectedPo.qcTestMode && (
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>QC Test Mode:</strong> <span style={{ color: 'var(--primary-teal)', fontWeight: 700 }}>{selectedPo.qcTestMode}</span>
@@ -237,9 +316,19 @@ export const SupervisorOrders: React.FC = () => {
               ))}
             </div>
 
-            <button className="btn-secondary" onClick={() => setSelectedPo(null)} style={{ marginTop: '16px' }}>
-              Close
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handleCopyPoToNew(selectedPo)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+              >
+                <Copy size={14} /> Copy to New PO
+              </button>
+              <button className="btn-secondary" onClick={() => setSelectedPo(null)}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

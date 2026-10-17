@@ -17,7 +17,7 @@ This document describes how to set up and run the **development** deployment alo
 | DB user | `uniflow_ops_app` | `uniflow_ops_dev` |
 | Docker image | `Dockerfile` | `Dockerfile.dev` |
 
-Both deployments share the existing Docker network `mysql-server_default` and MySQL container `mysql_eco360`.
+Both deployments share the existing Docker network `mysql-server_default` and MySQL container `mysql_server`.
 
 ---
 
@@ -31,7 +31,7 @@ Connect to MySQL on the VM using an account with `GRANT` privileges (e.g. root o
 
 ```bash
 # Connect to the running MySQL container
-docker exec -it mysql_eco360 mysql -u root -p
+docker exec -it mysql_server mysql -u root -p
 ```
 
 Then run:

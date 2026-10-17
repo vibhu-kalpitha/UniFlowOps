@@ -1,12 +1,12 @@
 # UniFlow Ops — VM Docker Deployment Guide
 
-This guide details step-by-step instructions for deploying **UniFlow Ops** on a Virtual Machine using Docker, connecting to an existing MySQL container (`mysql_eco360`) running on the Docker network `mysql-server_default`.
+This guide details step-by-step instructions for deploying **UniFlow Ops** on a Virtual Machine using Docker, connecting to an existing MySQL container (`mysql_server`) running on the Docker network `mysql-server_default`.
 
 ---
 
 ## Prerequisites
 - Docker & Docker Compose V2 installed on the VM.
-- Existing MySQL container `mysql_eco360` running on network `mysql-server_default`.
+- Existing MySQL container `mysql_server` running on network `mysql-server_default`.
 - MySQL database `uniflow_ops` created with user `uniflow_ops_app` granted privileges.
 
 ---
@@ -31,7 +31,7 @@ Ensure `.env` contains the required production values:
 ```env
 NODE_ENV=production
 PORT=4000
-DB_HOST=mysql_eco360
+DB_HOST=mysql_server
 DB_PORT=3306
 DB_NAME=uniflow_ops
 DB_USER=uniflow_ops_app

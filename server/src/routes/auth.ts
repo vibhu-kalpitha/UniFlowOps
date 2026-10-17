@@ -50,7 +50,8 @@ router.post('/login', async (req, res, next) => {
       id: user.id,
       username: user.username,
       role: user.role,
-      fullName: user.full_name
+      fullName: user.full_name,
+      plant: user.plant || undefined
     });
 
     // Compute token hash for database session tracking
@@ -76,7 +77,8 @@ router.post('/login', async (req, res, next) => {
         name: user.full_name,
         role: user.role.toLowerCase(), // operator | supervisor | admin
         lineId,
-        avatarInitials: initials
+        avatarInitials: initials,
+        plant: user.plant || undefined
       }
     });
   } catch (err) {

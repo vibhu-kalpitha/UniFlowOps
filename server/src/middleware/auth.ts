@@ -13,6 +13,7 @@ export interface AuthUser {
   username: string;
   role: 'OPERATOR' | 'SUPERVISOR' | 'ADMIN';
   fullName: string;
+  plant?: string;
 }
 
 export interface AuthRequest extends Request {
@@ -24,9 +25,9 @@ export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export function generateToken(user: { id: string; username: string; role: string; fullName: string }): string {
+export function generateToken(user: { id: string; username: string; role: string; fullName: string; plant?: string }): string {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, fullName: user.fullName },
+    { id: user.id, username: user.username, role: user.role, fullName: user.fullName, plant: user.plant },
     JWT_SECRET,
     { expiresIn: '24h' }
   );
@@ -66,10 +67,14 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
       return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session expired, revoked, or invalid' });
     }
 
-    const user = await db.queryOne<{ active: number }>(`SELECT active FROM users WHERE id = ?`, [payload.id]);
+    const user = await db.queryOne<{ active: number; plant?: string | null }>(`SELECT active, plant FROM users WHERE id = ?`, [payload.id]);
     if (!user || user.active !== 1) {
       console.warn(`[AUTH REJECTED] 401 - User account disabled/inactive: ${payload.username} (${payload.id}). Path: ${req.originalUrl}`);
       return res.status(401).json({ error: 'UNAUTHORIZED', message: 'User account disabled or inactive' });
+    }
+
+    if (user.plant) {
+      payload.plant = user.plant;
     }
 
     // Safely update last_seen_at

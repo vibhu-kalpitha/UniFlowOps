@@ -68,6 +68,7 @@ export const CreatePOReview: React.FC = () => {
       startDate: draftPoGeneral.startDate,
       dueDate: draftPoGeneral.dueDate,
       supervisorId: draftPoGeneral.supervisorId,
+      plant: draftPoGeneral.plant || undefined,
       shiftId: draftPoGeneral.shiftId,
       remarks: draftPoGeneral.remarks,
       status: makeCurrent ? 'Current' : 'Draft',
@@ -239,6 +240,12 @@ export const CreatePOReview: React.FC = () => {
             <span style={styles.sumLabel}>Responsible Supervisor</span>
             <span style={styles.sumVal}>{draftPoGeneral.supervisorId}</span>
           </div>
+          {draftPoGeneral.plant && (
+            <div>
+              <span style={styles.sumLabel}>Plant / Garment Location</span>
+              <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.plant}</span>
+            </div>
+          )}
           {draftPoGeneral.shiftName && (
             <div>
               <span style={styles.sumLabel}>Work Shift</span>

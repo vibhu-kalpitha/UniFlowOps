@@ -420,6 +420,14 @@ async function runStartupColumnChecks(): Promise<void> {
         } catch (e: any) { console.warn('  ⚠️ allow_no_box_prefix:', e.message); }
       }
 
+      // plant
+      if (!(await columnExists('production_orders', 'plant'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN plant VARCHAR(191) NULL AFTER supervisor_id`);
+          console.log('  ✅ Added production_orders.plant');
+        } catch (e: any) { console.warn('  ⚠️ plant:', e.message); }
+      }
+
       // FK fk_po_shift (only if shifts table exists and FK not already there)
       try {
         if (await tableExists('shifts')
@@ -430,6 +438,16 @@ async function runStartupColumnChecks(): Promise<void> {
           console.log('  ✅ Added FK fk_po_shift');
         }
       } catch (e: any) { console.warn('  ⚠️ FK fk_po_shift (non-fatal):', e.message); }
+    }
+
+    // ── users columns ────────────────────────────────────────────────
+    if (await tableExists('users')) {
+      if (!(await columnExists('users', 'plant'))) {
+        try {
+          await db.exec(`ALTER TABLE users ADD COLUMN plant VARCHAR(191) NULL AFTER role`);
+          console.log('  ✅ Added users.plant');
+        } catch (e: any) { console.warn('  ⚠️ users.plant:', e.message); }
+      }
     }
 
     // ── operator_work_assignments columns ────────────────────────────
@@ -767,6 +785,15 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
           try { await db.exec(`ALTER TABLE production_orders ADD COLUMN allow_no_box_prefix TINYINT NOT NULL DEFAULT 0`); }
           catch (e: any) { console.warn('  010: allow_no_box_prefix warning (non-fatal):', e?.message); }
         }
+      }
+    } else if (file === '011_plant_fields.sql') {
+      if (await tableExists('users') && !(await columnExists('users', 'plant'))) {
+        try { await db.exec(`ALTER TABLE users ADD COLUMN plant VARCHAR(191) NULL AFTER role`); }
+        catch (e: any) { console.warn('  011: users.plant warning (non-fatal):', e?.message); }
+      }
+      if (await tableExists('production_orders') && !(await columnExists('production_orders', 'plant'))) {
+        try { await db.exec(`ALTER TABLE production_orders ADD COLUMN plant VARCHAR(191) NULL AFTER supervisor_id`); }
+        catch (e: any) { console.warn('  011: production_orders.plant warning (non-fatal):', e?.message); }
       }
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Clock, Users, Plus, Trash2, UserCheck, RefreshCw, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
+import { Clock, Users, Plus, Trash2, UserCheck, RefreshCw, ChevronDown, ChevronRight, AlertCircle, Building2 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -21,6 +21,7 @@ interface ShiftMember {
   username: string;
   employee_no: string;
   effective_from?: string;
+  plant?: string;
 }
 
 interface Operator {
@@ -28,6 +29,7 @@ interface Operator {
   full_name: string;
   username: string;
   employee_no: string;
+  plant?: string;
 }
 
 const SHIFT_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
@@ -249,7 +251,7 @@ export const ShiftManagementPage: React.FC = () => {
                         <option value="">— Select Operator —</option>
                         {available.map(op => (
                           <option key={op.id} value={op.id}>
-                            {op.full_name} ({op.employee_no})
+                            {op.full_name} ({op.employee_no}){op.plant ? ` • Plant: ${op.plant}` : ''}
                           </option>
                         ))}
                       </select>
@@ -292,8 +294,23 @@ export const ShiftManagementPage: React.FC = () => {
                             </div>
                             <div>
                               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{member.full_name}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                {member.employee_no} · @{member.username}
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                <span>{member.employee_no} · @{member.username}</span>
+                                {member.plant && (
+                                  <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                                    color: 'var(--primary-teal)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}>
+                                    <Building2 size={10} /> {member.plant}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>

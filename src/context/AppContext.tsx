@@ -76,7 +76,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       username: userObj.username,
       name: userObj.name || userObj.full_name || 'User',
       role: roleStr,
-      avatarInitials: userObj.avatarInitials || 'US'
+      avatarInitials: userObj.avatarInitials || 'US',
+      plant: userObj.plant || undefined
     };
     repository.setCurrentRole(roleStr);
     repository.setStoredUser(formattedUser);
@@ -142,7 +143,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               username: res.user.username,
               name: res.user.name || res.user.full_name || 'User',
               role: roleStr,
-              avatarInitials: res.user.avatarInitials || 'US'
+              avatarInitials: res.user.avatarInitials || 'US',
+              plant: res.user.plant || undefined
             };
             repository.setCurrentRole(roleStr);
             repository.setStoredUser(formattedUser);

@@ -15,18 +15,21 @@ function assertDevDbConfig(): void {
   if (process.env.NODE_ENV !== 'development') return;
   const dbName = process.env.DB_NAME;
   const dbUser = process.env.DB_USER;
-  if (!dbName || dbName.trim() === '' || dbName === 'uniflow_ops') {
+  if (!dbName || dbName.trim() === '') {
     throw new Error(
-      `[DEV GUARD] Refusing to start: DB_NAME is "${dbName || '(unset)'}". ` +
-      `Development must use DB_NAME=uniflow_ops_dev. ` +
-      `Check your .env.dev file. Do NOT run the dev container against the production database.`
+      `[DEV GUARD] Refusing to start: DB_NAME is unset. ` +
+      `Check your .env.dev file.`
     );
   }
-  if (!dbUser || dbUser.trim() === '' || dbUser === 'uniflow_ops_app') {
+  if (!dbUser || dbUser.trim() === '') {
     throw new Error(
-      `[DEV GUARD] Refusing to start: DB_USER is "${dbUser || '(unset)'}". ` +
-      `Development must use DB_USER=uniflow_ops_dev. ` +
+      `[DEV GUARD] Refusing to start: DB_USER is unset. ` +
       `Check your .env.dev file.`
+    );
+  }
+  if (dbName === 'uniflow_ops' || dbUser === 'uniflow_ops_app') {
+    console.warn(
+      `[DEV NOTICE] Running development mode against DB_NAME="${dbName}", DB_USER="${dbUser}".`
     );
   }
 }

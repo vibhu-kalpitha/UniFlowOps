@@ -293,6 +293,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     startDate: po.start_date,
     dueDate: po.due_date,
     supervisorId: po.supervisor_id,
+    plant: po.plant || undefined,
     shiftId: resolvedShiftId,
     shiftCode: resolvedShiftCode,
     shiftName: resolvedShiftName,
@@ -338,16 +339,31 @@ export async function checkQrRangeOverlap(
 // GET /api/production-orders
 router.get('/production-orders', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const poRows = await db.prepare(`SELECT * FROM production_orders ORDER BY created_at DESC`).all();
     const role = req.user?.role;
+    const userPlant = req.user?.plant;
+    const queryPlant = (req.query.plant || '').toString().trim();
+
+    let poRows: any[];
+    if (role === 'SUPERVISOR' && userPlant && userPlant.trim() !== '') {
+      poRows = await db.prepare(`
+        SELECT * FROM production_orders 
+        WHERE LOWER(TRIM(plant)) = LOWER(TRIM(?))
+        ORDER BY created_at DESC
+      `).all(userPlant.trim());
+    } else if (queryPlant) {
+      poRows = await db.prepare(`
+        SELECT * FROM production_orders 
+        WHERE LOWER(TRIM(plant)) = LOWER(TRIM(?))
+        ORDER BY created_at DESC
+      `).all(queryPlant);
+    } else {
+      poRows = await db.prepare(`SELECT * FROM production_orders ORDER BY created_at DESC`).all();
+    }
 
     const formattedOrders = await Promise.all(poRows.map(po => formatProductionOrder(po, req.user)));
 
     const orders = formattedOrders.filter(po => {
       if (!po) return false;
-      if (role === 'SUPERVISOR' || role === 'ADMIN') {
-        return true;
-      }
       return true;
     });
 
@@ -409,6 +425,7 @@ const createPoSchema = z.object({
   stationCount: z.union([z.number(), z.string()]).optional(),
   shiftId: z.string().optional(),
   shift_id: z.string().optional(),
+  plant: z.string().optional(),
   allowNoProductPrefix: z.boolean().optional(),
   allow_no_product_prefix: z.union([z.boolean(), z.number()]).optional(),
   allowNoBoxPrefix: z.boolean().optional(),
@@ -562,14 +579,15 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     }
 
     const poNameVal = (body.poName || body.po_name || '').trim() || null;
+    const poPlantVal = (body.plant || (req.body as any)?.plant || '').trim() || (req.user?.role === 'SUPERVISOR' ? req.user.plant || null : null);
     const allowNoProductPrefix = (body.allowNoProductPrefix || (body as any).allow_no_product_prefix) ? 1 : 0;
     const allowNoBoxPrefix = (body.allowNoBoxPrefix || (body as any).allow_no_box_prefix) ? 1 : 0;
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, qc_test_mode, qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, dbQcTestMode, dbQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, plant, qc_test_mode, qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, poPlantVal, dbQcTestMode, dbQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = opStr;
@@ -746,7 +764,7 @@ router.delete('/production-orders/:id/allocations/:allocId', authenticateToken, 
 router.get('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
   try {
     const users = await db.query(`
-      SELECT id, employee_no, username, full_name, role, active, created_at, updated_at
+      SELECT id, employee_no, username, full_name, role, plant, active, created_at, updated_at
       FROM users
       ORDER BY created_at DESC
     `);
@@ -756,6 +774,7 @@ router.get('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR'
       username: u.username,
       name: u.full_name,
       role: u.role.charAt(0).toUpperCase() + u.role.slice(1).toLowerCase(),
+      plant: u.plant || null,
       lineId: u.role === 'OPERATOR' ? 'Line 04' : u.role === 'SUPERVISOR' ? 'Line 04 & 02' : 'All Lines',
       status: u.active ? 'Active' : 'Inactive',
       createdAt: u.created_at
@@ -772,6 +791,7 @@ router.post('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
     const bcrypt = (await import('bcryptjs')).default;
     const { username, password, role, employeeNo } = req.body;
     const fullName = req.body.fullName || req.body.full_name || req.body.name;
+    const plant = req.body.plant ? String(req.body.plant).trim() : (req.user?.role === 'SUPERVISOR' ? req.user.plant || null : null);
     if (!username || !password || !fullName || !role) {
       return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Username, password, name, and role are required' });
     }
@@ -790,10 +810,10 @@ router.post('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
     const passwordHash = bcrypt.hashSync(password, 10);
     const empNo = employeeNo || `EMP-${Date.now().toString().slice(-4)}`;
     await db.prepare(`
-      INSERT INTO users (id, employee_no, username, password_hash, full_name, role, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3))
-    `).run(userId, empNo, cleanUser, passwordHash, fullName, roleUpper);
-    await auditLog(req.user!.id, 'CREATE_USER', 'users', userId, { username: cleanUser, role: roleUpper });
+      INSERT INTO users (id, employee_no, username, password_hash, full_name, role, plant, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(3), NOW(3))
+    `).run(userId, empNo, cleanUser, passwordHash, fullName, roleUpper, plant);
+    await auditLog(req.user!.id, 'CREATE_USER', 'users', userId, { username: cleanUser, role: roleUpper, plant });
     return res.status(201).json({ message: 'User created successfully', userId });
   } catch (err) {
     next(err);
@@ -803,7 +823,7 @@ router.post('/admin/users', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
 // PATCH /api/admin/users/:id
 router.patch('/admin/users/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
-    const { fullName, role, active } = req.body;
+    const { fullName, role, active, plant } = req.body;
     const userId = req.params.id;
     const user = await db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as any;
     if (!user) {
@@ -821,7 +841,8 @@ router.patch('/admin/users/:id', authenticateToken, requireRole(['ADMIN', 'SUPER
       await db.prepare(`UPDATE users SET role = ?, updated_at = NOW(3) WHERE id = ?`).run(nextRoleUpper, userId);
     }
     if (active !== undefined) await db.prepare(`UPDATE users SET active = ?, updated_at = NOW(3) WHERE id = ?`).run(active ? 1 : 0, userId);
-    await auditLog(req.user!.id, 'UPDATE_USER', 'users', userId, { fullName, role, active });
+    if (plant !== undefined) await db.prepare(`UPDATE users SET plant = ?, updated_at = NOW(3) WHERE id = ?`).run(plant ? String(plant).trim() : null, userId);
+    await auditLog(req.user!.id, 'UPDATE_USER', 'users', userId, { fullName, role, active, plant });
     return res.json({ message: 'User updated successfully' });
   } catch (err) {
     next(err);
@@ -1245,6 +1266,10 @@ router.patch('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), async
     if (allowNoBoxPrefix !== undefined) {
       updates.push('allow_no_box_prefix = ?');
       params.push(allowNoBoxPrefix ? 1 : 0);
+    }
+    if ((req.body as any).plant !== undefined) {
+      updates.push('plant = ?');
+      params.push((req.body as any).plant ? String((req.body as any).plant).trim() : null);
     }
 
     params.push(po.id);

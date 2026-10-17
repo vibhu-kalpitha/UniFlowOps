@@ -8,6 +8,7 @@ export interface User {
   role: UserRole;
   lineId?: string;
   avatarInitials: string;
+  plant?: string;
 }
 
 export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
@@ -58,6 +59,7 @@ export interface ShiftAssignment {
   shiftId?: string;
   shiftName?: string;
   operation?: string;
+  plant?: string;
   startTime: string; // e.g. "14:00"
   endTime: string;   // e.g. "18:00"
   date: string;      // e.g. "2026-09-14"
@@ -120,7 +122,11 @@ export interface ProductionOrder {
   startDate: string;           // e.g. 2026-09-10
   dueDate: string;             // e.g. 2026-09-25
   supervisorId: string;        // e.g. Nimal Perera
+  shiftId?: string;
+  shiftName?: string;
+  shiftCode?: string;
   remarks?: string;
+  plant?: string;
   status: 'Current' | 'Completed' | 'Draft';
   selectedOperations: OperationType[];
   qcTestMode?: QcTestMode;

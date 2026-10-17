@@ -217,11 +217,16 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
   try {
     const supervisorId = req.user?.id;
     const isSupervisorOnly = req.user?.role === 'SUPERVISOR';
+    const userPlant = req.user?.plant;
     const selectedPoId = (req.query.poId || '').toString().trim();
 
-    // Query authorized POs for this supervisor (Supervisors have global production visibility)
+    // Query authorized POs for this supervisor (If supervisor has a plant, restrict to their plant)
     let poWhere = ``;
     let poParams: any[] = [];
+    if (isSupervisorOnly && userPlant && userPlant.trim() !== '') {
+      poWhere = `WHERE LOWER(TRIM(po.plant)) = LOWER(TRIM(?))`;
+      poParams = [userPlant.trim()];
+    }
 
     const pos = await db.prepare(`
       SELECT po.*, s.name as style_name, s.code as style_code, u.full_name as supervisor_name
@@ -246,6 +251,7 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
         customer: p.customer || 'Standard',
         supervisorName: p.supervisor_name || 'Supervisor',
         status: p.status || 'CURRENT',
+        plant: p.plant || null,
         displayName
       };
     });
@@ -315,6 +321,7 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
         supervisorName: targetPo.supervisor_name || 'Supervisor',
         shiftName: shiftRow?.name || 'Shift A',
         status: targetPo.status || 'CURRENT',
+        plant: targetPo.plant || null,
         plannedQuantity,
         completionPct,
         displayName: targetPo.style_name 
@@ -759,20 +766,34 @@ router.patch('/alerts/:id/read', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/reports/production?range=today|week|month
-router.get('/reports/production', authenticateToken, async (req, res, next) => {
+router.get('/reports/production', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const range = req.query.range || 'today';
+    const queryPlant = (req.query.plant || '').toString().trim();
+    const isSupervisorOnly = req.user?.role === 'SUPERVISOR';
+    const userPlant = req.user?.plant;
+
+    let poWhere = '';
+    const poParams: any[] = [];
+    if (isSupervisorOnly && userPlant && userPlant.trim() !== '') {
+      poWhere = 'WHERE LOWER(TRIM(po.plant)) = LOWER(TRIM(?))';
+      poParams.push(userPlant.trim());
+    } else if (queryPlant) {
+      poWhere = 'WHERE LOWER(TRIM(po.plant)) = LOWER(TRIM(?))';
+      poParams.push(queryPlant);
+    }
 
     const pos = await db.prepare(`
       SELECT 
-        po.id, po.po_number, po.po_name, po.customer, po.status, po.created_at,
+        po.id, po.po_number, po.po_name, po.customer, po.status, po.created_at, po.plant,
         s.name as style_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
         (SELECT SUM(order_quantity) FROM sales_orders WHERE production_order_id = po.id) as so_qty
       FROM production_orders po
       LEFT JOIN styles s ON s.id = po.style_id
+      ${poWhere}
       ORDER BY po.created_at DESC
-    `).all() as any[];
+    `).all(...poParams) as any[];
 
     const poBreakdown = await Promise.all(pos.map(async p => {
       const targetQty = Number(p.cfg_qty || p.so_qty || 500);
@@ -851,7 +872,8 @@ router.get('/reports/production', authenticateToken, async (req, res, next) => {
         boxTransfers,
         scrappedCount,
         completionPct: `${completionPct}%`,
-        status: p.status || 'CURRENT'
+        status: p.status || 'CURRENT',
+        plant: p.plant || null
       };
     }));
 

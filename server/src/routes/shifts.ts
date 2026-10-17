@@ -15,7 +15,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
     const enriched = await Promise.all(shifts.map(async (shift: any) => {
       const members = await db.prepare(`
         SELECT sm.id as member_id, sm.operator_id, sm.effective_from,
-               u.full_name, u.username, u.employee_no
+               u.full_name, u.username, u.employee_no, u.plant
         FROM shift_members sm
         JOIN users u ON u.id = sm.operator_id
         WHERE sm.shift_id = ? AND sm.active = 1
@@ -45,7 +45,8 @@ router.get('/all-members', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN'
              s.end_time,
              u.full_name,
              u.username,
-             u.employee_no
+             u.employee_no,
+             u.plant
       FROM shift_members sm
       JOIN shifts s ON s.id = sm.shift_id
       JOIN users u ON u.id = sm.operator_id
@@ -65,7 +66,7 @@ router.get('/:id/members', authenticateToken, async (req, res, next) => {
   try {
     const members = await db.prepare(`
       SELECT sm.id as member_id, sm.operator_id, sm.effective_from,
-             u.full_name, u.username, u.employee_no,
+             u.full_name, u.username, u.employee_no, u.plant,
              s.code as shift_code, s.name as shift_name, s.start_time, s.end_time
       FROM shift_members sm
       JOIN users u ON u.id = sm.operator_id
@@ -158,7 +159,7 @@ router.delete('/:id/members/:operatorId', authenticateToken, requireRole(['SUPER
 router.get('/operators-list', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req, res, next) => {
   try {
     const operators = await db.prepare(`
-      SELECT id, full_name, username, employee_no
+      SELECT id, full_name, username, employee_no, plant
       FROM users
       WHERE role = 'OPERATOR' AND active = 1
       ORDER BY full_name ASC

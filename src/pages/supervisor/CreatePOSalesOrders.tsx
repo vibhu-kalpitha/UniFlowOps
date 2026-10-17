@@ -53,8 +53,44 @@ export const CreatePOSalesOrders: React.FC = () => {
       if (Array.isArray(data)) {
         setMasterConfigTypes(data);
 
-        // Auto-enable active types on initial load if none selected yet
-        if (enabledTypeIds.length === 0 && data.length > 0) {
+        // Check if existing configs exist in sessionStorage
+        const existingConfigsData = sessionStorage.getItem('uniflow_draft_po_configs');
+        let parsedConfigs: ProductConfiguration[] = [];
+        if (existingConfigsData) {
+          try {
+            parsedConfigs = JSON.parse(existingConfigsData);
+          } catch (e) {}
+        }
+
+        if (Array.isArray(parsedConfigs) && parsedConfigs.length > 0) {
+          const matchedTypeIds: string[] = [];
+          const matchedSizes: Record<string, string[]> = {};
+
+          parsedConfigs.forEach(c => {
+            const masterType = data.find(t =>
+              t.name.trim().toLowerCase() === (c.productType || '').trim().toLowerCase() ||
+              (t.prefix && c.configCode.toUpperCase().startsWith(t.prefix.toUpperCase()))
+            );
+            if (masterType) {
+              if (!matchedTypeIds.includes(masterType.id)) {
+                matchedTypeIds.push(masterType.id);
+              }
+              if (c.size) {
+                if (!matchedSizes[masterType.id]) matchedSizes[masterType.id] = [];
+                if (!matchedSizes[masterType.id].includes(c.size)) {
+                  matchedSizes[masterType.id].push(c.size);
+                }
+              }
+            }
+          });
+
+          if (matchedTypeIds.length > 0) {
+            setEnabledTypeIds(matchedTypeIds);
+            setSelectedSizesMap(matchedSizes);
+          } else if (enabledTypeIds.length === 0 && data.length > 0) {
+            setEnabledTypeIds(data.map(t => t.id));
+          }
+        } else if (enabledTypeIds.length === 0 && data.length > 0) {
           const firstIds = data.map(t => t.id);
           setEnabledTypeIds(firstIds);
 
