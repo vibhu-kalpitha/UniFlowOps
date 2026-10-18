@@ -949,6 +949,44 @@ router.get('/admin/styles', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
   }
 });
 
+// DELETE /api/admin/styles/:id & DELETE /api/styles/:id
+const deleteStyleHandler = async (req: AuthRequest, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const style = await db.prepare(`SELECT * FROM styles WHERE id = ? OR code = ?`).get(id, id) as any;
+    if (!style) {
+      return res.status(404).json({ error: 'Style not found' });
+    }
+
+    const poCountRow = await db.prepare(`SELECT COUNT(*) as cnt FROM production_orders WHERE style_id = ?`).get(style.id) as any;
+    const poCount = Number(poCountRow?.cnt || 0);
+
+    const force = req.query.force === 'true' || req.body?.force === true;
+
+    if (poCount > 0 && !force) {
+      return res.status(400).json({
+        error: `Cannot delete style '${style.name} (${style.code})' because it is linked to ${poCount} production order(s). Confirm unlink and delete to proceed.`,
+        poCount,
+        requiresForce: true
+      });
+    }
+
+    if (poCount > 0) {
+      await db.prepare(`UPDATE production_orders SET style_id = NULL WHERE style_id = ?`).run(style.id);
+    }
+
+    await db.prepare(`DELETE FROM styles WHERE id = ?`).run(style.id);
+    await auditLog(req.user!.id, 'DELETE_STYLE', 'styles', style.id, { code: style.code, name: style.name, poCount });
+
+    return res.json({ success: true, message: `Style '${style.name} (${style.code})' deleted successfully.` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.delete('/admin/styles/:id', authenticateToken, requireRole(['ADMIN']), deleteStyleHandler);
+router.delete('/styles/:id', authenticateToken, requireRole(['ADMIN']), deleteStyleHandler);
+
 // ── ADMIN PRODUCTION ORDERS & QUANTITY EDITING ────────────────────
 // GET /api/admin/orders
 router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {

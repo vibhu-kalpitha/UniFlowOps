@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy } from 'lucide-react';
+import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy, Shirt, Plus, Search } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import '../../styles/tokens.css';
 
@@ -83,6 +83,98 @@ export const AdminOrders: React.FC = () => {
   const [deleteTargetPo, setDeleteTargetPo] = useState<any | null>(null);
   const [deleting, setDeleting] = useState<boolean>(false);
 
+  // ── Tab State & Garment Styles Management State ─────────────────
+  const [activeTab, setActiveTab] = useState<'orders' | 'styles'>('orders');
+  const [adminStyles, setAdminStyles] = useState<any[]>([]);
+  const [loadingStyles, setLoadingStyles] = useState<boolean>(false);
+  const [styleSearchQuery, setStyleSearchQuery] = useState<string>('');
+
+  // Add Style Modal State
+  const [showAddStyleModal, setShowAddStyleModal] = useState<boolean>(false);
+  const [newStyleForm, setNewStyleForm] = useState({
+    code: '',
+    name: '',
+    customer: '',
+    season: '',
+    notes: ''
+  });
+  const [savingNewStyle, setSavingNewStyle] = useState<boolean>(false);
+
+  // Delete Style Modal State
+  const [deleteTargetStyle, setDeleteTargetStyle] = useState<any | null>(null);
+  const [confirmUnlink, setConfirmUnlink] = useState<boolean>(false);
+  const [deletingStyle, setDeletingStyle] = useState<boolean>(false);
+
+  const fetchAdminStyles = async () => {
+    setLoadingStyles(true);
+    try {
+      const res = await apiFetch('/api/admin/styles');
+      if (Array.isArray(res)) {
+        setAdminStyles(res);
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to load garment styles', 'error');
+    } finally {
+      setLoadingStyles(false);
+    }
+  };
+
+  const handleCreateStyle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStyleForm.code.trim() || !newStyleForm.name.trim()) {
+      showToast('Style code and style name are required', 'error');
+      return;
+    }
+    setSavingNewStyle(true);
+    try {
+      await apiFetch('/api/styles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newStyleForm)
+      });
+      showToast(`Style "${newStyleForm.code}" created successfully`, 'success');
+      setShowAddStyleModal(false);
+      setNewStyleForm({ code: '', name: '', customer: '', season: '', notes: '' });
+      fetchAdminStyles();
+      fetchReferenceData();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create style', 'error');
+    } finally {
+      setSavingNewStyle(false);
+    }
+  };
+
+  const handleDeleteStyle = async () => {
+    if (!deleteTargetStyle) return;
+    setDeletingStyle(true);
+    try {
+      const query = confirmUnlink ? '?force=true' : '';
+      await apiFetch(`/api/admin/styles/${deleteTargetStyle.id}${query}`, {
+        method: 'DELETE'
+      });
+      showToast(`Style "${deleteTargetStyle.code || deleteTargetStyle.name}" deleted successfully`, 'success');
+      setDeleteTargetStyle(null);
+      setConfirmUnlink(false);
+      fetchAdminStyles();
+      fetchReferenceData();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete style', 'error');
+    } finally {
+      setDeletingStyle(false);
+    }
+  };
+
+  const filteredStyles = adminStyles.filter((s) => {
+    if (!styleSearchQuery.trim()) return true;
+    const q = styleSearchQuery.toLowerCase();
+    return (
+      (s.code || '').toLowerCase().includes(q) ||
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.customer || '').toLowerCase().includes(q) ||
+      (s.season || '').toLowerCase().includes(q)
+    );
+  });
+
   const fetchOrders = async () => {
     setLoading(true);
     try {
@@ -124,6 +216,7 @@ export const AdminOrders: React.FC = () => {
   useEffect(() => {
     fetchOrders();
     fetchReferenceData();
+    fetchAdminStyles();
   }, []);
 
   // ── Open Edit PO Qty Modal ───────────────────────────────────────
@@ -345,32 +438,115 @@ export const AdminOrders: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ flex: '1 1 280px', minWidth: '220px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>Factory Production Orders & Quantity Config</h2>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>
+            {activeTab === 'orders' ? 'Factory Production Orders & Quantity Config' : 'Garment Styles Management'}
+          </h2>
           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
-            Configure target quantities, style allocations, and full PO specifications with audit logging.
+            {activeTab === 'orders'
+              ? 'Configure target quantities, style allocations, and full PO specifications with audit logging.'
+              : 'View, create, and manage garment styles catalog and production order associations.'}
           </p>
         </div>
         <div className="admin-page-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <button
-            onClick={fetchOrders}
-            className="btn btn-secondary"
-            style={{ padding: '9px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
-            disabled={loading}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            {loading ? 'Refreshing...' : 'Refresh Orders'}
-          </button>
-          <button
-            onClick={() => navigate('/supervisor/production-orders/new/style')}
-            className="btn btn-primary"
-            style={{ padding: '9px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
-          >
-            <Zap size={14} /> + New Production Order
-          </button>
+          {activeTab === 'orders' ? (
+            <>
+              <button
+                onClick={fetchOrders}
+                className="btn btn-secondary"
+                style={{ padding: '9px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
+                disabled={loading}
+              >
+                <RefreshCw size={14} className={loading ? 'spin' : ''} />
+                {loading ? 'Refreshing...' : 'Refresh Orders'}
+              </button>
+              <button
+                onClick={() => navigate('/supervisor/production-orders/new/style')}
+                className="btn btn-primary"
+                style={{ padding: '9px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
+              >
+                <Zap size={14} /> + New Production Order
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={fetchAdminStyles}
+                className="btn btn-secondary"
+                style={{ padding: '9px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
+                disabled={loadingStyles}
+              >
+                <RefreshCw size={14} className={loadingStyles ? 'spin' : ''} />
+                {loadingStyles ? 'Refreshing...' : 'Refresh Styles'}
+              </button>
+              <button
+                onClick={() => setShowAddStyleModal(true)}
+                className="btn btn-primary"
+                style={{ padding: '9px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px', whiteSpace: 'nowrap' }}
+              >
+                <Plus size={14} /> + Add New Style
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {loading && orders.length === 0 ? (
+      {/* ── Modern Tabs Bar ── */}
+      <div style={{
+        display: 'flex',
+        gap: '6px',
+        backgroundColor: 'var(--bg-surface-1)',
+        padding: '5px',
+        borderRadius: '12px',
+        border: '1px solid var(--border-color)',
+        width: 'fit-content',
+        maxWidth: '100%',
+        flexWrap: 'wrap'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('orders')}
+          style={{
+            padding: '8px 16px',
+            fontSize: '13px',
+            fontWeight: 800,
+            borderRadius: '9px',
+            backgroundColor: activeTab === 'orders' ? 'var(--primary-teal)' : 'transparent',
+            color: activeTab === 'orders' ? '#071B23' : 'var(--text-secondary)',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Box size={16} /> Production Orders ({orders.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab('styles'); fetchAdminStyles(); }}
+          style={{
+            padding: '8px 16px',
+            fontSize: '13px',
+            fontWeight: 800,
+            borderRadius: '9px',
+            backgroundColor: activeTab === 'styles' ? 'var(--primary-teal)' : 'transparent',
+            color: activeTab === 'styles' ? '#071B23' : 'var(--text-secondary)',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Shirt size={16} /> Garment Styles ({adminStyles.length})
+        </button>
+      </div>
+
+      {/* ── Active Tab Content: Orders vs Styles ── */}
+      {activeTab === 'orders' ? (
+        loading && orders.length === 0 ? (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
           Loading production orders...
         </div>
@@ -544,6 +720,191 @@ export const AdminOrders: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )) : (
+        /* ── Garment Styles Tab View ── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Search & Actions Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+            backgroundColor: 'var(--bg-surface-1)',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 260px', maxWidth: '400px' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  placeholder="Search styles by code, name, customer..."
+                  value={styleSearchQuery}
+                  onChange={(e) => setStyleSearchQuery(e.target.value)}
+                  style={{
+                    ...styles.input,
+                    paddingLeft: '34px',
+                    margin: 0
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Showing <strong>{filteredStyles.length}</strong> of {adminStyles.length} styles
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAddStyleModal(true)}
+                className="btn btn-primary"
+                style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px' }}
+              >
+                <Plus size={14} /> Add New Style
+              </button>
+            </div>
+          </div>
+
+          {/* Styles Grid */}
+          {loadingStyles && adminStyles.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Loading garment styles...
+            </div>
+          ) : filteredStyles.length === 0 ? (
+            <div style={{
+              padding: '48px 24px',
+              textAlign: 'center',
+              backgroundColor: 'var(--bg-surface-1)',
+              borderRadius: '14px',
+              border: '1px dashed var(--border-color)',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <Shirt size={32} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+              <p style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>No garment styles found</p>
+              <p style={{ margin: 0, fontSize: '12px' }}>
+                {styleSearchQuery ? 'Try matching a different keyword or filter' : 'Create your first garment style to get started'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowAddStyleModal(true)}
+                className="btn btn-primary"
+                style={{ marginTop: '8px', padding: '8px 16px', fontSize: '12px' }}
+              >
+                <Plus size={14} /> Add New Style
+              </button>
+            </div>
+          ) : (
+            <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '14px' }}>
+              {filteredStyles.map((s: any) => {
+                const poCount = Number(s.po_count || 0);
+                return (
+                  <div
+                    key={s.id}
+                    className="card"
+                    style={{
+                      backgroundColor: 'var(--bg-surface-1)',
+                      margin: 0,
+                      padding: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '12px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                              color: 'var(--color-teal)',
+                              fontWeight: 800,
+                              fontSize: '12px',
+                              fontFamily: 'monospace'
+                            }}>
+                              {s.code}
+                            </span>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              backgroundColor: poCount > 0 ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                              color: poCount > 0 ? '#60a5fa' : 'var(--text-muted)',
+                              fontSize: '11px',
+                              fontWeight: 700
+                            }}>
+                              {poCount} {poCount === 1 ? 'PO' : 'POs'} Linked
+                            </span>
+                          </div>
+                          <h4 style={{ margin: '8px 0 0 0', fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {s.name}
+                          </h4>
+                        </div>
+
+                        {/* Delete Style Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteTargetStyle(s);
+                            setConfirmUnlink(false);
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '7px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            transition: 'all 0.2s ease'
+                          }}
+                          title="Delete Style"
+                        >
+                          <Trash2 size={13} /> Delete
+                        </button>
+                      </div>
+
+                      {/* Metadata Table / Items */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '12px', fontSize: '12px' }}>
+                        <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '6px 10px', borderRadius: '6px' }}>
+                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Customer</span>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{s.customer || '—'}</span>
+                        </div>
+                        <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '6px 10px', borderRadius: '6px' }}>
+                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Season</span>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{s.season || '—'}</span>
+                        </div>
+                      </div>
+
+                      {s.notes && (
+                        <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'italic', backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '6px 8px', borderRadius: '6px' }}>
+                          "{s.notes}"
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Added: {s.created_at ? new Date(s.created_at).toLocaleDateString() : 'Active'}</span>
+                      <span style={{ color: 'var(--color-teal)' }}>ID: {s.id}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1230,6 +1591,255 @@ export const AdminOrders: React.FC = () => {
                 disabled={deleting}
               >
                 {deleting ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add New Style Modal ────────────────────────────────────── */}
+      {showAddStyleModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '20px',
+            width: '94%',
+            maxWidth: '500px',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Shirt size={20} color="var(--primary-teal)" />
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Add New Garment Style
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !savingNewStyle && setShowAddStyleModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateStyle} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  Style Code (Required)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. ST-900, POLO-01"
+                  style={{ ...styles.input, textTransform: 'uppercase', fontWeight: 800 }}
+                  value={newStyleForm.code}
+                  onChange={e => setNewStyleForm({ ...newStyleForm, code: e.target.value.toUpperCase() })}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  Style Name (Required)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Premium BioTab Jersey"
+                  style={styles.input}
+                  value={newStyleForm.name}
+                  onChange={e => setNewStyleForm({ ...newStyleForm, name: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+                    Customer
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Factory Orders"
+                    style={styles.input}
+                    value={newStyleForm.customer}
+                    onChange={e => setNewStyleForm({ ...newStyleForm, customer: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+                    Season
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 2026 Q3, Summer"
+                    style={styles.input}
+                    value={newStyleForm.season}
+                    onChange={e => setNewStyleForm({ ...newStyleForm, season: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  Notes / Specifications (Optional)
+                </label>
+                <textarea
+                  placeholder="e.g. Standard stitching, 100% cotton..."
+                  style={{ ...styles.input, height: '60px', resize: 'vertical' }}
+                  value={newStyleForm.notes}
+                  onChange={e => setNewStyleForm({ ...newStyleForm, notes: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowAddStyleModal(false)}
+                  disabled={savingNewStyle}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={savingNewStyle}
+                  style={{ flex: 1.2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  {savingNewStyle ? 'Creating...' : '+ Create Style'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Style Confirmation Modal ───────────────────────── */}
+      {deleteTargetStyle && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '20px',
+            width: '94%',
+            maxWidth: '460px',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Trash2 size={20} color="#ef4444" />
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Delete Garment Style
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !deletingStyle && setDeleteTargetStyle(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              padding: '12px 14px',
+              borderRadius: '12px'
+            }}>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                Are you sure you want to permanently delete style{' '}
+                <strong style={{ color: '#f87171' }}>{deleteTargetStyle.name} ({deleteTargetStyle.code})</strong>?
+              </p>
+              <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+                This will remove the style from the catalog and drop-down selectors.
+              </p>
+            </div>
+
+            {Number(deleteTargetStyle.po_count || 0) > 0 && (
+              <div style={{
+                padding: '10px 12px',
+                borderRadius: '10px',
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b' }}>
+                  ⚠️ Style Linked to Active Orders
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  This style is currently associated with <strong>{deleteTargetStyle.po_count}</strong> production order(s).
+                  Deleting this style will unlink it from these orders.
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmUnlink}
+                    onChange={e => setConfirmUnlink(e.target.checked)}
+                    style={{ accentColor: '#ef4444' }}
+                  />
+                  I confirm unlinking and deleting this style
+                </label>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={() => { setDeleteTargetStyle(null); setConfirmUnlink(false); }}
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                disabled={deletingStyle}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteStyle}
+                className="btn btn-primary"
+                style={{
+                  flex: 1.2,
+                  backgroundColor: '#ef4444',
+                  borderColor: '#ef4444',
+                  color: '#ffffff',
+                  opacity: (Number(deleteTargetStyle.po_count || 0) > 0 && !confirmUnlink) ? 0.5 : 1,
+                  cursor: (Number(deleteTargetStyle.po_count || 0) > 0 && !confirmUnlink) ? 'not-allowed' : 'pointer'
+                }}
+                disabled={deletingStyle || (Number(deleteTargetStyle.po_count || 0) > 0 && !confirmUnlink)}
+              >
+                {deletingStyle ? 'Deleting...' : 'Delete Style'}
               </button>
             </div>
           </div>
