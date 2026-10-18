@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { apiFetch } from '../../services/api';
 import { OperationType, QcTestMode, ProductionOrder } from '../../types';
 import { ArrowRight, CheckSquare, Square, Plus, X, Users, Clock, ChevronDown, ChevronRight, Copy, Sparkles, Check, FileText, Building2 } from 'lucide-react';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import '../../styles/tokens.css';
 
 interface StyleItem {
@@ -46,7 +47,7 @@ const SHIFT_COLORS: Record<string, { bg: string; border: string; text: string }>
   D: { bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', text: '#F59E0B' },
 };
 
-export const CreatePOGeneral: React.FC = () => {
+const CreatePOGeneralInner: React.FC = () => {
   const navigate = useNavigate();
   const { showToast, currentUser } = useApp();
 
@@ -138,15 +139,18 @@ export const CreatePOGeneral: React.FC = () => {
   useEffect(() => { loadData(); }, [loadData]);
 
   // Normalize operation names to exact UI tokens
-  const normalizeOpName = (op: string): OperationType => {
-    const clean = op.trim().toUpperCase().replace(/[-_]/g, ' ');
+  const normalizeOpName = (op: any): OperationType => {
+    if (!op) return 'QC Test';
+    const rawStr = typeof op === 'string' ? op : (op.operation || op.name || op.op || String(op));
+    if (typeof rawStr !== 'string') return 'QC Test';
+    const clean = rawStr.trim().toUpperCase().replace(/[-_]/g, ' ');
     if (clean.includes('PRE QC') || clean.includes('PREQC')) return 'Pre QC';
     if (clean.includes('QC') && clean.includes('TEST')) return 'QC Test';
     if (clean.includes('PACK')) return 'Packing';
     if (clean === 'FINAL AQL') return 'FINAL AQL';
     if (clean.includes('AQL')) return 'AQL Checker';
     if (clean.includes('BOX')) return 'Box Transfer';
-    return op as OperationType;
+    return (rawStr as OperationType) || 'QC Test';
   };
 
   // Load existing draft if returning to general page or pre-loaded
@@ -171,16 +175,18 @@ export const CreatePOGeneral: React.FC = () => {
         if (parsed.qcStationCount) setQcStationCount(parsed.qcStationCount);
         if (parsed.allocations && Array.isArray(parsed.allocations)) {
           setPoAllocations(parsed.allocations.map((a: any) => ({
-            operatorId: a.operatorId || a.workerId,
-            operatorName: a.operatorName || a.workerName,
-            shiftId: a.shiftId || '',
-            shiftName: a.shiftName || a.shiftCode || '',
-            shiftCode: a.shiftCode || '',
-            startTime: a.startTime || '06:00',
-            endTime: a.endTime || '14:00',
+            operatorId: a.operatorId || a.workerId || a.operator_id || a.worker_id || a.id || '',
+            operatorName: a.operatorName || a.workerName || a.operator_name || a.worker_name || a.full_name || a.username || a.operatorId || a.workerId || 'Operator',
+            shiftId: a.shiftId || a.shift_id || '',
+            shiftName: a.shiftName || a.shift_name || a.shiftCode || a.shift_code || 'Shift',
+            shiftCode: (a.shiftCode || a.shift_code || 'A').toUpperCase(),
+            startTime: a.startTime || a.start_time || '06:00',
+            endTime: a.endTime || a.end_time || '14:00',
           })));
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to parse draft general:', e);
+      }
     }
   }, []);
 
@@ -249,15 +255,24 @@ export const CreatePOGeneral: React.FC = () => {
     const rawAllocations = sourcePo.allocations || sourcePo.shifts || [];
     let mapped: PoAllocation[] = [];
     if (Array.isArray(rawAllocations) && rawAllocations.length > 0) {
-      mapped = rawAllocations.map((a: any) => ({
-        operatorId: a.operatorId || a.workerId,
-        operatorName: a.operatorName || a.workerName,
-        shiftId: a.shiftId || '',
-        shiftName: a.shiftName || a.shiftCode || 'Shift',
-        shiftCode: a.shiftCode || 'A',
-        startTime: a.startTime || '06:00',
-        endTime: a.endTime || '14:00',
-      }));
+      mapped = rawAllocations.map((a: any) => {
+        const opId = a.operatorId || a.workerId || a.operator_id || a.worker_id || a.id || '';
+        const opName = a.operatorName || a.workerName || a.operator_name || a.worker_name || a.full_name || a.username || opId || 'Operator';
+        const shId = a.shiftId || a.shift_id || '';
+        const shName = a.shiftName || a.shift_name || a.shiftCode || a.shift_code || 'Shift';
+        const shCode = (a.shiftCode || a.shift_code || 'A').toUpperCase();
+        const start = a.startTime || a.start_time || '06:00';
+        const end = a.endTime || a.end_time || '14:00';
+        return {
+          operatorId: opId,
+          operatorName: opName,
+          shiftId: shId,
+          shiftName: shName,
+          shiftCode: shCode,
+          startTime: start,
+          endTime: end,
+        };
+      });
       setPoAllocations(mapped);
     }
 
@@ -580,11 +595,11 @@ export const CreatePOGeneral: React.FC = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
                 <div><strong>Garment Style:</strong> {previewPo.styleName || previewPo.styleCode || 'Standard'}</div>
-                <div><strong>Operations:</strong> {previewPo.selectedOperations?.join(', ') || 'Standard 5'}</div>
+                <div><strong>Operations:</strong> {Array.isArray(previewPo.selectedOperations) ? previewPo.selectedOperations.join(', ') : (typeof previewPo.selectedOperations === 'string' ? previewPo.selectedOperations : 'Standard 5')}</div>
                 <div><strong>QC Mode:</strong> {previewPo.qcTestMode || 'QC & Test'} ({previewPo.qcStationCount || 1} stn)</div>
-                <div><strong>Allocations:</strong> {(previewPo.allocations || previewPo.shifts || []).length} operators</div>
-                <div><strong>Product Configs:</strong> {previewPo.productConfigurations?.length || 0} types ({previewPo.totalQuantity || 0} pcs)</div>
-                <div><strong>Box Configs:</strong> {previewPo.boxConfigurations?.map(b => `${b.prefix}-${b.size} (${b.capacity})`).join(', ') || 'BX (12)'}</div>
+                <div><strong>Allocations:</strong> {(Array.isArray(previewPo.allocations) ? previewPo.allocations : (Array.isArray(previewPo.shifts) ? previewPo.shifts : [])).length} operators</div>
+                <div><strong>Product Configs:</strong> {Array.isArray(previewPo.productConfigurations) ? previewPo.productConfigurations.length : 0} types ({previewPo.totalQuantity || 0} pcs)</div>
+                <div><strong>Box Configs:</strong> {Array.isArray(previewPo.boxConfigurations) ? previewPo.boxConfigurations.map((b: any) => `${b?.prefix || 'BX'}-${b?.size || 'M'} (${b?.capacity || 12})`).join(', ') : 'BX (12)'}</div>
                 <div><strong>No-Prefix Flags:</strong> {previewPo.allowNoProductPrefix ? 'Free Product SNs' : 'Prefixed'}, {previewPo.allowNoBoxPrefix ? 'Free Box IDs' : 'Prefixed'}</div>
                 <div><strong>Plant:</strong> {previewPo.plant || 'Standard'}</div>
                 <div><strong>Supervisor:</strong> {previewPo.supervisorId || 'N/A'}</div>
@@ -752,20 +767,22 @@ export const CreatePOGeneral: React.FC = () => {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {poAllocations.map(alloc => {
-                  const colors = SHIFT_COLORS[alloc.shiftCode] || SHIFT_COLORS.A;
+                  const opName = alloc.operatorName || alloc.operatorId || 'Operator';
+                  const shiftLetter = ((alloc.shiftCode || 'A').toUpperCase().charAt(0)) || 'A';
+                  const colors = SHIFT_COLORS[shiftLetter] || SHIFT_COLORS.A;
                   return (
                     <div
-                      key={`${alloc.operatorId}|${alloc.shiftId}`}
+                      key={`${alloc.operatorId || ''}|${alloc.shiftId || ''}`}
                       style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: colors.bg, border: `1.5px solid ${colors.border}`, borderRadius: '8px', padding: '5px 10px' }}
                     >
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: colors.text, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800, color: '#fff' }}>
-                        {alloc.operatorName.charAt(0)}
+                        {opName.charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>{alloc.operatorName}</div>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>{opName}</div>
                         <div style={{ fontSize: '10px', color: colors.text }}>
                           <Clock size={9} style={{ display: 'inline', marginRight: '3px' }} />
-                          {alloc.shiftName} · {alloc.startTime}–{alloc.endTime}
+                          {alloc.shiftName || 'Shift'} · {alloc.startTime || '06:00'}–{alloc.endTime || '14:00'}
                         </div>
                       </div>
                       <button
@@ -850,7 +867,7 @@ export const CreatePOGeneral: React.FC = () => {
                                   : <Square size={18} color="var(--text-muted)" />
                                 }
                                 <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: selected ? colors.text : 'var(--bg-surface-2)', border: `1px solid ${selected ? colors.border : 'var(--border-color)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800, color: selected ? '#fff' : 'var(--text-muted)' }}>
-                                  {member.full_name.charAt(0)}
+                                  {(member.full_name || member.username || 'O').charAt(0).toUpperCase()}
                                 </div>
                                 <div>
                                   <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{member.full_name}</div>
@@ -893,7 +910,7 @@ export const CreatePOGeneral: React.FC = () => {
           <label style={styles.label}>Required Operations for this PO</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
             {(['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'FINAL AQL', 'Box Transfer'] as OperationType[]).map(op => {
-              const isChecked = selectedOps.includes(op);
+              const isChecked = Array.isArray(selectedOps) && selectedOps.includes(op);
               return (
                 <React.Fragment key={op}>
                   <div
@@ -1029,3 +1046,9 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1.5px solid var(--border-color)', cursor: 'pointer', transition: 'all 0.2s ease',
   },
 };
+
+export const CreatePOGeneral: React.FC = () => (
+  <ErrorBoundary fallbackTitle="Error loading Production Order Creation">
+    <CreatePOGeneralInner />
+  </ErrorBoundary>
+);

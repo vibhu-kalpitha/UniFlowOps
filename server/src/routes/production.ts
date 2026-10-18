@@ -221,13 +221,30 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     id: m.id,
     productionOrderId: po.id,
     salesOrderId: m.sales_order_id || undefined,
+    operatorId: m.operator_id,
+    operatorName: m.operator_name,
     workerId: m.operator_id,
     workerName: m.operator_name,
     shiftId: m.shift_id,
     shiftName: m.shift_name,
+    shiftCode: m.shift_name ? m.shift_name.replace(/[^A-Za-z0-9]/g, '').slice(-1).toUpperCase() : 'A',
     operation: m.operation || 'ALL',
     date: new Date().toISOString().split('T')[0],
     enabledOperations: [m.operation || 'ALL']
+  }));
+
+  const mappedAllocations = poAllocations.map(m => ({
+    id: m.id,
+    productionOrderId: po.id,
+    salesOrderId: m.sales_order_id || undefined,
+    operatorId: m.operator_id,
+    operatorName: m.operator_name,
+    workerId: m.operator_id,
+    workerName: m.operator_name,
+    shiftId: m.shift_id,
+    shiftName: m.shift_name,
+    shiftCode: m.shift_name ? m.shift_name.replace(/[^A-Za-z0-9]/g, '').slice(-1).toUpperCase() : 'A',
+    operation: m.operation || 'ALL'
   }));
 
   // Aggregated progress metrics
@@ -338,7 +355,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     allowNoProductPrefix: Boolean(po.allow_no_product_prefix),
     allowNoBoxPrefix: Boolean(po.allow_no_box_prefix),
     totalQuantity: calcTotalQty,
-    allocations: poAllocations,
+    allocations: mappedAllocations,
     shifts,
     progress: {
       qcPassed,

@@ -4,9 +4,10 @@ import { useApp } from '../../context/AppContext';
 import { ProductionOrder, ProductConfiguration, ShiftAssignment, PoBoxConfiguration } from '../../types';
 import { CheckCircle2, ArrowLeft, CheckSquare, Square, Edit3, Package } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import '../../styles/tokens.css';
 
-export const CreatePOReview: React.FC = () => {
+const CreatePOReviewInner: React.FC = () => {
   const navigate = useNavigate();
   const { saveProductionOrder, refreshProductionOrders, setActiveJob, showToast } = useApp();
 
@@ -567,3 +568,9 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center'
   }
 };
+
+export const CreatePOReview: React.FC = () => (
+  <ErrorBoundary fallbackTitle="Error loading PO Review">
+    <CreatePOReviewInner />
+  </ErrorBoundary>
+);

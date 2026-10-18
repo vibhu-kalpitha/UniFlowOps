@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { ProductConfiguration, ShiftAssignment, ProductConfigTypeMaster, PoBoxConfiguration } from '../../types';
 import { apiFetch } from '../../services/api';
 import { ManageProductConfigTypesModal } from '../../components/ManageProductConfigTypesModal';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { Plus, Trash2, ArrowRight, ArrowLeft, CheckSquare, Square, Layers, Settings, Package } from 'lucide-react';
 import '../../styles/tokens.css';
 
@@ -15,7 +16,7 @@ interface StyleItem {
   season?: string;
 }
 
-export const CreatePOSalesOrders: React.FC = () => {
+const CreatePOSalesOrdersInner: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useApp();
 
@@ -1067,3 +1068,9 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border-color)'
   }
 };
+
+export const CreatePOSalesOrders: React.FC = () => (
+  <ErrorBoundary fallbackTitle="Error loading Product Configurations">
+    <CreatePOSalesOrdersInner />
+  </ErrorBoundary>
+);
