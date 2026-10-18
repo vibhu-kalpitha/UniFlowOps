@@ -131,12 +131,21 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     }
   }
 
+  // Legacy SO rows if present
+  const soRows = await db.prepare(`
+    SELECT so.*, pl.name as line_name, s.name as shift_name
+    FROM sales_orders so
+    LEFT JOIN production_lines pl ON pl.id = so.line_id
+    LEFT JOIN shifts s ON s.id = so.shift_id
+    WHERE so.production_order_id = ?
+  `).all(po.id) as any[];
+
   // Load PO Product Configurations
   const configRows = await db.prepare(`
     SELECT * FROM production_order_configs WHERE production_order_id = ? ORDER BY config_code ASC
   `).all(po.id) as any[];
 
-  const productConfigurations = configRows.map(c => ({
+  let productConfigurations = configRows.map(c => ({
     id: c.id,
     productionOrderId: c.production_order_id,
     configCode: c.config_code,
@@ -148,18 +157,45 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     quantity: c.quantity
   }));
 
+  if (productConfigurations.length === 0 && soRows.length > 0) {
+    productConfigurations = soRows.map((so, idx) => ({
+      id: so.id,
+      productionOrderId: po.id,
+      configCode: so.so_number || `CFG-${String(idx + 1).padStart(3, '0')}`,
+      productType: so.product || undefined,
+      size: so.size_range || undefined,
+      productQrPrefix: so.product_qr_prefix || '',
+      productSerialStart: so.product_serial_start != null ? Number(so.product_serial_start) : 1,
+      productSerialEnd: so.product_serial_end != null ? Number(so.product_serial_end) : Number(so.order_quantity || 0),
+      quantity: Number(so.order_quantity || 0)
+    }));
+  }
+
   // Load PO Box Configurations
   const boxConfigRows = await db.prepare(`
     SELECT * FROM production_order_box_configs WHERE production_order_id = ? ORDER BY prefix ASC, size ASC
   `).all(po.id) as any[];
 
-  const boxConfigurations = boxConfigRows.map(c => ({
+  let boxConfigurations = boxConfigRows.map(c => ({
     id: c.id,
     productionOrderId: c.production_order_id,
     prefix: c.prefix,
     size: c.size,
     capacity: Number(c.capacity)
   }));
+
+  if (boxConfigurations.length === 0 && soRows.length > 0) {
+    const firstSoWithCap = soRows.find(s => s.box_capacity && Number(s.box_capacity) > 0);
+    if (firstSoWithCap) {
+      boxConfigurations = [{
+        id: `box-fallback-${po.id}`,
+        productionOrderId: po.id,
+        prefix: 'BX',
+        size: 'STANDARD',
+        capacity: Number(firstSoWithCap.box_capacity)
+      }];
+    }
+  }
 
   const totalQuantity = productConfigurations.length > 0
     ? productConfigurations.reduce((sum, c) => sum + c.quantity, 0)
@@ -236,14 +272,7 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
   `).get(po.id, po.id, po.id, po.id) as any;
   const aqlPassed = aqlPassedRow?.cnt || 0;
 
-  // Legacy SO rows if present
-  const soRows = await db.prepare(`
-    SELECT so.*, pl.name as line_name, s.name as shift_name
-    FROM sales_orders so
-    LEFT JOIN production_lines pl ON pl.id = so.line_id
-    LEFT JOIN shifts s ON s.id = so.shift_id
-    WHERE so.production_order_id = ?
-  `).all(po.id) as any[];
+  // Legacy SO rows mapping
 
   const salesOrders = soRows.map(so => ({
     id: so.so_number,
@@ -1332,7 +1361,7 @@ router.delete('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), asyn
       // 3. Child tables referencing production_order_id
       await tx.prepare(`DELETE FROM aql_inspections WHERE production_order_id = ?`).run(po.id);
       await tx.prepare(`DELETE FROM operator_work_assignments WHERE production_order_id = ?`).run(po.id);
-      await tx.prepare(`DELETE FROM production_order_boxes WHERE production_order_id = ?`).run(po.id);
+      await tx.prepare(`DELETE FROM production_order_box_configs WHERE production_order_id = ?`).run(po.id);
       await tx.prepare(`DELETE FROM production_order_configs WHERE production_order_id = ?`).run(po.id);
       await tx.prepare(`DELETE FROM production_order_operations WHERE production_order_id = ?`).run(po.id);
       await tx.prepare(`DELETE FROM sales_orders WHERE production_order_id = ?`).run(po.id);

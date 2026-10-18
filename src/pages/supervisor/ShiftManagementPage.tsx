@@ -166,7 +166,7 @@ export const ShiftManagementPage: React.FC = () => {
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               {activeShift.members.length > 0
-                ? `${activeShift.members.map(m => m.full_name).join(', ')} on duty`
+                ? `${activeShift.members.map(m => m.plant ? `[${m.plant}] ${m.full_name}` : m.full_name).join(', ')} on duty`
                 : 'No operators assigned to this shift'}
             </div>
           </div>
@@ -251,7 +251,7 @@ export const ShiftManagementPage: React.FC = () => {
                         <option value="">— Select Operator —</option>
                         {available.map(op => (
                           <option key={op.id} value={op.id}>
-                            {op.full_name} ({op.employee_no}){op.plant ? ` • Plant: ${op.plant}` : ''}
+                            {op.plant ? `[${op.plant}] ` : ''}{op.full_name} ({op.employee_no})
                           </option>
                         ))}
                       </select>
@@ -293,24 +293,27 @@ export const ShiftManagementPage: React.FC = () => {
                               {member.full_name.charAt(0)}
                             </div>
                             <div>
-                              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{member.full_name}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                                <span>{member.employee_no} · @{member.username}</span>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                 {member.plant && (
                                   <span style={{
-                                    fontSize: '10px',
+                                    fontSize: '11px',
                                     fontWeight: 700,
-                                    padding: '1px 6px',
-                                    borderRadius: '4px',
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
                                     backgroundColor: 'rgba(22, 184, 174, 0.15)',
                                     color: 'var(--primary-teal)',
+                                    border: '1px solid rgba(22, 184, 174, 0.3)',
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '3px'
+                                    gap: '4px'
                                   }}>
-                                    <Building2 size={10} /> {member.plant}
+                                    <Building2 size={11} /> {member.plant}
                                   </span>
                                 )}
+                                <span>{member.full_name}</span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                <span>{member.employee_no} · @{member.username}</span>
                               </div>
                             </div>
                           </div>

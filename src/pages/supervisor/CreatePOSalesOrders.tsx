@@ -40,9 +40,11 @@ export const CreatePOSalesOrders: React.FC = () => {
     { prefix: 'BX', size: 'M', capacity: 12 }
   ]);
 
-  // Optional No-Prefix Mode Flags
+  // Optional No-Prefix Mode Flags & Values
   const [allowNoProductPrefix, setAllowNoProductPrefix] = useState<boolean>(false);
   const [allowNoBoxPrefix, setAllowNoBoxPrefix] = useState<boolean>(false);
+  const [freeSerialQuantity, setFreeSerialQuantity] = useState<number | ''>(1000);
+  const [freeBoxCapacity, setFreeBoxCapacity] = useState<number | ''>(12);
 
 
 
@@ -163,6 +165,16 @@ export const CreatePOSalesOrders: React.FC = () => {
       setAllowNoBoxPrefix(savedNoBox === 'true');
     }
 
+    const savedFreeQty = sessionStorage.getItem('uniflow_draft_po_free_serial_qty');
+    if (savedFreeQty !== null && savedFreeQty !== '') {
+      setFreeSerialQuantity(Number(savedFreeQty) || 1000);
+    }
+
+    const savedFreeBoxCap = sessionStorage.getItem('uniflow_draft_po_free_box_cap');
+    if (savedFreeBoxCap !== null && savedFreeBoxCap !== '') {
+      setFreeBoxCapacity(Number(savedFreeBoxCap) || 12);
+    }
+
     fetchMasterConfigTypes();
   }, []);
 
@@ -217,9 +229,8 @@ export const CreatePOSalesOrders: React.FC = () => {
         }
       });
 
-      // Preserve custom configurations added manually
-      const masterNames = masterConfigTypes.map(m => m.name);
-      prev.filter(c => c.productType === 'CUSTOM' || !masterNames.includes(c.productType || '')).forEach(c => {
+      // Preserve custom and copied configurations added previously
+      prev.forEach(c => {
         if (!updated.some(u => u.configCode === c.configCode)) {
           updated.push(c);
         }
@@ -291,10 +302,12 @@ export const CreatePOSalesOrders: React.FC = () => {
     setConfigs(configs.filter((_, i) => i !== index));
   };
 
-  const totalQuantity = configs.reduce((sum, c) => {
-    const q = typeof c.quantity === 'number' ? c.quantity : (parseInt(String(c.quantity), 10) || 0);
-    return sum + q;
-  }, 0);
+  const totalQuantity = (configs.length > 0
+    ? configs.reduce((sum, c) => {
+        const q = typeof c.quantity === 'number' ? c.quantity : (parseInt(String(c.quantity), 10) || 0);
+        return sum + q;
+      }, 0)
+    : (allowNoProductPrefix ? (Number(freeSerialQuantity) || 0) : 0)) || 0;
 
   const updateBoxConfig = (index: number, field: keyof PoBoxConfiguration, val: any) => {
     const updated = [...boxConfigs];
@@ -339,16 +352,24 @@ export const CreatePOSalesOrders: React.FC = () => {
       };
     });
 
-    if (normalizedConfigs.length === 0 && allowNoProductPrefix) {
-      const defaultQty = draftPoGeneral?.totalQuantity || draftPoGeneral?.quantity || 1000;
-      normalizedConfigs = [{
-        configCode: 'FREE_SERIAL',
-        productType: 'FREE_SERIAL',
-        productQrPrefix: '',
-        productSerialStart: 1,
-        productSerialEnd: defaultQty,
-        quantity: defaultQty
-      }];
+    if (allowNoProductPrefix) {
+      const freeQty = Number(freeSerialQuantity) || draftPoGeneral?.totalQuantity || draftPoGeneral?.quantity || 1000;
+      if (normalizedConfigs.length === 0) {
+        normalizedConfigs = [{
+          configCode: 'FREE_SERIAL',
+          productType: 'FREE_SERIAL',
+          productQrPrefix: '',
+          productSerialStart: 1,
+          productSerialEnd: freeQty,
+          quantity: freeQty
+        }];
+      } else {
+        const freeIdx = normalizedConfigs.findIndex(c => c.configCode === 'FREE_SERIAL');
+        if (freeIdx >= 0) {
+          normalizedConfigs[freeIdx].quantity = freeQty;
+          normalizedConfigs[freeIdx].productSerialEnd = freeQty;
+        }
+      }
     }
 
     for (const cfg of normalizedConfigs) {
@@ -375,12 +396,17 @@ export const CreatePOSalesOrders: React.FC = () => {
       };
     });
 
-    if (normalizedBoxConfigs.length === 0 && allowNoBoxPrefix) {
-      normalizedBoxConfigs = [{
-        prefix: '',
-        size: 'STANDARD',
-        capacity: 12
-      }];
+    if (allowNoBoxPrefix) {
+      const boxCap = Number(freeBoxCapacity) || 12;
+      if (normalizedBoxConfigs.length === 0) {
+        normalizedBoxConfigs = [{
+          prefix: '',
+          size: 'STANDARD',
+          capacity: boxCap
+        }];
+      } else if (normalizedBoxConfigs.length === 1 && !normalizedBoxConfigs[0].prefix) {
+        normalizedBoxConfigs[0].capacity = boxCap;
+      }
     }
 
     for (const bCfg of normalizedBoxConfigs) {
@@ -398,6 +424,8 @@ export const CreatePOSalesOrders: React.FC = () => {
       }
     }
 
+    sessionStorage.setItem('uniflow_draft_po_free_serial_qty', String(freeSerialQuantity));
+    sessionStorage.setItem('uniflow_draft_po_free_box_cap', String(freeBoxCapacity));
     sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(allowNoProductPrefix));
     sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(allowNoBoxPrefix));
     sessionStorage.setItem('uniflow_draft_po_configs', JSON.stringify(normalizedConfigs));
@@ -461,52 +489,93 @@ export const CreatePOSalesOrders: React.FC = () => {
         </div>
 
         {/* Optional No-Prefix Mode for Product Configuration */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px 16px',
-            borderRadius: '12px',
-            border: `2px solid ${allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-            backgroundColor: allowNoProductPrefix ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-          }}
-          onClick={() => {
-            const nextVal = !allowNoProductPrefix;
-            setAllowNoProductPrefix(nextVal);
-            sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(nextVal));
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {allowNoProductPrefix ? (
-              <CheckSquare size={22} color="var(--primary-teal)" />
-            ) : (
-              <Square size={22} color="var(--text-muted)" />
-            )}
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 800, color: allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--text-primary)' }}>
-                No Prefix / Free Serial Numbers
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Optional: Allow product serial numbers without requiring them to match a configured product prefix or serial pattern.
-              </div>
-            </div>
-          </div>
-          <span
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div
             style={{
-              fontSize: '11px',
-              fontWeight: 800,
-              padding: '4px 10px',
-              borderRadius: '6px',
-              backgroundColor: allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
-              color: allowNoProductPrefix ? '#071B23' : 'var(--text-muted)',
-              textTransform: 'uppercase'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '12px 16px',
+              borderRadius: '12px',
+              border: `2px solid ${allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+              backgroundColor: allowNoProductPrefix ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onClick={() => {
+              const nextVal = !allowNoProductPrefix;
+              setAllowNoProductPrefix(nextVal);
+              sessionStorage.setItem('uniflow_draft_po_allow_no_product_prefix', String(nextVal));
             }}
           >
-            {allowNoProductPrefix ? 'Option Enabled' : 'Disabled'}
-          </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {allowNoProductPrefix ? (
+                <CheckSquare size={22} color="var(--primary-teal)" />
+              ) : (
+                <Square size={22} color="var(--text-muted)" />
+              )}
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--text-primary)' }}>
+                  No Prefix / Free Serial Numbers
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Optional: Allow product serial numbers without requiring them to match a configured product prefix or serial pattern.
+                </div>
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                padding: '4px 10px',
+                borderRadius: '6px',
+                backgroundColor: allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
+                color: allowNoProductPrefix ? '#071B23' : 'var(--text-muted)',
+                textTransform: 'uppercase'
+              }}
+            >
+              {allowNoProductPrefix ? 'Option Enabled' : 'Disabled'}
+            </span>
+          </div>
+
+          {allowNoProductPrefix && (
+            <div style={{
+              padding: '12px 16px',
+              backgroundColor: 'rgba(20, 184, 166, 0.08)',
+              border: '1.5px solid rgba(20, 184, 166, 0.35)',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ flex: '1 1 240px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                  Planned Total Order Quantity (Free Serial Numbers)
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Enter total planned pieces for this PO when serial numbers do not use fixed prefix codes.
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  min="1"
+                  className="input-field no-spinner"
+                  style={{ width: '130px', fontWeight: 800, fontSize: '15px', textAlign: 'right' }}
+                  value={freeSerialQuantity}
+                  onChange={e => {
+                    const val = e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 0);
+                    setFreeSerialQuantity(val);
+                    sessionStorage.setItem('uniflow_draft_po_free_serial_qty', String(val));
+                  }}
+                  placeholder="e.g. 1000"
+                />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>Pcs</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Types Selection */}
@@ -713,52 +782,93 @@ export const CreatePOSalesOrders: React.FC = () => {
         </div>
 
         {/* Optional No-Box-Prefix Mode */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px 16px',
-            borderRadius: '12px',
-            border: `2px solid ${allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-            backgroundColor: allowNoBoxPrefix ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-          }}
-          onClick={() => {
-            const nextVal = !allowNoBoxPrefix;
-            setAllowNoBoxPrefix(nextVal);
-            sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(nextVal));
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {allowNoBoxPrefix ? (
-              <CheckSquare size={22} color="var(--primary-teal)" />
-            ) : (
-              <Square size={22} color="var(--text-muted)" />
-            )}
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 800, color: allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--text-primary)' }}>
-                No Box Prefix / Free Box Identifiers
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Optional: Allow box identifiers without requiring them to match a configured box prefix. Capacity limits and duplicate prevention remain enforced.
-              </div>
-            </div>
-          </div>
-          <span
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div
             style={{
-              fontSize: '11px',
-              fontWeight: 800,
-              padding: '4px 10px',
-              borderRadius: '6px',
-              backgroundColor: allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
-              color: allowNoBoxPrefix ? '#071B23' : 'var(--text-muted)',
-              textTransform: 'uppercase'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '12px 16px',
+              borderRadius: '12px',
+              border: `2px solid ${allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+              backgroundColor: allowNoBoxPrefix ? 'rgba(22, 184, 174, 0.12)' : 'var(--bg-surface-1)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onClick={() => {
+              const nextVal = !allowNoBoxPrefix;
+              setAllowNoBoxPrefix(nextVal);
+              sessionStorage.setItem('uniflow_draft_po_allow_no_box_prefix', String(nextVal));
             }}
           >
-            {allowNoBoxPrefix ? 'Option Enabled' : 'Disabled'}
-          </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {allowNoBoxPrefix ? (
+                <CheckSquare size={22} color="var(--primary-teal)" />
+              ) : (
+                <Square size={22} color="var(--text-muted)" />
+              )}
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--text-primary)' }}>
+                  No Box Prefix / Free Box Identifiers
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Optional: Allow box identifiers without requiring them to match a configured box prefix. Capacity limits and duplicate prevention remain enforced.
+                </div>
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                padding: '4px 10px',
+                borderRadius: '6px',
+                backgroundColor: allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--bg-surface-2)',
+                color: allowNoBoxPrefix ? '#071B23' : 'var(--text-muted)',
+                textTransform: 'uppercase'
+              }}
+            >
+              {allowNoBoxPrefix ? 'Option Enabled' : 'Disabled'}
+            </span>
+          </div>
+
+          {allowNoBoxPrefix && (
+            <div style={{
+              padding: '12px 16px',
+              backgroundColor: 'rgba(20, 184, 166, 0.08)',
+              border: '1.5px solid rgba(20, 184, 166, 0.35)',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ flex: '1 1 240px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                  Default Box Capacity (Free Box Identifiers)
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Specify how many garments fit into each box when using free box identifiers without fixed prefixes.
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  min="1"
+                  className="input-field no-spinner"
+                  style={{ width: '130px', fontWeight: 800, fontSize: '15px', textAlign: 'right' }}
+                  value={freeBoxCapacity}
+                  onChange={e => {
+                    const val = e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 0);
+                    setFreeBoxCapacity(val);
+                    sessionStorage.setItem('uniflow_draft_po_free_box_cap', String(val));
+                  }}
+                  placeholder="e.g. 12"
+                />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>Items / Box</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

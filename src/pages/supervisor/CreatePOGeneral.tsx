@@ -137,6 +137,18 @@ export const CreatePOGeneral: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Normalize operation names to exact UI tokens
+  const normalizeOpName = (op: string): OperationType => {
+    const clean = op.trim().toUpperCase().replace(/[-_]/g, ' ');
+    if (clean.includes('PRE QC') || clean.includes('PREQC')) return 'Pre QC';
+    if (clean.includes('QC') && clean.includes('TEST')) return 'QC Test';
+    if (clean.includes('PACK')) return 'Packing';
+    if (clean === 'FINAL AQL') return 'FINAL AQL';
+    if (clean.includes('AQL')) return 'AQL Checker';
+    if (clean.includes('BOX')) return 'Box Transfer';
+    return op as OperationType;
+  };
+
   // Load existing draft if returning to general page or pre-loaded
   useEffect(() => {
     const draftGen = sessionStorage.getItem('uniflow_draft_po_general');
@@ -153,7 +165,7 @@ export const CreatePOGeneral: React.FC = () => {
         if (parsed.plant) setPlant(parsed.plant);
         if (parsed.remarks) setRemarks(parsed.remarks);
         if (parsed.selectedOperations && Array.isArray(parsed.selectedOperations)) {
-          setSelectedOps(parsed.selectedOperations);
+          setSelectedOps(parsed.selectedOperations.map(normalizeOpName));
         }
         if (parsed.qcTestMode) setQcTestMode(parsed.qcTestMode);
         if (parsed.qcStationCount) setQcStationCount(parsed.qcStationCount);
@@ -191,29 +203,53 @@ export const CreatePOGeneral: React.FC = () => {
     setMapPo(copiedMapPo);
 
     // Garment Style
-    if (sourcePo.styleId) {
-      setSelectedStyleId(sourcePo.styleId);
-      sessionStorage.setItem('uniflow_draft_po_style_id', sourcePo.styleId);
+    let matchedStyleId = '';
+    if (sourcePo.styleId && stylesList.some(s => s.id === sourcePo.styleId)) {
+      matchedStyleId = sourcePo.styleId;
+    } else if (sourcePo.styleCode) {
+      const match = stylesList.find(s =>
+        s.code?.toLowerCase() === sourcePo.styleCode?.toLowerCase() ||
+        s.name?.toLowerCase() === (sourcePo.styleName || '').toLowerCase()
+      );
+      if (match) matchedStyleId = match.id;
+    }
+    if (!matchedStyleId && stylesList.length > 0) {
+      matchedStyleId = stylesList[0].id;
+    }
+    if (matchedStyleId) {
+      setSelectedStyleId(matchedStyleId);
+      sessionStorage.setItem('uniflow_draft_po_style_id', matchedStyleId);
     }
 
     // Dates, supervisor, remarks
-    if (sourcePo.startDate) setStartDate(sourcePo.startDate);
-    if (sourcePo.dueDate) setDueDate(sourcePo.dueDate);
-    if (sourcePo.supervisorId) setSupervisor(sourcePo.supervisorId);
-    if (sourcePo.plant) setPlant(sourcePo.plant);
-    if (sourcePo.remarks) setRemarks(sourcePo.remarks);
+    const nextStart = sourcePo.startDate || new Date().toISOString().split('T')[0];
+    const nextDue = sourcePo.dueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+    const nextSup = sourcePo.supervisorId || supervisor;
+    const nextPlant = sourcePo.plant || plant;
+    const nextRemarks = sourcePo.remarks || '';
+
+    setStartDate(nextStart);
+    setDueDate(nextDue);
+    setSupervisor(nextSup);
+    setPlant(nextPlant);
+    setRemarks(nextRemarks);
 
     // Selected operations & QC mode
-    if (sourcePo.selectedOperations && Array.isArray(sourcePo.selectedOperations) && sourcePo.selectedOperations.length > 0) {
-      setSelectedOps(sourcePo.selectedOperations as OperationType[]);
-    }
-    if (sourcePo.qcTestMode) setQcTestMode(sourcePo.qcTestMode);
-    if (sourcePo.qcStationCount) setQcStationCount(sourcePo.qcStationCount as 1 | 2);
+    const opsToSet: OperationType[] = (sourcePo.selectedOperations && Array.isArray(sourcePo.selectedOperations) && sourcePo.selectedOperations.length > 0)
+      ? sourcePo.selectedOperations.map(normalizeOpName)
+      : selectedOps;
+    setSelectedOps(opsToSet);
+
+    const nextQcMode = sourcePo.qcTestMode || qcTestMode;
+    const nextQcStations = (sourcePo.qcStationCount as 1 | 2) || qcStationCount;
+    setQcTestMode(nextQcMode);
+    setQcStationCount(nextQcStations);
 
     // Operator Shift Allocations
     const rawAllocations = sourcePo.allocations || sourcePo.shifts || [];
+    let mapped: PoAllocation[] = [];
     if (Array.isArray(rawAllocations) && rawAllocations.length > 0) {
-      const mapped: PoAllocation[] = rawAllocations.map((a: any) => ({
+      mapped = rawAllocations.map((a: any) => ({
         operatorId: a.operatorId || a.workerId,
         operatorName: a.operatorName || a.workerName,
         shiftId: a.shiftId || '',
@@ -223,16 +259,39 @@ export const CreatePOGeneral: React.FC = () => {
         endTime: a.endTime || '14:00',
       }));
       setPoAllocations(mapped);
-      sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(mapped.map(a => ({
+    }
+
+    // Persist full General Draft so page reload never blanks out fields
+    const draftGen = {
+      id: newPoId,
+      poName: copiedName,
+      mapPo: copiedMapPo,
+      customer: sourcePo.customer || 'Factory Customer',
+      styleId: matchedStyleId || selectedStyleId,
+      styleCode: sourcePo.styleCode,
+      styleName: sourcePo.styleName,
+      startDate: nextStart,
+      dueDate: nextDue,
+      supervisorId: nextSup,
+      plant: nextPlant,
+      shiftId: mapped[0]?.shiftId || sourcePo.shiftId || '',
+      shiftName: mapped[0]?.shiftName || sourcePo.shiftName || '',
+      remarks: nextRemarks,
+      selectedOperations: opsToSet,
+      qcTestMode: nextQcMode,
+      qcStationCount: nextQcStations,
+      allocations: mapped.map(a => ({
         workerId: a.operatorId,
         workerName: a.operatorName,
         operatorId: a.operatorId,
         operatorName: a.operatorName,
         shiftId: a.shiftId,
         shiftCode: a.shiftCode,
-        enabledOperations: sourcePo.selectedOperations || selectedOps,
-      }))));
-    }
+        enabledOperations: opsToSet,
+      })),
+    };
+    sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify(draftGen));
+    sessionStorage.setItem('uniflow_draft_po_shifts', JSON.stringify(draftGen.allocations));
 
     // Product Configurations
     if (sourcePo.productConfigurations && Array.isArray(sourcePo.productConfigurations) && sourcePo.productConfigurations.length > 0) {
