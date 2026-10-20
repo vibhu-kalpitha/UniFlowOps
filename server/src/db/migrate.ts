@@ -436,6 +436,16 @@ async function runStartupColumnChecks(): Promise<void> {
         } catch (e: any) { console.warn('  ⚠️ line_number:', e.message); }
       }
 
+      // shifts columns (time_frame_id for 1st, 2nd, 3rd time frame allocations)
+      if (await tableExists('shifts')) {
+        if (!(await columnExists('shifts', 'time_frame_id'))) {
+          try {
+            await db.exec(`ALTER TABLE shifts ADD COLUMN time_frame_id VARCHAR(50) NULL AFTER end_time`);
+            console.log('  ✅ Added shifts.time_frame_id');
+          } catch (e: any) { console.warn('  ⚠️ shifts.time_frame_id:', e.message); }
+        }
+      }
+
       // FK fk_po_shift (only if shifts table exists and FK not already there)
       try {
         if (await tableExists('shifts')

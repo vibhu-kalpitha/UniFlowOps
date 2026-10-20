@@ -1575,6 +1575,61 @@ router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
   }
 });
 
+// DELETE /api/boxes/:id — Delete a box and release its packed items (Admin & Supervisor)
+router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const role = (req.user?.role || '').toLowerCase();
+    if (role !== 'admin' && role !== 'supervisor') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Only Admins and Supervisors can delete boxes.' });
+    }
+
+    const boxId = req.params.id;
+    const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(boxId, boxId, boxId) as any;
+    if (!box) {
+      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found.' });
+    }
+
+    await db.transaction(async (tx) => {
+      // 1. Reset status of packed items back to 'PASSED' (if passed QC) or 'CREATED'
+      await tx.prepare(`
+        UPDATE item_units 
+        SET status = CASE 
+          WHEN id IN (SELECT qr.item_id FROM qc_results qr WHERE qr.qc_result = 'PASS') THEN 'PASSED' 
+          ELSE 'CREATED' 
+        END, 
+        updated_at = NOW(3)
+        WHERE id IN (SELECT item_id FROM box_items WHERE box_id = ?)
+      `).run(box.id);
+
+      // 2. Delete box transfer items and transfers if any
+      await tx.prepare(`DELETE FROM box_transfer_items WHERE source_box_item_id IN (SELECT id FROM box_items WHERE box_id = ?) OR destination_box_item_id IN (SELECT id FROM box_items WHERE box_id = ?)`).run(box.id, box.id).catch(() => {});
+      await tx.prepare(`DELETE FROM box_transfers WHERE source_box_id = ? OR destination_box_id = ?`).run(box.id, box.id).catch(() => {});
+
+      // 3. Delete AQL samples and inspections if any
+      await tx.prepare(`DELETE FROM aql_samples WHERE inspection_id IN (SELECT id FROM aql_inspections WHERE box_id = ?)`).run(box.id).catch(() => {});
+      await tx.prepare(`DELETE FROM aql_inspections WHERE box_id = ?`).run(box.id).catch(() => {});
+
+      // 4. Delete box items
+      await tx.prepare(`DELETE FROM box_items WHERE box_id = ?`).run(box.id);
+
+      // 5. Delete the box
+      await tx.prepare(`DELETE FROM boxes WHERE id = ?`).run(box.id);
+    });
+
+    await auditLog(req.user!.id, 'DELETE_BOX', 'boxes', box.id, {
+      boxCode: box.box_code || box.box_number,
+      poId: box.production_order_id
+    });
+
+    return res.json({
+      success: true,
+      message: `Box ${box.box_code || box.box_number} deleted successfully.`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // =========================================================================
 // PRODUCT CONFIGURATION MASTER-DATA ENDPOINTS (FULLY DYNAMIC / USER-MANAGED)
 // =========================================================================

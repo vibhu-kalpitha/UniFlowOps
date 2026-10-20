@@ -332,7 +332,6 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
             </div>
           </div>
 
-          <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
           <ScannerInput onScan={handleScanBox} placeholder="Scan box barcode (e.g. BX-000218)..." />
 
           {!scannedBox ? (
@@ -424,16 +423,6 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
             </div>
           </div>
 
-          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-              {isFinalAql ? 'FINAL AQL INSTRUCTIONS' : 'AQL INSTRUCTIONS'}
-            </span>
-            <ul style={{ margin: '10px 0 0 16px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              <li>Scan the sealed box barcode.</li>
-              <li>Inspect active garments in the box. Partial inspection is supported.</li>
-              <li>Click Finish to save progress at any time and resume later.</li>
-            </ul>
-          </div>
         </div>
       </div>
     </div>

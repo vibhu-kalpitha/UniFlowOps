@@ -17,6 +17,18 @@ interface ScannedItem {
   status: 'VALID' | 'DUPLICATE' | 'INVALID';
 }
 
+function extractSizeFromCode(rawCode: string, serverSize?: string | null): string {
+  if (serverSize && serverSize.trim() && serverSize !== 'L') {
+    return serverSize.trim().replace(/-+$/, '');
+  }
+  const clean = rawCode.trim().toUpperCase();
+  const parts = clean.split('-');
+  if (parts.length >= 3 && parts[1]) {
+    return parts[1].trim();
+  }
+  return serverSize?.trim() && serverSize !== 'L' ? serverSize.trim() : '';
+}
+
 interface StageStatus {
   mode?: string;
   qcCompleted: boolean;
@@ -68,6 +80,11 @@ export const QCTestPage: React.FC = () => {
   const [historyData, setHistoryData] = useState<QcHistoryData | null>(null);
   const [savingStage, setSavingStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
   const [savedStage, setSavedStage] = useState<'QC' | 'TEST' | 'ALL' | null>(null);
+  const [isNoPrefix, setIsNoPrefix] = useState<boolean>(Boolean(po?.allowNoProductPrefix || (po as any)?.allow_no_product_prefix));
+
+  React.useEffect(() => {
+    setIsNoPrefix(Boolean(po?.allowNoProductPrefix || (po as any)?.allow_no_product_prefix));
+  }, [po?.id, po?.dbId, po?.allowNoProductPrefix]);
 
   // Pre-QC Conditional Workflow State
   const [qcStep, setQcStep] = useState<QcStep>('NORMAL');
@@ -315,11 +332,16 @@ export const QCTestPage: React.FC = () => {
         setQcStep('NORMAL');
       }
 
+      if (res?.allowNoProductPrefix != null) {
+        setIsNoPrefix(Boolean(res.allowNoProductPrefix));
+      }
+      const detectedSize = extractSizeFromCode(scannedQr, res.item?.size);
+
       if (res.status === 'FULLY_COMPLETED' || stStatus.isFullyCompleted) {
         setScannedItem({
           qr: scannedQr,
           product: po?.styleName || po?.styleCode || 'Garment',
-          size: res.item?.size || 'L',
+          size: detectedSize || '—',
           status: 'DUPLICATE',
         });
         showToast(`⚠️ ${qcMode} already completed for item ${code}.`, 'warning');
@@ -333,7 +355,7 @@ export const QCTestPage: React.FC = () => {
       setScannedItem({
         qr: scannedQr,
         product: po?.styleName || po?.styleCode || 'Garment',
-        size: res.item?.size || 'L',
+        size: detectedSize || '—',
         status: 'VALID',
       });
 
@@ -640,38 +662,38 @@ export const QCTestPage: React.FC = () => {
 
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Top Banner */}
+      {/* Top Banner - Compact */}
       <div style={styles.banner}>
-        <div className="op-top-banner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <FileText size={20} color="var(--primary-teal)" />
+        <div className="op-top-banner" style={{ gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={16} color="var(--primary-teal)" />
             <div>
-              <h3 style={{ fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                 QC Inspection • {formatPoDisplayName(po)}
               </h3>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                 Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <button
               onClick={() => setShowPoSelector(true)}
               className="btn btn-secondary"
               style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
+                padding: '4px 10px',
+                fontSize: '11px',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '4px',
                 borderRadius: 'var(--radius-md)'
               }}
             >
-              <ArrowLeftRight size={14} /> Switch PO
+              <ArrowLeftRight size={12} /> Switch PO
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle2 size={16} color="var(--color-green)" />
-              <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <CheckCircle2 size={14} color="var(--color-green)" />
+              <span style={{ fontSize: '11px', color: 'var(--color-green)', fontWeight: 700 }}>
                 Scanner Active
               </span>
             </div>
@@ -734,7 +756,6 @@ export const QCTestPage: React.FC = () => {
             )}
           </div>
 
-          <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
           <ScannerInput onScan={handleScanCode} placeholder="Scan product QR barcode..." />
 
           {/* Initial State — No scanned product and Normal Step */}
@@ -773,14 +794,20 @@ export const QCTestPage: React.FC = () => {
                       {scannedItem.qr}
                     </span>
                   </div>
-                  <div style={styles.detailRow}>
-                    <span style={styles.detailLabel}>Style</span>
-                    <span style={styles.detailValue}>{scannedItem.product}</span>
-                  </div>
-                  <div style={styles.detailRow}>
-                    <span style={styles.detailLabel}>Size</span>
-                    <span style={styles.detailValue}>{scannedItem.size}</span>
-                  </div>
+                  {!isNoPrefix && (
+                    <>
+                      <div style={styles.detailRow}>
+                        <span style={styles.detailLabel}>Style</span>
+                        <span style={styles.detailValue}>{scannedItem.product}</span>
+                      </div>
+                      <div style={styles.detailRow}>
+                        <span style={styles.detailLabel}>Size</span>
+                        <span style={{ ...styles.detailValue, color: '#60A5FA', fontWeight: 800 }}>
+                          {scannedItem.size || '—'}
+                        </span>
+                      </div>
+                    </>
+                  )}
                   <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
                     <span style={styles.detailLabel}>Validation</span>
                     {scannedItem.status === 'VALID' && <StatusPill label="✅ Valid — In Range" variant="green" />}
@@ -1266,11 +1293,11 @@ export const QCTestPage: React.FC = () => {
           )}
         </div>
 
-        {/* Right Panel: Recent Scans History */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-history-panel">
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0 }}>
-            <span style={styles.cardHeaderTitle}>INSPECTION HISTORY</span>
-            {historyData && historyData.history.length > 0 ? (
+        {/* Right Panel: Recent Scans History (Only displayed when history exists) */}
+        {historyData && historyData.history.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-history-panel">
+            <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0 }}>
+              <span style={styles.cardHeaderTitle}>INSPECTION HISTORY</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {historyData.history.map((h, i) => (
                   <div
@@ -1299,13 +1326,9 @@ export const QCTestPage: React.FC = () => {
                   </div>
                 ))}
               </div>
-            ) : (
-              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
-                No prior history for current garment scan.
-              </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -1313,7 +1336,7 @@ export const QCTestPage: React.FC = () => {
 
 const styles = {
   banner: {
-    padding: '16px 20px',
+    padding: '10px 14px',
     backgroundColor: 'var(--bg-surface-1)',
     borderRadius: 'var(--radius-lg)',
     border: '1px solid var(--border-color)',

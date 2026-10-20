@@ -36,10 +36,34 @@ export const AdminReports: React.FC = () => {
   const [activeLogTab, setActiveLogTab] = useState<'orders' | 'boxes' | 'quality' | 'scrapped' | 'audit'>('orders');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedBoxModal, setSelectedBoxModal] = useState<any>(null);
+  const [boxToDelete, setBoxToDelete] = useState<any | null>(null);
+  const [deletingBox, setDeletingBox] = useState<boolean>(false);
 
   // Pagination / Row limit state (initial 10 rows with See More)
   const [showAllOrders, setShowAllOrders] = useState<boolean>(false);
   const [showAllBoxes, setShowAllBoxes] = useState<boolean>(false);
+
+  const confirmDeleteBox = async () => {
+    if (!boxToDelete) return;
+    setDeletingBox(true);
+    try {
+      await apiFetch(`/api/boxes/${encodeURIComponent(boxToDelete.id)}`, { method: 'DELETE' });
+      setAdminData((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          adminBoxes: Array.isArray(prev.adminBoxes) ? prev.adminBoxes.filter((b: any) => b.id !== boxToDelete.id) : []
+        };
+      });
+      showToast(`Box ${boxToDelete.boxCode || boxToDelete.boxNumber} deleted successfully.`, 'success');
+      setBoxToDelete(null);
+      await fetchReports();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete box.', 'error');
+    } finally {
+      setDeletingBox(false);
+    }
+  };
 
   const fetchReports = async () => {
     setLoading(true);
@@ -662,21 +686,43 @@ export const AdminReports: React.FC = () => {
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{bx.transferStatus || 'NONE'}</span>
                         </td>
                         <td data-label="ACTION" style={styles.td}>
-                          <button
-                            onClick={() => setSelectedBoxModal(bx)}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: '6px',
-                              backgroundColor: 'rgba(139, 92, 246, 0.15)',
-                              border: '1px solid var(--color-purple)',
-                              color: 'var(--color-purple)',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                          >
-                            View Active QRs ({bx.productQrs?.length || 0})
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => setSelectedBoxModal(bx)}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(139, 92, 246, 0.15)',
+                                border: '1px solid var(--color-purple)',
+                                color: 'var(--color-purple)',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              View QRs ({bx.productQrs?.length || 0})
+                            </button>
+                            <button
+                              onClick={() => setBoxToDelete(bx)}
+                              title="Delete this box"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid #EF4444',
+                                color: '#EF4444',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -915,6 +961,120 @@ export const AdminReports: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ── Delete Box Confirmation Modal ───────────────────────── */}
+      {boxToDelete && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '20px',
+            width: '94%',
+            maxWidth: '460px',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#EF4444'
+              }}>
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                  Delete Box?
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  This action will permanently delete this carton box.
+                </span>
+              </div>
+            </div>
+
+            <div style={{
+              padding: '12px 14px',
+              borderRadius: '10px',
+              backgroundColor: 'var(--bg-surface-2)',
+              fontSize: '13px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Box Identifier:</span>
+                <strong style={{ color: 'var(--color-purple)' }}>{boxToDelete.boxCode || boxToDelete.boxNumber}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Production Order:</span>
+                <strong style={{ color: 'var(--text-primary)' }}>{boxToDelete.poNumber}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Items Inside:</span>
+                <strong style={{ color: 'var(--primary-teal)' }}>{boxToDelete.activeFilledCount || 0} pcs</strong>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '12px', color: '#f87171', margin: 0, lineHeight: 1.5 }}>
+              ⚠️ Packed items in this box will be released back to inspection. Are you sure you want to delete this box?
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+              <button
+                type="button"
+                disabled={deletingBox}
+                onClick={() => setBoxToDelete(null)}
+                className="btn btn-secondary"
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingBox}
+                onClick={confirmDeleteBox}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  backgroundColor: '#EF4444',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  cursor: deletingBox ? 'not-allowed' : 'pointer',
+                  opacity: deletingBox ? 0.7 : 1
+                }}
+              >
+                {deletingBox ? 'Deleting...' : 'Yes, Delete Box'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Box Content Detail Modal ───────────────────────────── */}
       {selectedBoxModal && (

@@ -24,6 +24,7 @@ interface ActiveBox {
   soId: string;
   status: 'OPEN' | 'COMPLETED';
   items: BoxItem[];
+  lockedConfigCode?: string;
 }
 
 export const PackingPage: React.FC = () => {
@@ -138,6 +139,8 @@ export const PackingPage: React.FC = () => {
     let apiBoxId: string | undefined = undefined;
     let isApiSuccess = false;
 
+    let apiLockedConfigCode: string | undefined = undefined;
+
     try {
       const targetPoKey = currentPoId || '';
       const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
@@ -146,6 +149,9 @@ export const PackingPage: React.FC = () => {
         apiBoxId = res.box.id;
         dbCapacity = res.box.capacity || dbCapacity;
         dbStatus = res.box.status || 'OPEN';
+        if (res.box.lockedConfigCode) {
+          apiLockedConfigCode = res.box.lockedConfigCode;
+        }
         if (Array.isArray(res.box.items)) {
           dbItems = res.box.items.map((i: any) => {
             const timeStr = i.packed_at ? new Date(i.packed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '06:51';
@@ -170,6 +176,7 @@ export const PackingPage: React.FC = () => {
     // Only fall back to localBox items when offline or API call failed.
     const finalItems: BoxItem[] = isApiSuccess ? dbItems : (localBox?.items || []);
     const isCompleted = finalItems.length >= dbCapacity || dbStatus === 'COMPLETE' || dbStatus === 'COMPLETED';
+    const computedLockedConfig = apiLockedConfigCode || (finalItems.length > 0 && finalItems[0]?.qr ? finalItems[0].qr.replace(/\d+$/, '') : undefined);
 
     const loadedBox: ActiveBox & { productionOrderId?: string } = {
       boxId: apiBoxId || (localBox as any)?.boxId,
@@ -179,6 +186,7 @@ export const PackingPage: React.FC = () => {
       productionOrderId: currentPoId,
       status: isCompleted ? 'COMPLETED' : 'OPEN',
       items: finalItems,
+      lockedConfigCode: computedLockedConfig,
     };
 
     setBox(loadedBox as any);
@@ -251,12 +259,14 @@ export const PackingPage: React.FC = () => {
     const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
     const updatedItems = [{ qr: code, scannedAt: timeStr }, ...box.items];
     const isFull = updatedItems.length >= box.capacity;
+    const currentLockedConfig = box.lockedConfigCode || scanRes?.lockedConfigCode || code.replace(/\d+$/, '');
 
     const updatedBox: ActiveBox & { productionOrderId?: string } = {
       ...box,
       productionOrderId: currentPoId,
       items:  updatedItems,
       status: isFull ? 'COMPLETED' : 'OPEN',
+      lockedConfigCode: currentLockedConfig,
     };
 
     setBox(updatedBox as any);
@@ -332,38 +342,38 @@ export const PackingPage: React.FC = () => {
   /* ── RENDER ─────────────────────────────────────────────────── */
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* PO Banner */}
+      {/* PO Banner - Compact */}
       <div style={styles.banner}>
-        <div className="op-top-banner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <FileText size={20} color="var(--primary-teal)" />
+        <div className="op-top-banner" style={{ gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={16} color="var(--primary-teal)" />
             <div>
-              <h3 style={{ fontSize: '16px', fontWeight: 800 }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0 }}>
                 Packing Station • {formatPoDisplayName(po)}
               </h3>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                 Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <button
               onClick={() => setShowPoSelector(true)}
               className="btn btn-secondary"
               style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
+                padding: '4px 10px',
+                fontSize: '11px',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '4px',
                 borderRadius: 'var(--radius-md)'
               }}
             >
-              <ArrowLeftRight size={14} /> Switch PO
+              <ArrowLeftRight size={12} /> Switch PO
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle2 size={16} color="var(--color-green)" />
-              <span style={{ fontSize: '12px', color: 'var(--color-green)', fontWeight: 700 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <CheckCircle2 size={14} color="var(--color-green)" />
+              <span style={{ fontSize: '11px', color: 'var(--color-green)', fontWeight: 700 }}>
                 Scanner Ready
               </span>
             </div>
@@ -424,16 +434,6 @@ export const PackingPage: React.FC = () => {
                 <BoxSelect size={16} color="var(--primary-teal)" />
                 <span>Step 1 — Scan Box Barcode</span>
               </div>
-              <div style={styles.emptyCard}>
-                <BoxSelect size={40} color="var(--text-muted)" />
-                <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '12px' }}>
-                  Scan Box QR Code First
-                </span>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Point scanner at the box barcode to activate it
-                </span>
-              </div>
-              <ScannerStatus showConnectButton={true} style={{ marginBottom: '12px' }} />
               <ScannerInput onScan={handleScanBox} placeholder="Scan box QR / barcode…" />
             </>
           ) : (
@@ -450,6 +450,14 @@ export const PackingPage: React.FC = () => {
                     <h3 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                       {box.boxNumber}
                     </h3>
+                    {box.lockedConfigCode && (
+                      <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>Config:</span>
+                        <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                          {box.lockedConfigCode}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {isFull
                     ? <StatusPill label="Box Full ✅" variant="green" />
@@ -602,7 +610,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'var(--bg-surface-1)',
     border: '1px solid var(--border-color)',
     borderRadius: '14px',
-    padding: '12px 14px',
+    padding: '10px 14px',
   },
   phaseBadge: {
     display: 'flex',

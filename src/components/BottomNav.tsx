@@ -34,11 +34,12 @@ export const BottomNav: React.FC = () => {
           <span>Orders</span>
         </button>
 
-        {/* Raised Center Scan Action */}
-        <button style={styles.scanCenterBtn} onClick={() => navigate('/operator/scan')} aria-label="Scan Center">
-          <div style={styles.scanIconCircle} className="scan-pulse">
-            <ScanLine size={24} color="#041820" />
-          </div>
+        <button
+          style={isActive('/operator/scan') ? styles.navItemActive : styles.navItem}
+          onClick={() => navigate('/operator/scan')}
+        >
+          <ScanLine size={20} />
+          <span>Scan</span>
         </button>
 
         <button

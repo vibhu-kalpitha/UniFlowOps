@@ -99,9 +99,6 @@ export const AQLResultPage: React.FC<AQLResultPageProps> = ({ isFinalAql = false
         </div>
       </div>
 
-      {/* Scanner Status */}
-      <ScannerStatus compact={true} style={{ marginBottom: '12px' }} />
-
       {/* Result Hero Banner */}
       {isInProgress ? (
         <div style={styles.heroInProgress}>

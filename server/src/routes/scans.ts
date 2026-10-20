@@ -203,19 +203,27 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
   const allowNoProductPrefix = Boolean(po.allow_no_product_prefix || po.allowNoProductPrefix);
   const configs = await db.prepare(`SELECT * FROM production_order_configs WHERE production_order_id = ?`).all(po.id) as any[];
 
+  // Sort configs by match length descending so the most specific prefix matches first
+  const sortedConfigs = [...configs].sort((a, b) => {
+    const lenA = Math.max((a.config_code || '').length, (a.product_qr_prefix || '').length);
+    const lenB = Math.max((b.config_code || '').length, (b.product_qr_prefix || '').length);
+    return lenB - lenA;
+  });
+
   // If no-prefix mode is explicitly enabled for this PO:
   if (allowNoProductPrefix) {
     // 1. If code matches one of the configured configs, associate with it
-    for (const cfg of configs) {
+    for (const cfg of sortedConfigs) {
       const configCode = (cfg.config_code || '').trim().toUpperCase();
-      if (configCode && code.startsWith(configCode)) {
+      const qrPrefix = (cfg.product_qr_prefix || '').trim().toUpperCase();
+      if ((configCode && code.startsWith(configCode)) || (qrPrefix && code.startsWith(qrPrefix))) {
         return { valid: true, config: cfg };
       }
     }
     // 2. If no prefix matches, still allow the product serial number
     return {
       valid: true,
-      config: configs.length > 0 ? configs[0] : { config_code: 'FREE_SERIAL', configCode: 'FREE_SERIAL', quantity: po.total_quantity || 1000 }
+      config: sortedConfigs.length > 0 ? sortedConfigs[0] : { config_code: 'FREE_SERIAL', configCode: 'FREE_SERIAL', quantity: po.total_quantity || 1000 }
     };
   }
 
@@ -228,16 +236,17 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
     };
   }
 
-  for (const cfg of configs) {
+  for (const cfg of sortedConfigs) {
     const configCode = (cfg.config_code || '').trim().toUpperCase();
+    const qrPrefix = (cfg.product_qr_prefix || '').trim().toUpperCase();
 
-    // 1. Config code prefix match (e.g. PNFLSS09260001 matches PNFLSS)
-    if (configCode && code.startsWith(configCode)) {
+    // 1. Config code or QR prefix match (e.g. PNFLSS09260001 or PNFL-SS-0001)
+    if ((configCode && code.startsWith(configCode)) || (qrPrefix && code.startsWith(qrPrefix))) {
       return { valid: true, config: cfg };
     }
 
-    // 2. Dynamic fallback: if configCode is empty (no prefix, no size), match any QR under this PO
-    if (!configCode) {
+    // 2. Dynamic fallback: if configCode and qrPrefix are empty (no prefix, no size), match any QR under this PO
+    if (!configCode && !qrPrefix) {
       return { valid: true, config: cfg };
     }
   }
@@ -987,12 +996,23 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
         isFullyCompleted = qcCompleted && testCompleted;
       }
 
+      // Extract true size between hyphens (e.g. PNFL-SS-1 -> SS) or from PO config
+      const codeParts = code.split('-');
+      const extractedFromHyphens = codeParts.length >= 3 && codeParts[1] ? codeParts[1].trim() : '';
+      const configSize = rangeCheck.config?.size ? String(rangeCheck.config.size).trim().replace(/-+$/, '') : '';
+      const resolvedSize = extractedFromHyphens || configSize || (item.size && item.size !== 'L' ? item.size : '') || '';
+
+      if (resolvedSize && item.size !== resolvedSize) {
+        await db.prepare(`UPDATE item_units SET size = ?, updated_at = NOW(3) WHERE id = ?`).run(resolvedSize, item.id);
+        item.size = resolvedSize;
+      }
+
       if (isFullyCompleted || item.status === 'QC_PASSED' || item.status === 'PACKED') {
         const progress = po ? await calculatePOProgress(po.id) : undefined;
         return res.json({
           status: 'FULLY_COMPLETED',
           message: 'QC & Test already completed for this garment.',
-          item: { qr_code: item.qr_code, size: item.size || 'L' },
+          item: { qr_code: item.qr_code, size: resolvedSize || item.size || '' },
           stageStatus: {
             qcResult: existingQc?.qc_result || 'PENDING',
             testResult: existingQc?.test_result || 'PENDING',
@@ -1001,6 +1021,7 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
             isFullyCompleted: true
           },
           preQcEnabled,
+          allowNoProductPrefix: Boolean(po.allow_no_product_prefix || po.allowNoProductPrefix),
           productionOrderId: po?.id,
           productionOrderNumber: po?.po_number || po?.id,
           assignedPreQcItems,
@@ -1008,6 +1029,16 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
           progress
         });
       }
+    }
+
+    const codeParts = code.split('-');
+    const extractedFromHyphens = codeParts.length >= 3 && codeParts[1] ? codeParts[1].trim() : '';
+    const configSize = rangeCheck.config?.size ? String(rangeCheck.config.size).trim().replace(/-+$/, '') : '';
+    const resolvedSize = extractedFromHyphens || configSize || (item?.size && item.size !== 'L' ? item.size : '') || '';
+
+    if (item && resolvedSize && item.size !== resolvedSize) {
+      await db.prepare(`UPDATE item_units SET size = ?, updated_at = NOW(3) WHERE id = ?`).run(resolvedSize, item.id);
+      item.size = resolvedSize;
     }
 
     const progress = po ? await calculatePOProgress(po.id) : undefined;
@@ -1020,7 +1051,7 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
     return res.json({
       status: 'VALID',
       message: msg,
-      item: item ? { qr_code: item.qr_code, size: item.size || 'L' } : { qr_code: code, size: 'L' },
+      item: item ? { qr_code: item.qr_code, size: resolvedSize || item.size || '' } : { qr_code: code, size: resolvedSize || '' },
       stageStatus: {
         qcResult: existingQc?.qc_result || 'PENDING',
         testResult: existingQc?.test_result || 'PENDING',
@@ -1029,6 +1060,7 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
         isFullyCompleted: false
       },
       preQcEnabled,
+      allowNoProductPrefix: Boolean(po.allow_no_product_prefix || po.allowNoProductPrefix),
       productionOrderId: po?.id,
       productionOrderNumber: po?.po_number || po?.id,
       assignedPreQcItems,
@@ -1732,11 +1764,20 @@ export async function getAuthorizedBoxDetails(box: any, operatorId: string, role
   }
 
   const activeItems = await db.prepare(`
-    SELECT bi.id as box_item_id, bi.packed_at, u.id as item_id, u.qr_code, u.size, u.status
+    SELECT bi.id as box_item_id, bi.packed_at, u.id as item_id, u.qr_code, u.size, u.status, u.product_config_id,
+           poc.config_code, poc.product_qr_prefix, poc.size as config_size, poc.product_type
     FROM box_items bi
     JOIN item_units u ON u.id = bi.item_id
+    LEFT JOIN production_order_configs poc ON poc.id = u.product_config_id
     WHERE bi.box_id = ? AND bi.active = 1
+    ORDER BY bi.packed_at ASC
   `).all(box.id) as any[];
+
+  let lockedConfigCode: string | null = null;
+  if (activeItems.length > 0) {
+    const first = activeItems[0];
+    lockedConfigCode = first.config_code || first.product_qr_prefix || (first.qr_code ? first.qr_code.trim().toUpperCase().replace(/\d+$/, '') : null);
+  }
 
   const activeCount = activeItems.length;
   const availableSpace = Math.max(0, box.capacity - activeCount);
@@ -1752,7 +1793,8 @@ export async function getAuthorizedBoxDetails(box: any, operatorId: string, role
       activeCount,
       availableSpace,
       status: box.status,
-      items: activeItems
+      items: activeItems,
+      lockedConfigCode
     }
   };
 }
@@ -2091,16 +2133,19 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       `).get(itemQr.trim().toUpperCase()) as any;
 
       if (unassignedItem) {
-        await db.prepare(`UPDATE item_units SET production_order_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, unassignedItem.id);
-        item = { ...unassignedItem, production_order_id: po.id };
+        await db.prepare(`UPDATE item_units SET production_order_id = ?, product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, configCheck.config?.id || null, unassignedItem.id);
+        item = { ...unassignedItem, production_order_id: po.id, product_config_id: configCheck.config?.id || null };
       } else {
         const itemId = `itm-${po.id}-${itemQr.trim().toUpperCase()}`;
         await db.prepare(`
           INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
         `).run(itemId, itemQr.trim().toUpperCase(), po.id, configCheck.config?.id || null, configCheck.config?.size || 'L');
-        item = { id: itemId, qr_code: itemQr.trim().toUpperCase(), production_order_id: po.id, status: 'CREATED' };
+        item = { id: itemId, qr_code: itemQr.trim().toUpperCase(), production_order_id: po.id, product_config_id: configCheck.config?.id || null, status: 'CREATED' };
       }
+    } else if (!item.product_config_id && configCheck.config?.id) {
+      await db.prepare(`UPDATE item_units SET product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(configCheck.config.id, item.id);
+      item.product_config_id = configCheck.config.id;
     }
 
     // STEP 6.5 — VERIFY QC PASS IF QC TEST OPERATION IS REQUIRED ON THIS PO
@@ -2136,6 +2181,66 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
           error: 'QC_NOT_PASSED',
           message: `Item ${itemQr} has not passed QC inspection for this Production Order.`
         });
+      }
+    }
+
+    // STEP 6.6 — ENFORCE BOX PRODUCT CONFIGURATION CONSISTENCY (First Scanned Product Rule)
+    // All items packed into this box must strictly match the prefix/size configuration of the first item scanned.
+    if (currentItemsCount > 0) {
+      const firstBoxItem = await db.prepare(`
+        SELECT bi.id as box_item_id, bi.packed_at, iu.id as item_id, iu.qr_code, iu.product_config_id, iu.size as item_size,
+               poc.config_code, poc.product_qr_prefix, poc.size as config_size, poc.product_type
+        FROM box_items bi
+        JOIN item_units iu ON iu.id = bi.item_id
+        LEFT JOIN production_order_configs poc ON poc.id = iu.product_config_id
+        WHERE bi.box_id = ? AND bi.active = 1
+        ORDER BY bi.packed_at ASC
+        LIMIT 1
+      `).get(box.id) as any;
+
+      if (firstBoxItem) {
+        let firstConfig = firstBoxItem.config_code ? {
+          id: firstBoxItem.product_config_id,
+          config_code: firstBoxItem.config_code,
+          product_qr_prefix: firstBoxItem.product_qr_prefix,
+          size: firstBoxItem.config_size || firstBoxItem.item_size,
+          product_type: firstBoxItem.product_type
+        } : null;
+
+        if (!firstConfig && firstBoxItem.qr_code) {
+          const resolvedFirst = await validateProductForProductionOrder(po, firstBoxItem.qr_code);
+          if (resolvedFirst.valid && resolvedFirst.config) {
+            firstConfig = resolvedFirst.config;
+          }
+        }
+
+        const firstRawPrefix = (firstBoxItem.qr_code || '').trim().toUpperCase().replace(/\d+$/, '');
+        const currentRawPrefix = itemQr.trim().toUpperCase().replace(/\d+$/, '');
+
+        const firstCfgCode = (firstConfig?.config_code || '').trim().toUpperCase();
+        const currentCfgCode = (configCheck.config?.config_code || '').trim().toUpperCase();
+
+        const firstPocId = firstConfig?.id || null;
+        const currentPocId = configCheck.config?.id || null;
+
+        const isMismatch = (
+          (firstPocId && currentPocId && firstPocId !== currentPocId) ||
+          (firstCfgCode && currentCfgCode && firstCfgCode !== currentCfgCode) ||
+          (firstRawPrefix && currentRawPrefix && firstRawPrefix !== currentRawPrefix)
+        );
+
+        if (isMismatch) {
+          const lockedDisplay = firstCfgCode || firstRawPrefix || 'the first packed product';
+          const mismatchMsg = `Cannot pack product '${itemQr}' into Box ${boxNumber}. This box is locked to configuration '${lockedDisplay}'. All items in this box must have the same prefix and size.`;
+
+          await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'BOX_CONFIG_MISMATCH', mismatchMsg);
+          return res.status(400).json({
+            error: 'BOX_CONFIG_MISMATCH',
+            message: mismatchMsg,
+            lockedConfig: lockedDisplay,
+            scannedConfig: currentCfgCode || currentRawPrefix || itemQr
+          });
+        }
       }
     }
 
@@ -2189,6 +2294,11 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
     await auditLog(operatorId, 'PACK_ITEM', 'boxes', box.id, { itemQr, count: currentItemsCount + 1 });
 
     const progress = await calculatePackingProgress(po.id, req.user);
+    const lockedCode = (
+      configCheck.config?.config_code ||
+      configCheck.config?.product_qr_prefix ||
+      itemQr.trim().toUpperCase().replace(/\d+$/, '')
+    );
 
     return res.status(201).json({
       message: `Item ${itemQr} packed into box ${boxNumber}`,
@@ -2196,6 +2306,7 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       itemCount: currentItemsCount + 1,
       capacity: box.capacity,
       isFull: currentItemsCount + 1 >= box.capacity,
+      lockedConfigCode: lockedCode,
       progress
     });
   } catch (err) {
@@ -2304,6 +2415,47 @@ router.post('/box-transfers', authenticateToken, async (req: AuthRequest, res, n
           code: 'DESTINATION_BOX_CAPACITY_EXCEEDED',
           message: `Destination box capacity exceeded. Maximum transferable slots: ${availableSpace}`
         };
+      }
+
+      if (destOccupied > 0) {
+        const destFirstItem = await tx.queryOne<any>(`
+          SELECT bi.*, iu.qr_code, iu.product_config_id, poc.config_code, poc.product_qr_prefix
+          FROM box_items bi
+          JOIN item_units iu ON iu.id = bi.item_id
+          LEFT JOIN production_order_configs poc ON poc.id = iu.product_config_id
+          WHERE bi.box_id = ? AND bi.active = 1
+          ORDER BY bi.packed_at ASC
+          LIMIT 1
+        `, [toBox.id]);
+
+        if (destFirstItem) {
+          const destRawPrefix = (destFirstItem.qr_code || '').trim().toUpperCase().replace(/\d+$/, '');
+          const destCfgCode = (destFirstItem.config_code || '').trim().toUpperCase();
+
+          for (const qr of itemQrs) {
+            const cleanQr = qr.trim().toUpperCase();
+            const srcItem = await tx.queryOne<any>(`
+              SELECT iu.qr_code, iu.product_config_id, poc.config_code, poc.product_qr_prefix
+              FROM item_units iu
+              LEFT JOIN production_order_configs poc ON poc.id = iu.product_config_id
+              WHERE UPPER(TRIM(iu.qr_code)) = ?
+            `, [cleanQr]);
+
+            const itemRawPrefix = cleanQr.replace(/\d+$/, '');
+            const itemCfgCode = (srcItem?.config_code || '').trim().toUpperCase();
+
+            if (
+              (destCfgCode && itemCfgCode && destCfgCode !== itemCfgCode) ||
+              (destRawPrefix && itemRawPrefix && destRawPrefix !== itemRawPrefix)
+            ) {
+              throw {
+                statusCode: 400,
+                code: 'BOX_CONFIG_MISMATCH',
+                message: `Cannot transfer item '${cleanQr}' to destination box '${toCode}'. Destination box is locked to configuration '${destCfgCode || destRawPrefix}'.`
+              };
+            }
+          }
+        }
       }
 
       await tx.prepare(`

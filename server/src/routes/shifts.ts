@@ -9,7 +9,7 @@ const router = ExpressRouter();
 // GET /api/shifts — List Shift A-D records with member counts
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const shifts = await db.prepare(`SELECT * FROM shifts WHERE active = 1 ORDER BY start_time ASC`).all() as any[];
+    const shifts = await db.prepare(`SELECT * FROM shifts WHERE active = 1 ORDER BY code ASC, name ASC`).all() as any[];
 
     // Attach member count + member list to each shift
     const enriched = await Promise.all(shifts.map(async (shift: any) => {
@@ -165,6 +165,107 @@ router.get('/operators-list', authenticateToken, requireRole(['SUPERVISOR', 'ADM
       ORDER BY full_name ASC
     `).all();
     return res.json(operators);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/shifts/allocate-time-frames — Allocate Shift Groups to 1st, 2nd, 3rd Time Frames
+router.post('/allocate-time-frames', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const schema = z.object({
+      allocations: z.array(z.object({
+        timeFrameId: z.string(),
+        startTime: z.string(),
+        endTime: z.string(),
+        shiftId: z.string().nullable().optional()
+      }))
+    });
+    const { allocations } = schema.parse(req.body);
+
+    await db.transaction(async (tx) => {
+      // Clear time frame allocations for specified time frames
+      for (const a of allocations) {
+        await tx.prepare(`UPDATE shifts SET time_frame_id = NULL WHERE time_frame_id = ?`).run(a.timeFrameId);
+      }
+
+      // Assign specified shifts
+      for (const a of allocations) {
+        if (a.shiftId && a.shiftId.trim() !== '') {
+          await tx.prepare(`
+            UPDATE shifts 
+            SET time_frame_id = ?, start_time = ?, end_time = ?
+            WHERE id = ?
+          `).run(a.timeFrameId, a.startTime, a.endTime, a.shiftId);
+        }
+      }
+    });
+
+    await auditLog(req.user!.id, 'ALLOCATE_SHIFT_TIME_FRAMES', 'shifts', null, { allocations });
+
+    return res.json({ message: 'Shift time frames allocated successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/shifts — Create a new shift group (e.g. Shift C, Shift D)
+router.post('/', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const schema = z.object({
+      code: z.string().min(1).max(10),
+      name: z.string().min(1).max(100)
+    });
+    const { code, name } = schema.parse(req.body);
+    const cleanCode = code.trim().toUpperCase();
+    const cleanName = name.trim();
+    const shiftId = `shift-${cleanCode.toLowerCase()}`;
+
+    const existing = await db.prepare(`SELECT id, active FROM shifts WHERE id = ? OR code = ?`).get(shiftId, cleanCode) as any;
+    if (existing) {
+      if (existing.active === 0) {
+        await db.prepare(`UPDATE shifts SET active = 1, name = ?, start_time = '--:--', end_time = '--:--', time_frame_id = NULL WHERE id = ?`).run(cleanName, existing.id);
+        return res.status(200).json({ message: `Shift ${cleanName} restored successfully`, shift: { id: existing.id, code: cleanCode, name: cleanName } });
+      }
+      return res.status(400).json({ error: 'SHIFT_EXISTS', message: `Shift group "${cleanCode}" already exists` });
+    }
+
+    await db.prepare(`
+      INSERT INTO shifts (id, code, name, start_time, end_time, time_frame_id, active)
+      VALUES (?, ?, ?, '--:--', '--:--', NULL, 1)
+    `).run(shiftId, cleanCode, cleanName);
+
+    await auditLog(req.user!.id, 'CREATE_SHIFT', 'shifts', shiftId, { code: cleanCode, name: cleanName });
+
+    return res.status(201).json({
+      message: `Shift group ${cleanName} created successfully`,
+      shift: { id: shiftId, code: cleanCode, name: cleanName, start_time: '--:--', end_time: '--:--', members: [] }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/shifts/:id — Delete/deactivate a custom shift group (Shift C, D...)
+router.delete('/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+  try {
+    const shiftId = req.params.id;
+    const shift = await db.prepare(`SELECT id, code, name FROM shifts WHERE id = ?`).get(shiftId) as any;
+    if (!shift) {
+      return res.status(404).json({ error: 'SHIFT_NOT_FOUND', message: 'Shift not found' });
+    }
+    if (shift.code === 'A' || shift.code === 'B') {
+      return res.status(400).json({ error: 'PROTECTED_SHIFT', message: 'Default Shift A and Shift B cannot be deleted.' });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.prepare(`UPDATE shift_members SET active = 0 WHERE shift_id = ?`).run(shiftId);
+      await tx.prepare(`UPDATE shifts SET active = 0, time_frame_id = NULL WHERE id = ?`).run(shiftId);
+    });
+
+    await auditLog(req.user!.id, 'DELETE_SHIFT', 'shifts', shiftId, { code: shift.code, name: shift.name });
+
+    return res.json({ message: `Shift group ${shift.name} deleted successfully` });
   } catch (err) {
     next(err);
   }

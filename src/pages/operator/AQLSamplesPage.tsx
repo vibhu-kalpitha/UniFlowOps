@@ -480,8 +480,6 @@ export const AQLSamplesPage: React.FC<AQLSamplesPageProps> = ({ isFinalAql: prop
         </div>
 
         {/* Scanner Input Component */}
-        <ScannerStatus showConnectButton={true} style={{ marginBottom: '10px' }} />
-
         {itemState === 'SCANNED_RESULT_REQUIRED' ? (
           <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: '12px', padding: '12px', textAlign: 'center', marginBottom: '10px' }}>
             <span style={{ fontSize: '13px', fontWeight: 800, color: '#F59E0B', display: 'block' }}>
