@@ -70,6 +70,7 @@ const CreatePOReviewInner: React.FC = () => {
       dueDate: draftPoGeneral.dueDate,
       supervisorId: draftPoGeneral.supervisorId,
       plant: draftPoGeneral.plant || undefined,
+      lineNumber: draftPoGeneral.lineNumber || undefined,
       shiftId: draftPoGeneral.shiftId,
       remarks: draftPoGeneral.remarks,
       status: makeCurrent ? 'Current' : 'Draft',
@@ -245,6 +246,12 @@ const CreatePOReviewInner: React.FC = () => {
             <div>
               <span style={styles.sumLabel}>Plant / Garment Location</span>
               <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.plant}</span>
+            </div>
+          )}
+          {draftPoGeneral.lineNumber && (
+            <div>
+              <span style={styles.sumLabel}>Production Line</span>
+              <span style={{ ...styles.sumVal, color: '#c084fc', fontWeight: 800 }}>{draftPoGeneral.lineNumber}</span>
             </div>
           )}
           {draftPoGeneral.shiftName && (

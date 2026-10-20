@@ -28,6 +28,7 @@ interface FullPoFormData {
   startDate: string;
   dueDate: string;
   plant?: string;
+  lineNumber?: string;
   status: string;
   qcTestMode: string;
   remarks: string;
@@ -295,6 +296,7 @@ export const AdminOrders: React.FC = () => {
       startDate: po.startDate || po.start_date || new Date().toISOString().split('T')[0],
       dueDate: po.dueDate || po.due_date || new Date().toISOString().split('T')[0],
       plant: po.plant || '',
+      lineNumber: po.lineNumber || po.line_number || '',
       status: (po.status || 'CURRENT').toUpperCase(),
       qcTestMode: resolvedQcMode,
       remarks: po.remarks || '',
@@ -344,6 +346,7 @@ export const AdminOrders: React.FC = () => {
         supervisorId: fullForm.supervisorId || null,
         shiftId: fullForm.shiftId || null,
         plant: fullForm.plant?.trim() || null,
+        lineNumber: fullForm.lineNumber?.trim() || null,
         startDate: fullForm.startDate,
         dueDate: fullForm.dueDate,
         status: fullForm.status,
@@ -589,6 +592,18 @@ export const AdminOrders: React.FC = () => {
                           fontWeight: 700
                         }}>
                           🏢 {po.plant}
+                        </span>
+                      )}
+                      {(po.lineNumber || po.line_number) && (
+                        <span style={{
+                          fontSize: '10px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                          color: '#c084fc',
+                          fontWeight: 700
+                        }}>
+                          🧵 {po.lineNumber || po.line_number}
                         </span>
                       )}
                     </div>
@@ -1271,7 +1286,6 @@ export const AdminOrders: React.FC = () => {
                     </label>
                     <input
                       type="text"
-                      list="edit-po-plant-suggestions"
                       placeholder="e.g. Biyagama, Katunayake"
                       value={fullForm.plant || ''}
                       onChange={e => {
@@ -1280,14 +1294,25 @@ export const AdminOrders: React.FC = () => {
                       }}
                       style={styles.input}
                     />
-                    <datalist id="edit-po-plant-suggestions">
-                      <option value="Biyagama" />
-                      <option value="Katunayake" />
-                      <option value="Mawathagama" />
-                      <option value="Avissawella" />
-                      <option value="Koggala" />
-                      <option value="Wathupitiwala" />
-                    </datalist>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                      Production Line Number
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Line 46, Line 12, Line A"
+                      value={fullForm.lineNumber || ''}
+                      onChange={e => {
+                        setFullForm({ ...fullForm, lineNumber: e.target.value });
+                        setIsFullDirty(true);
+                      }}
+                      style={styles.input}
+                    />
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
+                      The factory line number assigned to this PO (e.g. Line 46)
+                    </span>
                   </div>
                 </div>
               </div>

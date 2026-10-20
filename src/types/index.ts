@@ -127,6 +127,8 @@ export interface ProductionOrder {
   shiftCode?: string;
   remarks?: string;
   plant?: string;
+  lineNumber?: string;
+  line_number?: string;
   status: 'Current' | 'Completed' | 'Draft';
   selectedOperations: OperationType[];
   qcTestMode?: QcTestMode;

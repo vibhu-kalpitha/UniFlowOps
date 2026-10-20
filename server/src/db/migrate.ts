@@ -428,6 +428,14 @@ async function runStartupColumnChecks(): Promise<void> {
         } catch (e: any) { console.warn('  ⚠️ plant:', e.message); }
       }
 
+      // line_number (production line, e.g. "Line 46")
+      if (!(await columnExists('production_orders', 'line_number'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN line_number VARCHAR(100) NULL AFTER plant`);
+          console.log('  ✅ Added production_orders.line_number');
+        } catch (e: any) { console.warn('  ⚠️ line_number:', e.message); }
+      }
+
       // FK fk_po_shift (only if shifts table exists and FK not already there)
       try {
         if (await tableExists('shifts')

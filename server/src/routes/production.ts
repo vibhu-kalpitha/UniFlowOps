@@ -340,6 +340,8 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     dueDate: po.due_date,
     supervisorId: po.supervisor_id,
     plant: po.plant || undefined,
+    lineNumber: po.line_number || undefined,
+    line_number: po.line_number || undefined,
     shiftId: resolvedShiftId,
     shiftCode: resolvedShiftCode,
     shiftName: resolvedShiftName,
@@ -472,6 +474,8 @@ const createPoSchema = z.object({
   shiftId: z.string().optional(),
   shift_id: z.string().optional(),
   plant: z.string().optional(),
+  lineNumber: z.string().optional(),
+  line_number: z.string().optional(),
   allowNoProductPrefix: z.boolean().optional(),
   allow_no_product_prefix: z.union([z.boolean(), z.number()]).optional(),
   allowNoBoxPrefix: z.boolean().optional(),
@@ -626,14 +630,15 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
     const poNameVal = (body.poName || body.po_name || '').trim() || null;
     const poPlantVal = (body.plant || (req.body as any)?.plant || '').trim() || (req.user?.role === 'SUPERVISOR' ? req.user.plant || null : null);
+    const poLineNumber = ((body as any).lineNumber || (body as any).line_number || '').trim() || null;
     const allowNoProductPrefix = (body.allowNoProductPrefix || (body as any).allow_no_product_prefix) ? 1 : 0;
     const allowNoBoxPrefix = (body.allowNoBoxPrefix || (body as any).allow_no_box_prefix) ? 1 : 0;
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, plant, qc_test_mode, qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, poPlantVal, dbQcTestMode, dbQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, plant, line_number, qc_test_mode, qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, poPlantVal, poLineNumber, dbQcTestMode, dbQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = opStr;
@@ -994,7 +999,7 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
     const orders = await db.query(`
       SELECT 
         po.id, po.po_number, po.po_name, po.map_po, po.customer, po.start_date, po.due_date, po.status, po.remarks, po.qc_test_mode, po.shift_id, po.supervisor_id, po.created_at,
-        po.allow_no_product_prefix, po.allow_no_box_prefix,
+        po.allow_no_product_prefix, po.allow_no_box_prefix, po.plant, po.line_number,
         s.id as style_id, s.name as style_name, s.code as style_code, u.full_name as supervisor_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
         (SELECT COUNT(DISTINCT item_id) FROM qc_results qr JOIN item_units iu ON iu.id = qr.item_id WHERE (iu.production_order_id = po.id OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = po.id)) AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS') as qc_passed_count,
@@ -1070,6 +1075,9 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
         shift_id: p.shift_id,
         allowNoProductPrefix: Boolean(p.allow_no_product_prefix),
         allowNoBoxPrefix: Boolean(p.allow_no_box_prefix),
+        plant: p.plant || null,
+        lineNumber: p.line_number || null,
+        line_number: p.line_number || null,
         configuredQuantity: targetQty,
         total_quantity: targetQty,
         qcPassedCount: qcPassed,
@@ -1354,6 +1362,10 @@ router.patch('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), async
     if ((req.body as any).plant !== undefined) {
       updates.push('plant = ?');
       params.push((req.body as any).plant ? String((req.body as any).plant).trim() : null);
+    }
+    if ((req.body as any).lineNumber !== undefined) {
+      updates.push('line_number = ?');
+      params.push((req.body as any).lineNumber ? String((req.body as any).lineNumber).trim() : null);
     }
 
     params.push(po.id);

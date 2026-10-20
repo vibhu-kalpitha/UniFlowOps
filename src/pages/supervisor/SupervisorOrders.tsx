@@ -82,6 +82,7 @@ export const SupervisorOrders: React.FC = () => {
       dueDate: po.dueDate,
       supervisorId: po.supervisorId,
       plant: po.plant,
+      lineNumber: po.lineNumber || po.line_number || '',
       shiftId: po.shiftId,
       shiftName: po.shiftName,
       remarks: po.remarks,
@@ -140,6 +141,18 @@ export const SupervisorOrders: React.FC = () => {
                         fontWeight: 700
                       }}>
                         🏢 {po.plant}
+                      </span>
+                    )}
+                    {(po.lineNumber || po.line_number) && (
+                      <span style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                        color: '#c084fc',
+                        fontWeight: 700
+                      }}>
+                        🧵 {po.lineNumber || po.line_number}
                       </span>
                     )}
                   </div>

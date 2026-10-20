@@ -62,6 +62,7 @@ const CreatePOGeneralInner: React.FC = () => {
   const [dueDate, setDueDate] = useState('2026-10-10');
   const [supervisor, setSupervisor] = useState('Nimal Perera');
   const [plant, setPlant] = useState(() => currentUser?.plant || 'Biyagama');
+  const [lineNumber, setLineNumber] = useState('');
   const [remarks, setRemarks] = useState('Export batch for Q4 delivery');
 
   const [selectedOps, setSelectedOps] = useState<OperationType[]>([
@@ -167,6 +168,7 @@ const CreatePOGeneralInner: React.FC = () => {
         if (parsed.dueDate) setDueDate(parsed.dueDate);
         if (parsed.supervisorId) setSupervisor(parsed.supervisorId);
         if (parsed.plant) setPlant(parsed.plant);
+        if (parsed.lineNumber) setLineNumber(parsed.lineNumber);
         if (parsed.remarks) setRemarks(parsed.remarks);
         if (parsed.selectedOperations && Array.isArray(parsed.selectedOperations)) {
           setSelectedOps(parsed.selectedOperations.map(normalizeOpName));
@@ -232,12 +234,14 @@ const CreatePOGeneralInner: React.FC = () => {
     const nextDue = sourcePo.dueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
     const nextSup = sourcePo.supervisorId || supervisor;
     const nextPlant = sourcePo.plant || plant;
+    const nextLineNumber = sourcePo.lineNumber || sourcePo.line_number || '';
     const nextRemarks = sourcePo.remarks || '';
 
     setStartDate(nextStart);
     setDueDate(nextDue);
     setSupervisor(nextSup);
     setPlant(nextPlant);
+    setLineNumber(nextLineNumber);
     setRemarks(nextRemarks);
 
     // Selected operations & QC mode
@@ -289,6 +293,7 @@ const CreatePOGeneralInner: React.FC = () => {
       dueDate: nextDue,
       supervisorId: nextSup,
       plant: nextPlant,
+      lineNumber: nextLineNumber,
       shiftId: mapped[0]?.shiftId || sourcePo.shiftId || '',
       shiftName: mapped[0]?.shiftName || sourcePo.shiftName || '',
       remarks: nextRemarks,
@@ -417,6 +422,7 @@ const CreatePOGeneralInner: React.FC = () => {
       dueDate,
       supervisorId: supervisor,
       plant,
+      lineNumber,
       // Primary shift = first allocation's shift (for `production_orders.shift_id`)
       shiftId: poAllocations[0]?.shiftId,
       shiftName: poAllocations[0]?.shiftName,
@@ -735,6 +741,21 @@ const CreatePOGeneralInner: React.FC = () => {
             </span>
           </div>
         </div>
+
+          {/* Line Number */}
+          <div>
+            <label style={styles.label}>Production Line Number</label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="e.g. Line 46, Line 12, Line A"
+              value={lineNumber}
+              onChange={e => setLineNumber(e.target.value)}
+            />
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
+              The specific factory line assigned to this Production Order.
+            </span>
+          </div>
 
         {/* ── Operator–Shift Allocation Panel ─────────────────── */}
         <div style={{ border: '1.5px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden' }}>
