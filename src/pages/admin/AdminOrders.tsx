@@ -441,7 +441,7 @@ export const AdminOrders: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ flex: '1 1 280px', minWidth: '220px' }}>
+        <div style={{ flex: '1 1 auto', minWidth: '200px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>
             {activeTab === 'orders' ? 'Factory Production Orders & Quantity Config' : 'Garment Styles Management'}
           </h2>
@@ -502,15 +502,15 @@ export const AdminOrders: React.FC = () => {
         padding: '5px',
         borderRadius: '12px',
         border: '1px solid var(--border-color)',
-        width: 'fit-content',
-        maxWidth: '100%',
-        flexWrap: 'wrap'
+        width: '100%',
+        maxWidth: '460px',
       }}>
         <button
           type="button"
           onClick={() => setActiveTab('orders')}
           style={{
-            padding: '8px 16px',
+            flex: 1,
+            padding: '8px 14px',
             fontSize: '13px',
             fontWeight: 800,
             borderRadius: '9px',
@@ -520,8 +520,10 @@ export const AdminOrders: React.FC = () => {
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: '8px',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            whiteSpace: 'nowrap'
           }}
         >
           <Box size={16} /> Production Orders ({orders.length})
@@ -530,7 +532,8 @@ export const AdminOrders: React.FC = () => {
           type="button"
           onClick={() => { setActiveTab('styles'); fetchAdminStyles(); }}
           style={{
-            padding: '8px 16px',
+            flex: 1,
+            padding: '8px 14px',
             fontSize: '13px',
             fontWeight: 800,
             borderRadius: '9px',
@@ -540,8 +543,10 @@ export const AdminOrders: React.FC = () => {
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: '8px',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            whiteSpace: 'nowrap'
           }}
         >
           <Shirt size={16} /> Garment Styles ({adminStyles.length})
@@ -567,145 +572,66 @@ export const AdminOrders: React.FC = () => {
             const percent = targetQty > 0 ? Math.min(100, Math.round((packedQty / targetQty) * 100)) : 0;
 
             return (
-              <div key={po.id} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Box size={16} color="var(--color-teal)" />
-                      <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-teal)' }}>
-                        {po.poNumber || po.po_number}
-                      </h3>
-                    </div>
-                    {(po.poName || po.po_name) && (
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginTop: '2px' }}>
-                        🏷️ {po.poName || po.po_name}
+              <div key={po.id} className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Header Row: PO Number & Status Pill */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Box size={16} color="var(--color-teal)" />
+                    <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-teal)', margin: 0 }}>
+                      {po.poNumber || po.po_number}
+                    </h3>
+                  </div>
+                  <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />
+                </div>
+
+                {/* Sub-info: Name, Style, Plant, Line */}
+                <div>
+                  {(po.poName || po.po_name) && (
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                      🏷️ {po.poName || po.po_name}
+                    </span>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
+                    {po.plant && (
+                      <span style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                        color: '#60a5fa',
+                        fontWeight: 700
+                      }}>
+                        🏢 {po.plant}
                       </span>
                     )}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
-                      {po.plant && (
-                        <span style={{
-                          fontSize: '10px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                          color: '#60a5fa',
-                          fontWeight: 700
-                        }}>
-                          🏢 {po.plant}
-                        </span>
-                      )}
-                      {(po.lineNumber || po.line_number) && (
-                        <span style={{
-                          fontSize: '10px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                          color: '#c084fc',
-                          fontWeight: 700
-                        }}>
-                          🧵 {po.lineNumber || po.line_number}
-                        </span>
-                      )}
-                    </div>
-                    {(po.allowNoProductPrefix || po.allowNoBoxPrefix) && (
-                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                        {po.allowNoProductPrefix && (
-                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(20, 184, 166, 0.15)', color: 'var(--color-teal)', fontWeight: 700 }}>
-                            🔓 Free Serials
-                          </span>
-                        )}
-                        {po.allowNoBoxPrefix && (
-                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(20, 184, 166, 0.15)', color: 'var(--color-teal)', fontWeight: 700 }}>
-                            📦 Free Box IDs
-                          </span>
-                        )}
-                      </div>
+                    {(po.lineNumber || po.line_number) && (
+                      <span style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                        color: '#c084fc',
+                        fontWeight: 700
+                      }}>
+                        🧵 {po.lineNumber || po.line_number}
+                      </span>
                     )}
                   </div>
-
-                  {/* Actions column: Status Pill & Distinguishable Edit Buttons */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                    <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={() => openEditQtyModal(po)}
-                        style={{
-                          fontSize: '11px',
-                          padding: '5px 9px',
-                          borderRadius: '7px',
-                          backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                          border: '1px solid var(--color-teal)',
-                          color: 'var(--color-teal)',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title="Edit only the quantity of this PO"
-                      >
-                        <SlidersHorizontal size={12} /> Edit PO Qty
-                      </button>
-                      <button
-                        onClick={() => openEditFullModal(po)}
-                        style={{
-                          fontSize: '11px',
-                          padding: '5px 9px',
-                          borderRadius: '7px',
-                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                          border: '1px solid #a855f7',
-                          color: '#c084fc',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title="Edit all fields of this PO"
-                      >
-                        <Edit3 size={12} /> Edit Full PO
-                      </button>
-                      <button
-                        onClick={() => handleCopyPoToNew(po)}
-                        style={{
-                          fontSize: '11px',
-                          padding: '5px 9px',
-                          borderRadius: '7px',
-                          backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                          border: '1px solid #3b82f6',
-                          color: '#60a5fa',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title="Copy this PO configurations to create a new Production Order"
-                      >
-                        <Copy size={12} /> Copy to New PO
-                      </button>
-                      <button
-                        onClick={() => setDeleteTargetPo(po)}
-                        style={{
-                          fontSize: '11px',
-                          padding: '5px 9px',
-                          borderRadius: '7px',
-                          backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                          border: '1px solid #ef4444',
-                          color: '#f87171',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title="Permanently delete this Production Order"
-                      >
-                        <Trash2 size={12} /> Delete PO
-                      </button>
+                  {(po.allowNoProductPrefix || po.allowNoBoxPrefix) && (
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                      {po.allowNoProductPrefix && (
+                        <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(20, 184, 166, 0.15)', color: 'var(--color-teal)', fontWeight: 700 }}>
+                          🔓 Free Serials
+                        </span>
+                      )}
+                      {po.allowNoBoxPrefix && (
+                        <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(20, 184, 166, 0.15)', color: 'var(--color-teal)', fontWeight: 700 }}>
+                          📦 Free Box IDs
+                        </span>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Progress bar */}
@@ -719,7 +645,7 @@ export const AdminOrders: React.FC = () => {
 
                 {/* Configurations breakdown */}
                 {configs.length > 0 && (
-                  <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
+                  <div style={{ marginTop: '2px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
                     <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                       Configured Sizes & Quantities ({configs.length}):
                     </span>
@@ -733,6 +659,98 @@ export const AdminOrders: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Card Action Buttons: Dedicated Row at the bottom */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                  <button
+                    onClick={() => openEditQtyModal(po)}
+                    style={{
+                      flex: '1 1 calc(50% - 6px)',
+                      minWidth: '115px',
+                      fontSize: '11px',
+                      padding: '7px 10px',
+                      borderRadius: '7px',
+                      backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                      border: '1px solid var(--color-teal)',
+                      color: 'var(--color-teal)',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                    title="Edit only the quantity of this PO"
+                  >
+                    <SlidersHorizontal size={12} /> Edit PO Qty
+                  </button>
+                  <button
+                    onClick={() => openEditFullModal(po)}
+                    style={{
+                      flex: '1 1 calc(50% - 6px)',
+                      minWidth: '115px',
+                      fontSize: '11px',
+                      padding: '7px 10px',
+                      borderRadius: '7px',
+                      backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                      border: '1px solid #a855f7',
+                      color: '#c084fc',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                    title="Edit all fields of this PO"
+                  >
+                    <Edit3 size={12} /> Edit Full PO
+                  </button>
+                  <button
+                    onClick={() => handleCopyPoToNew(po)}
+                    style={{
+                      flex: '1 1 calc(50% - 6px)',
+                      minWidth: '115px',
+                      fontSize: '11px',
+                      padding: '7px 10px',
+                      borderRadius: '7px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                      border: '1px solid #3b82f6',
+                      color: '#60a5fa',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                    title="Copy this PO configurations to create a new Production Order"
+                  >
+                    <Copy size={12} /> Copy to New PO
+                  </button>
+                  <button
+                    onClick={() => setDeleteTargetPo(po)}
+                    style={{
+                      flex: '1 1 calc(50% - 6px)',
+                      minWidth: '115px',
+                      fontSize: '11px',
+                      padding: '7px 10px',
+                      borderRadius: '7px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid #ef4444',
+                      color: '#f87171',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px'
+                    }}
+                    title="Permanently delete this Production Order"
+                  >
+                    <Trash2 size={12} /> Delete PO
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -935,24 +953,26 @@ export const AdminOrders: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 9999,
-          padding: '16px'
+          padding: '12px 8px'
         }}>
           <div style={{
             backgroundColor: 'var(--bg-surface-1)',
             border: '1px solid var(--border-color)',
-            borderRadius: '20px',
-            width: '94%',
+            borderRadius: '16px',
+            width: '100%',
             maxWidth: '520px',
-            padding: '24px',
+            padding: '16px',
+            maxHeight: '92vh',
+            overflowY: 'auto',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '16px'
+            gap: '14px'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-teal)' }}>PO QUANTITY CONFIGURATION</span>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
                   Edit PO Quantity: {qtyOrder.poNumber || qtyOrder.po_number}
                 </h3>
               </div>
@@ -1066,15 +1086,15 @@ export const AdminOrders: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 9999,
-          padding: '16px'
+          padding: '12px 8px'
         }}>
           <div style={{
             backgroundColor: 'var(--bg-surface-1)',
             border: '1px solid var(--border-color)',
-            borderRadius: '20px',
-            width: '95%',
+            borderRadius: '16px',
+            width: '100%',
             maxWidth: '680px',
-            maxHeight: '90vh',
+            maxHeight: '94vh',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.8)',
@@ -1082,7 +1102,7 @@ export const AdminOrders: React.FC = () => {
           }}>
             {/* Modal Header */}
             <div style={{
-              padding: '20px 24px',
+              padding: '14px 16px',
               borderBottom: '1px solid var(--border-color)',
               display: 'flex',
               justifyContent: 'space-between',
@@ -1093,7 +1113,7 @@ export const AdminOrders: React.FC = () => {
                 <span style={{ fontSize: '11px', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   FULL PRODUCTION ORDER MANAGEMENT
                 </span>
-                <h3 style={{ margin: '2px 0 0 0', fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                <h3 style={{ margin: '2px 0 0 0', fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
                   Edit Full PO: {fullOrder.poNumber || fullOrder.po_number}
                 </h3>
               </div>
@@ -1107,7 +1127,7 @@ export const AdminOrders: React.FC = () => {
             </div>
 
             {/* Scrollable Form Content */}
-            <form onSubmit={handleSaveFullOrder} style={{ overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <form onSubmit={handleSaveFullOrder} style={{ overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {/* Safety banner */}
               <div style={{
                 backgroundColor: 'rgba(168, 85, 247, 0.1)',
@@ -1130,7 +1150,7 @@ export const AdminOrders: React.FC = () => {
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   1. PO Identification & Reference
                 </span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginTop: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '12px', marginTop: '8px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
                       PO Number *
@@ -1198,7 +1218,7 @@ export const AdminOrders: React.FC = () => {
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   2. Style & Operational Assignment
                 </span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginTop: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '12px', marginTop: '8px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
                       Garment Style
@@ -1366,7 +1386,7 @@ export const AdminOrders: React.FC = () => {
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   3. Timeline Schedule & Quality Testing
                 </span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginTop: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: '12px', marginTop: '8px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
                       Start Date *

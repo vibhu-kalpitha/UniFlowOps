@@ -224,44 +224,44 @@ export const AdminReports: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Printable Header & Action Bar */}
-      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>
+      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ flex: '1 1 auto', minWidth: '220px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
             Executive Operations & Production Reports 📊
           </h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
             Descriptive Style & PO analysis covering Quality Inspection (QC), Carton Packing, AQL Sample Audits, and Box Transfers.
           </p>
         </div>
 
-        <div className="admin-page-header-actions no-print" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="admin-page-header-actions no-print" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
             onClick={fetchReports}
-            className="btn-secondary"
-            style={{ height: '36px', padding: '0 12px', fontSize: '12px', gap: '6px', width: 'auto' }}
+            className="btn btn-secondary"
+            style={{ padding: '8px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
             disabled={loading}
           >
             <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
           </button>
           <button
             onClick={handleExportExcel}
-            className="btn-primary"
-            style={{ height: '36px', padding: '0 14px', fontSize: '12px', gap: '6px', width: 'auto', backgroundColor: '#059669', borderColor: '#059669' }}
+            className="btn btn-primary"
+            style={{ padding: '8px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#059669', borderColor: '#059669', borderRadius: '10px' }}
           >
-            <FileSpreadsheet size={16} /> Export Excel (CSV)
+            <FileSpreadsheet size={16} /> Export Excel
           </button>
           <button
             onClick={handleExportPdf}
-            className="btn-secondary"
-            style={{ height: '36px', padding: '0 14px', fontSize: '12px', gap: '6px', width: 'auto' }}
+            className="btn btn-secondary"
+            style={{ padding: '8px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
           >
-            <Printer size={16} color="var(--primary-teal)" /> Print / Save PDF
+            <Printer size={16} color="var(--primary-teal)" /> Print / PDF
           </button>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="card no-print" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '14px', display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center', border: '1.5px solid var(--border-color)' }}>
+      <div className="card no-print" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '14px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', border: '1.5px solid var(--border-color)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Filter size={16} color="var(--primary-teal)" />
           <span style={{ fontSize: '13px', fontWeight: 800 }}>Report Filters:</span>
@@ -281,12 +281,12 @@ export const AdminReports: React.FC = () => {
         </div>
 
         {/* Style Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Style:</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '1 1 180px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Style:</label>
           <select
             value={selectedStyleFilter}
             onChange={e => setSelectedStyleFilter(e.target.value)}
-            style={styles.selectFilter}
+            style={{ ...styles.selectFilter, flex: 1, minWidth: '130px', width: '100%' }}
           >
             <option value="">All Styles ({availableStyles.length})</option>
             {availableStyles.map(st => (
@@ -296,12 +296,12 @@ export const AdminReports: React.FC = () => {
         </div>
 
         {/* PO Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>PO Number:</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '1 1 180px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>PO Number:</label>
           <select
             value={selectedPoFilter}
             onChange={e => setSelectedPoFilter(e.target.value)}
-            style={styles.selectFilter}
+            style={{ ...styles.selectFilter, flex: 1, minWidth: '130px', width: '100%' }}
           >
             <option value="">All Production Orders ({availablePos.length})</option>
             {availablePos.map(p => (
@@ -313,7 +313,7 @@ export const AdminReports: React.FC = () => {
         {(selectedStyleFilter || selectedPoFilter) && (
           <button
             onClick={() => { setSelectedStyleFilter(''); setSelectedPoFilter(''); }}
-            style={{ fontSize: '12px', color: '#EF4444', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}
+            style={{ fontSize: '12px', color: '#EF4444', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}
           >
             Clear Filters
           </button>
@@ -338,7 +338,7 @@ export const AdminReports: React.FC = () => {
         </p>
 
         {/* 4 Summary Stat Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginTop: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))', gap: '10px', marginTop: '14px' }}>
           <div style={styles.statBox('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
             <span style={styles.statVal}>{totalPlanned.toLocaleString()}</span>
             <span style={styles.statLbl}>Planned Units</span>
