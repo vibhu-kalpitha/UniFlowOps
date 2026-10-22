@@ -6,6 +6,7 @@ import { CheckCircle2, Circle, Calendar, Tag, ShieldCheck } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { apiFetch } from '../../services/api';
+import { parsePoLines } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 export const SelectAssignedWork: React.FC = () => {
@@ -63,9 +64,11 @@ export const SelectAssignedWork: React.FC = () => {
       enabledOperations: selectedPo.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer']
     };
 
+    const assignedLines = parsePoLines(selectedPo.lineNumber || selectedPo.line_number);
     setActiveJob({
       productionOrder: selectedPo,
-      shift: currentShift
+      shift: currentShift,
+      selectedLine: assignedLines[0]
     });
 
     showToast(`Active job updated to ${selectedPo.id} — ${selectedPo.styleName || 'Garment Style'}`, 'success');

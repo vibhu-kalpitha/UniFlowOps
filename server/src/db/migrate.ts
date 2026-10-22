@@ -431,7 +431,7 @@ async function runStartupColumnChecks(): Promise<void> {
       // line_number (production line, e.g. "Line 46")
       if (!(await columnExists('production_orders', 'line_number'))) {
         try {
-          await db.exec(`ALTER TABLE production_orders ADD COLUMN line_number VARCHAR(100) NULL AFTER plant`);
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN line_number VARCHAR(255) NULL AFTER plant`);
           console.log('  ✅ Added production_orders.line_number');
         } catch (e: any) { console.warn('  ⚠️ line_number:', e.message); }
       }

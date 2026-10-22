@@ -5,6 +5,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy, Shirt, Plus, Search } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { parsePoLines, formatPoLinesString } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 interface PoConfigItem {
@@ -346,7 +347,7 @@ export const AdminOrders: React.FC = () => {
         supervisorId: fullForm.supervisorId || null,
         shiftId: fullForm.shiftId || null,
         plant: fullForm.plant?.trim() || null,
-        lineNumber: fullForm.lineNumber?.trim() || null,
+        lineNumber: fullForm.lineNumber?.trim() ? (formatPoLinesString(fullForm.lineNumber) || fullForm.lineNumber.trim()) : null,
         startDate: fullForm.startDate,
         dueDate: fullForm.dueDate,
         status: fullForm.status,
@@ -1297,21 +1298,64 @@ export const AdminOrders: React.FC = () => {
                   </div>
 
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                      Production Line Number
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Line 46, Line 12, Line A"
-                      value={fullForm.lineNumber || ''}
-                      onChange={e => {
-                        setFullForm({ ...fullForm, lineNumber: e.target.value });
-                        setIsFullDirty(true);
-                      }}
-                      style={styles.input}
-                    />
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
-                      The factory line number assigned to this PO (e.g. Line 46)
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                        Production Line Numbers (Assigned Lines)
+                      </label>
+                      {fullForm.lineNumber?.trim() && (
+                        <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                          {parsePoLines(fullForm.lineNumber).length} Line{parsePoLines(fullForm.lineNumber).length > 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <div style={{
+                        position: 'absolute',
+                        left: '12px',
+                        color: 'var(--primary-teal)',
+                        fontWeight: 800,
+                        fontSize: '12px',
+                        pointerEvents: 'none'
+                      }}>
+                        Line
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="1, 6, 8 (Enter line numbers separated by comma)"
+                        value={(fullForm.lineNumber || '').replace(/^Line\s*/i, '')}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setFullForm({
+                            ...fullForm,
+                            lineNumber: !val.trim() ? '' : val.toLowerCase().startsWith('line') ? val : `Line ${val}`
+                          });
+                          setIsFullDirty(true);
+                        }}
+                        style={{ ...styles.input, paddingLeft: '48px' }}
+                      />
+                    </div>
+                    {fullForm.lineNumber?.trim() && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                        {parsePoLines(fullForm.lineNumber).map((line, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                              color: 'var(--primary-teal)',
+                              border: '1px solid rgba(20, 184, 166, 0.35)'
+                            }}
+                          >
+                            ✓ {line}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                      Multiple factory line numbers (e.g. 1, 6, 8). Operators can select their active line during work.
                     </span>
                   </div>
                 </div>

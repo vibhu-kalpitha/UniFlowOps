@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { ProductionOrder, OperationType } from '../types';
 import { apiFetch } from '../services/api';
-import { formatPoDisplayName } from '../utils/formatters';
-import { Package, Layers, CheckCircle2, ChevronRight, AlertCircle, RefreshCw, X } from 'lucide-react';
+import { formatPoDisplayName, parsePoLines } from '../utils/formatters';
+import { Package, Layers, CheckCircle2, ChevronRight, AlertCircle, RefreshCw, X, ArrowLeft } from 'lucide-react';
 import '../styles/tokens.css';
 
 interface SelectPOForOperationProps {
   operationName: OperationType;
-  onSelectPo: (po: ProductionOrder) => void;
+  onSelectPo: (po: ProductionOrder, selectedLine?: string) => void;
   selectedPoId?: string;
   isModal?: boolean;
   onClose?: () => void;
@@ -23,6 +23,8 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
   const [pos, setPos] = useState<ProductionOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPoForLine, setSelectedPoForLine] = useState<ProductionOrder | null>(null);
+  const [customLineInput, setCustomLineInput] = useState('');
 
   const isGenericPoSelect = !operationName || ['ALL', 'Select PO', 'Change PO', 'Production Order'].includes(operationName as string);
 
@@ -49,7 +51,184 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
     fetchAssignedPOs();
   }, [operationName]);
 
-  const content = (
+  const handleSelectLine = (line: string) => {
+    if (!selectedPoForLine) return;
+    onSelectPo(selectedPoForLine, line);
+  };
+
+  const lineSelectionContent = selectedPoForLine && (
+    <div style={{ padding: isModal ? '20px' : '24px 16px', position: 'relative' }}>
+      {/* Step Header */}
+      <div style={{ marginBottom: '20px', paddingRight: isModal ? '36px' : '0' }}>
+        <button
+          onClick={() => { setSelectedPoForLine(null); setCustomLineInput(''); }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--primary-teal, #14b8a6)',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            padding: '0 0 10px 0',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <ArrowLeft size={16} /> Back to Production Orders
+        </button>
+        <h2 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc' }}>
+          Select Production Line
+        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+          <span style={{ fontSize: '0.88rem', color: '#94a3b8' }}>
+            Production Order: <strong style={{ color: 'var(--primary-teal, #14b8a6)' }}>{formatPoDisplayName(selectedPoForLine)}</strong>
+          </span>
+          {selectedPoForLine.plant && (
+            <span style={{
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: '12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              color: '#cbd5e1'
+            }}>
+              Plant: {selectedPoForLine.plant}
+            </span>
+          )}
+        </div>
+        <p style={{ margin: '8px 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
+          Please select your active line to start <strong>{operationName}</strong>:
+        </p>
+      </div>
+
+      {/* Grid of Assigned Lines */}
+      {(() => {
+        const lines = parsePoLines(selectedPoForLine.lineNumber || selectedPoForLine.line_number);
+        return (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+            gap: '12px',
+            maxHeight: isModal ? '50vh' : 'none',
+            overflowY: isModal ? 'auto' : 'visible',
+            paddingRight: isModal ? '4px' : '0'
+          }}>
+            {lines.map((line, idx) => (
+              <div
+                key={idx}
+                onClick={() => handleSelectLine(line)}
+                style={{
+                  backgroundColor: 'var(--bg-surface-2, #1e293b)',
+                  border: '1.5px solid var(--border-color, rgba(255, 255, 255, 0.12))',
+                  borderRadius: '14px',
+                  padding: '16px 18px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--primary-teal, #14b8a6)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 18px rgba(20, 184, 166, 0.25)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--border-color, rgba(255, 255, 255, 0.12))';
+                  e.currentTarget.style.transform = 'none';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--primary-teal, #14b8a6)'
+                  }}>
+                    <Layers size={20} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f8fafc', display: 'block' }}>
+                      {line}
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
+                      Assigned Line
+                    </span>
+                  </div>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '0.85rem',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 700,
+                    backgroundColor: 'var(--primary-teal, #14b8a6)',
+                    color: '#ffffff',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Select <ChevronRight size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Manual Line Input fallback if needed */}
+      <div style={{
+        marginTop: '20px',
+        paddingTop: '16px',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        flexWrap: 'wrap'
+      }}>
+        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Working on another line?</span>
+        <div style={{ display: 'flex', gap: '8px', flex: '1 1 200px' }}>
+          <input
+            type="text"
+            className="input-field"
+            placeholder="e.g. Line 12"
+            value={customLineInput}
+            onChange={(e) => setCustomLineInput(e.target.value)}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', flex: 1, minHeight: '36px' }}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={!customLineInput.trim()}
+            onClick={() => {
+              if (customLineInput.trim()) {
+                const formatted = customLineInput.trim().toLowerCase().startsWith('line')
+                  ? customLineInput.trim()
+                  : `Line ${customLineInput.trim()}`;
+                handleSelectLine(formatted);
+              }
+            }}
+            style={{ padding: '6px 14px', fontSize: '0.85rem', minHeight: '36px' }}
+          >
+            Confirm Line
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const poListContent = (
     <div style={{ padding: isModal ? '20px' : '24px 16px', position: 'relative' }}>
       {/* Header */}
       <div style={{ marginBottom: '20px', paddingRight: isModal ? '36px' : '0' }}>
@@ -166,7 +345,7 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
             return (
               <div
                 key={po.id || po.dbId}
-                onClick={() => onSelectPo(po)}
+                onClick={() => setSelectedPoForLine(po)}
                 style={{
                   backgroundColor: isSelected ? 'rgba(20, 184, 166, 0.12)' : 'var(--bg-surface-2, #1e293b)',
                   border: isSelected ? '2px solid var(--primary-teal, #14b8a6)' : '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
@@ -219,6 +398,9 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                   <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginBottom: '10px' }}>
                     Map PO: <strong style={{ color: '#e2e8f0' }}>{po.mapPo || 'N/A'}</strong>
                     {po.customer && <span> • Customer: <strong style={{ color: '#e2e8f0' }}>{po.customer}</strong></span>}
+                    {(po.lineNumber || po.line_number) && (
+                      <span> • Lines: <strong style={{ color: '#c084fc' }}>{po.lineNumber || po.line_number}</strong></span>
+                    )}
                   </div>
 
                   <div style={{
@@ -299,6 +481,8 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
       )}
     </div>
   );
+
+  const content = selectedPoForLine ? lineSelectionContent : poListContent;
 
   if (!isModal) {
     return <div style={{ maxWidth: '800px', margin: '0 auto' }}>{content}</div>;

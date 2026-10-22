@@ -150,6 +150,7 @@ export interface ActiveJob {
   shift?: ShiftAssignment;
   salesOrder?: SalesOrder;
   config?: ProductConfiguration;
+  selectedLine?: string;
 }
 
 export interface BoxItem {

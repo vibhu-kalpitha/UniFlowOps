@@ -250,10 +250,11 @@ export const PreQCPage: React.FC = () => {
       <SelectPOForOperation
         operationName="Pre QC"
         selectedPoId={po?.id}
-        onSelectPo={(selectedPo) => {
+        onSelectPo={(selectedPo, selectedLine) => {
           setActiveJob({
             productionOrder: selectedPo,
-            shift: selectedPo.shifts?.[0]
+            shift: selectedPo.shifts?.[0],
+            selectedLine
           });
           setShowPoSelector(false);
         }}
@@ -268,12 +269,27 @@ export const PreQCPage: React.FC = () => {
         <div className="op-top-banner">
           <div>
             <span style={styles.cardSubTitle}>PRE QC OPERATION</span>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px' }}>
-              {formatPoDisplayName({
-                poNumber: po.id,
-                poName: po.poName,
-                styleName: po.styleName
-              })}
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span>
+                {formatPoDisplayName({
+                  poNumber: po.id,
+                  poName: po.poName,
+                  styleName: po.styleName
+                })}
+              </span>
+              {activeJob?.selectedLine && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                  color: 'var(--primary-teal)',
+                  border: '1px solid rgba(20, 184, 166, 0.3)'
+                }}>
+                  {activeJob.selectedLine}
+                </span>
+              )}
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               Customer: {po.customer} • Map PO: {po.mapPo}

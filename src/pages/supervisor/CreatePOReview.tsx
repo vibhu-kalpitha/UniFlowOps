@@ -250,7 +250,7 @@ const CreatePOReviewInner: React.FC = () => {
           )}
           {draftPoGeneral.lineNumber && (
             <div>
-              <span style={styles.sumLabel}>Production Line</span>
+              <span style={styles.sumLabel}>Production Line(s)</span>
               <span style={{ ...styles.sumVal, color: '#c084fc', fontWeight: 800 }}>{draftPoGeneral.lineNumber}</span>
             </div>
           )}

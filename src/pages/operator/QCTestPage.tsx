@@ -651,8 +651,8 @@ export const QCTestPage: React.FC = () => {
           isModal={true}
           selectedPoId={po?.id || po?.dbId}
           onClose={po ? () => setShowPoSelector(false) : undefined}
-          onSelectPo={(selectedPo) => {
-            setActiveJob({ productionOrder: selectedPo });
+          onSelectPo={(selectedPo, selectedLine) => {
+            setActiveJob({ productionOrder: selectedPo, selectedLine });
             setShowPoSelector(false);
           }}
         />
@@ -668,8 +668,21 @@ export const QCTestPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={16} color="var(--primary-teal)" />
             <div>
-              <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                QC Inspection • {formatPoDisplayName(po)}
+              <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span>QC Inspection • {formatPoDisplayName(po)}</span>
+                {activeJob?.selectedLine && (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                    color: 'var(--primary-teal)',
+                    border: '1px solid rgba(20, 184, 166, 0.3)'
+                  }}>
+                    {activeJob.selectedLine}
+                  </span>
+                )}
               </h3>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                 Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>

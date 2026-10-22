@@ -230,9 +230,9 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
           isModal={true}
           selectedPoId={po?.id || po?.dbId}
           onClose={po ? () => setShowPoSelector(false) : undefined}
-          onSelectPo={(selectedPo) => {
+          onSelectPo={(selectedPo, selectedLine) => {
             setScannedBox(null);
-            setActiveJob({ productionOrder: selectedPo });
+            setActiveJob({ productionOrder: selectedPo, selectedLine });
             setShowPoSelector(false);
           }}
         />
@@ -242,33 +242,48 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
 
   return (
     <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Header */}
-      <div className="op-top-banner">
-        <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>
-            {stageTitle} • {formatPoDisplayName(po)}
-          </h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Scan the packing box barcode to load its contents for inspection.
-          </p>
+      {/* Header - Compact Banner */}
+      <div style={styles.banner}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <span>{stageTitle} • {formatPoDisplayName(po)}</span>
+              {activeJob?.selectedLine && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                  color: 'var(--primary-teal)',
+                  border: '1px solid rgba(20, 184, 166, 0.3)'
+                }}>
+                  {activeJob.selectedLine}
+                </span>
+              )}
+            </h3>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              Scan packing box barcode to load items for inspection
+            </span>
+          </div>
+          <button
+            onClick={() => setShowPoSelector(true)}
+            className="btn btn-secondary"
+            style={{
+              padding: '4px 10px',
+              fontSize: '11px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              borderRadius: 'var(--radius-md)'
+            }}
+          >
+            <ArrowLeftRight size={12} /> Switch PO
+          </button>
         </div>
-        <button
-          onClick={() => setShowPoSelector(true)}
-          className="btn btn-secondary"
-          style={{
-            padding: '6px 12px',
-            fontSize: '0.8rem',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            borderRadius: 'var(--radius-md)'
-          }}
-        >
-          <ArrowLeftRight size={14} /> Switch PO
-        </button>
       </div>
 
-      {/* 3 Step Indicator */}
+      {/* 3 Step Indicator - Compact */}
       <div style={styles.stepBar}>
         <div style={styles.stepActive}>
           <span style={styles.stepNumActive}>1</span>
@@ -286,190 +301,190 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
         </div>
       </div>
 
-      {/* Split Grid for Desktop */}
-      <div className="desktop-split-7-5">
-        {/* Left Panel: Scanner & Controls */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
-          {/* PO Progress Card - Operator Work Primary */}
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            {/* PRIMARY / LARGE: Operator Work */}
-            <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-                  MY {isFinalAql ? 'FINAL AQL' : 'AQL'} PROGRESS — {aqlProgress.operatorStats.operatorName}
-                </span>
-                <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
-                  {Math.round((aqlProgress.operatorStats.passedCount / (targetSoQty || 1)) * 100)}%
-                </span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
-                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{aqlProgress.operatorStats.passedCount}</span>
-                </div>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
-                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{aqlProgress.operatorStats.failedCount}</span>
-                </div>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
-                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-                    {aqlProgress.operatorStats.passedCount + aqlProgress.operatorStats.failedCount}
-                  </span>
-                </div>
-              </div>
-              <ProgressBar current={aqlProgress.operatorStats.passedCount} total={targetSoQty} height={8} />
+      {/* Main Workflow Panel */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
+        {/* PO Progress Card - Operator Work Primary */}
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
+          {/* PRIMARY / LARGE: Operator Work */}
+          <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                MY {isFinalAql ? 'FINAL AQL' : 'AQL'} PROGRESS — {aqlProgress.operatorStats.operatorName}
+              </span>
+              <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
+                {Math.round((aqlProgress.operatorStats.passedCount / (targetSoQty || 1)) * 100)}%
+              </span>
             </div>
-
-            {/* SECONDARY / SMALL: PO Total Summary */}
-            <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
-              <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
-                <span>Target: <strong>{targetSoQty}</strong></span>
-                <span>Passed: <strong style={{ color: '#10B981' }}>{aqlPassedQty}</strong></span>
-                <span>Overall: <strong>{Math.round((aqlPassedQty / (targetSoQty || 1)) * 100)}%</strong></span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
+                <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{aqlProgress.operatorStats.passedCount}</span>
+              </div>
+              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{aqlProgress.operatorStats.failedCount}</span>
+              </div>
+              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
+                <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                  {aqlProgress.operatorStats.passedCount + aqlProgress.operatorStats.failedCount}
+                </span>
               </div>
             </div>
+            <ProgressBar current={aqlProgress.operatorStats.passedCount} total={targetSoQty} height={8} />
           </div>
 
-          <ScannerInput onScan={handleScanBox} placeholder="Scan box barcode (e.g. BX-000218)..." />
-
-          {!scannedBox ? (
-            <div style={styles.emptyCard}>
-              <ScanLine size={36} color="var(--text-muted)" />
-              <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '10px', fontWeight: 600 }}>
-                Waiting for box barcode scan…
-              </span>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Scan a sealed box barcode to retrieve box details &amp; sample requirements
-              </span>
+          {/* SECONDARY / SMALL: PO Total Summary */}
+          <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
+            <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
+              <span>Target: <strong>{targetSoQty}</strong></span>
+              <span>Passed: <strong style={{ color: '#10B981' }}>{aqlPassedQty}</strong></span>
+              <span>Overall: <strong>{Math.round((aqlPassedQty / (targetSoQty || 1)) * 100)}%</strong></span>
             </div>
-          ) : (
-            <div className="card" style={styles.scannedCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <span style={styles.cardHeaderTitle}>SCANNED BOX DETAILS</span>
-                <StatusPill label="ACTIVE BOX" variant="teal" />
-              </div>
-
-              <div style={styles.detailRow}>
-                <span style={styles.detailLabel}>Box Barcode Number</span>
-                <span style={{ ...styles.detailValue, color: 'var(--primary-teal)', fontSize: '16px' }}>
-                  {scannedBox.boxNumber}
-                </span>
-              </div>
-              <div style={styles.detailRow}>
-                <span style={styles.detailLabel}>Total Active Garments in Box</span>
-                <span style={styles.detailValue}>{scannedBox.totalItems} pcs</span>
-              </div>
-              <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
-                <span style={styles.detailLabel}>Required Sample Size</span>
-                <span style={{ ...styles.detailValue, color: '#10B981' }}>
-                  {scannedBox.sampleRequirement} pcs (100% Audit)
-                </span>
-              </div>
-
-              {scannedBox.packedItemQrs.length > 0 && (
-                <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                    PACKED GARMENTS ({scannedBox.packedItemQrs.length} ITEMS):
-                  </span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '100px', overflowY: 'auto' }}>
-                    {scannedBox.packedItemQrs.map((qr, idx) => (
-                      <span key={idx} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 600 }}>
-                        {idx + 1}. {qr}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <button
-                className="btn-primary"
-                onClick={handleProceed}
-                style={{
-                  marginTop: '16px',
-                  background: 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
-                }}
-              >
-                Proceed to Item Inspection <ArrowRight size={18} />
-              </button>
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* Right Panel: Specifications */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-right-panel">
-          <div className="card" style={{ backgroundColor: '#0B242D', border: '1px solid #1E4650' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
-              INSPECTION SPECIFICATIONS
+        {/* Step 1 - Yellow Highlight Box Scan */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px 12px',
+          borderRadius: '10px',
+          backgroundColor: 'rgba(245, 158, 11, 0.15)',
+          border: '1px solid rgba(245, 158, 11, 0.4)',
+          color: '#F59E0B',
+          fontSize: '12px',
+          fontWeight: 800
+        }}>
+          <BoxSelect size={16} color="#F59E0B" />
+          <span>Step 1 — Scan Box Barcode</span>
+        </div>
+
+        <ScannerInput
+          themeColor="yellow"
+          onScan={handleScanBox}
+          placeholder="Scan box barcode (e.g. BX-000218)..."
+        />
+
+        {!scannedBox ? (
+          <div style={{
+            ...styles.emptyCard,
+            backgroundColor: 'rgba(245, 158, 11, 0.04)',
+            borderColor: 'rgba(245, 158, 11, 0.4)',
+          }}>
+            <ScanLine size={32} color="#F59E0B" />
+            <span style={{ fontSize: '13px', color: '#F59E0B', marginTop: '10px', fontWeight: 800 }}>
+              Waiting for box barcode scan…
             </span>
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Production Order:</span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{po?.id || 'PO-2026-0184'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Inspection Stage:</span>
-                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{stageTitle}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Garment Style:</span>
-                <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{po?.styleName || po?.styleCode || 'Standard'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>AQL Standard:</span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Level II Normal (100% Item Audit)</span>
-              </div>
-            </div>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Scan a sealed box barcode to retrieve box details &amp; sample requirements
+            </span>
           </div>
+        ) : (
+          <div className="card" style={styles.scannedCard}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={styles.cardHeaderTitle}>SCANNED BOX DETAILS</span>
+              <StatusPill label="ACTIVE BOX" variant="teal" />
+            </div>
 
-        </div>
+            <div style={styles.detailRow}>
+              <span style={styles.detailLabel}>Box Barcode Number</span>
+              <span style={{ ...styles.detailValue, color: 'var(--primary-teal)', fontSize: '16px' }}>
+                {scannedBox.boxNumber}
+              </span>
+            </div>
+            <div style={styles.detailRow}>
+              <span style={styles.detailLabel}>Total Active Garments in Box</span>
+              <span style={styles.detailValue}>{scannedBox.totalItems} pcs</span>
+            </div>
+            <div style={{ ...styles.detailRow, borderBottom: 'none' }}>
+              <span style={styles.detailLabel}>Required Sample Size</span>
+              <span style={{ ...styles.detailValue, color: '#10B981' }}>
+                {scannedBox.sampleRequirement} pcs (100% Audit)
+              </span>
+            </div>
+
+            {scannedBox.packedItemQrs.length > 0 && (
+              <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  PACKED GARMENTS ({scannedBox.packedItemQrs.length} ITEMS):
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '100px', overflowY: 'auto' }}>
+                  {scannedBox.packedItemQrs.map((qr, idx) => (
+                    <span key={idx} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {idx + 1}. {qr}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              className="btn-primary"
+              onClick={handleProceed}
+              style={{
+                marginTop: '16px',
+                background: 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-light) 100%)',
+              }}
+            >
+              Proceed to Item Inspection <ArrowRight size={18} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 const styles: Record<string, React.CSSProperties> = {
+  banner: {
+    padding: '10px 14px',
+    backgroundColor: 'var(--bg-surface-1)',
+    borderRadius: 'var(--radius-lg)',
+    border: '1px solid var(--border-color)',
+  },
   stepBar: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: 'var(--bg-surface-1)',
     border: '1px solid var(--border-color)',
-    borderRadius: '14px',
-    padding: '12px 20px',
+    borderRadius: '10px',
+    padding: '8px 14px',
   },
   stepActive: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    fontSize: '13px',
+    gap: '6px',
+    fontSize: '11px',
     fontWeight: 800,
     color: 'var(--primary-teal)',
   },
   stepInactive: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    fontSize: '13px',
+    gap: '6px',
+    fontSize: '11px',
     fontWeight: 600,
     color: 'var(--text-muted)',
   },
   stepNumActive: {
-    width: '24px',
-    height: '24px',
+    width: '18px',
+    height: '18px',
     borderRadius: '50%',
     backgroundColor: 'var(--primary-teal)',
     color: '#000',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '12px',
+    fontSize: '10px',
     fontWeight: 800,
   },
   stepNumInactive: {
-    width: '24px',
-    height: '24px',
+    width: '18px',
+    height: '18px',
     borderRadius: '50%',
     backgroundColor: 'var(--bg-surface-2)',
     color: 'var(--text-muted)',
@@ -477,14 +492,14 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '12px',
+    fontSize: '10px',
     fontWeight: 700,
   },
   stepDivider: {
     flex: 1,
     height: '1px',
     backgroundColor: 'var(--border-color)',
-    margin: '0 12px',
+    margin: '0 8px',
   },
   emptyCard: {
     backgroundColor: 'var(--bg-surface-1)',

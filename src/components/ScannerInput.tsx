@@ -14,6 +14,7 @@ interface ScannerInputProps {
   placeholder?: string;
   autoFocus?: boolean;
   disabled?: boolean;
+  themeColor?: 'teal' | 'yellow' | 'amber';
 }
 
 export const ScannerInput: React.FC<ScannerInputProps> = ({
@@ -21,7 +22,14 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   placeholder = 'Scan or type code...',
   autoFocus = false,
   disabled = false,
+  themeColor = 'teal',
 }) => {
+  const isYellow = themeColor === 'yellow' || themeColor === 'amber';
+  const accentColor = isYellow ? '#F59E0B' : '#16B8AE';
+  const cardBg = isYellow ? 'rgba(245, 158, 11, 0.08)' : 'rgba(22, 184, 174, 0.08)';
+  const cardBorder = isYellow ? '2px dashed #F59E0B' : '2px dashed #16B8AE';
+  const pulseBg = isYellow ? 'rgba(245, 158, 11, 0.2)' : 'rgba(22, 184, 174, 0.2)';
+  const inputBorder = isYellow ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid rgba(22, 184, 174, 0.4)';
   const [inputValue, setInputValue] = useState('');
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -130,8 +138,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
         }}
         disabled={disabled}
         style={{
-          backgroundColor: 'rgba(22, 184, 174, 0.08)',
-          border: '2px dashed #16B8AE',
+          backgroundColor: cardBg,
+          border: cardBorder,
           borderRadius: '16px',
           padding: '20px 16px',
           display: 'flex',
@@ -150,20 +158,20 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
             width: '56px',
             height: '56px',
             borderRadius: '16px',
-            backgroundColor: 'rgba(22, 184, 174, 0.2)',
+            backgroundColor: pulseBg,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#16B8AE',
+            color: accentColor,
           }}
         >
           <ScanLine size={30} />
         </div>
         <span style={{ fontSize: '16px', fontWeight: 800, color: '#ECF7F6' }}>
-          Connected QR Scanner Ready
+          {isYellow ? '📦 Connected Box Scanner Ready' : 'Connected QR Scanner Ready'}
         </span>
-        <span style={{ fontSize: '12px', color: '#8EABB0' }}>
-          Tap to focus • Point Bluetooth/USB QR scanner to scan code
+        <span style={{ fontSize: '12px', color: isYellow ? '#FDE68A' : '#8EABB0' }}>
+          {isYellow ? 'Tap to focus • Scan BOX barcode first before garments' : 'Tap to focus • Point Bluetooth/USB QR scanner to scan code'}
         </span>
       </button>
       {/* Input Bar */}
@@ -176,7 +184,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
               left: '12px',
               top: '50%',
               transform: 'translateY(-50%)',
-              color: '#16B8AE',
+              color: accentColor,
             }}
           />
           <input
@@ -192,7 +200,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
               paddingRight: '12px',
               height: '48px',
               backgroundColor: '#0D2630',
-              border: '1px solid rgba(22, 184, 174, 0.4)',
+              border: inputBorder,
               borderRadius: '10px',
               color: '#FFFFFF',
               fontSize: '16px',
@@ -209,7 +217,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
             style={{
               height: '48px',
               padding: '0 16px',
-              backgroundColor: inputValue.trim() ? '#16B8AE' : '#102E38',
+              backgroundColor: inputValue.trim() ? accentColor : '#102E38',
               color: '#FFFFFF',
               border: 'none',
               borderRadius: '10px',

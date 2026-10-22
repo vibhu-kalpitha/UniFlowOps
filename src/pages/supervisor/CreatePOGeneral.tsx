@@ -5,6 +5,7 @@ import { apiFetch } from '../../services/api';
 import { OperationType, QcTestMode, ProductionOrder } from '../../types';
 import { ArrowRight, CheckSquare, Square, Plus, X, Users, Clock, ChevronDown, ChevronRight, Copy, Sparkles, Check, FileText, Building2 } from 'lucide-react';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { parsePoLines, formatPoLinesString } from '../../utils/formatters';
 import '../../styles/tokens.css';
 
 interface StyleItem {
@@ -422,7 +423,7 @@ const CreatePOGeneralInner: React.FC = () => {
       dueDate,
       supervisorId: supervisor,
       plant,
-      lineNumber,
+      lineNumber: formatPoLinesString(lineNumber) || lineNumber,
       // Primary shift = first allocation's shift (for `production_orders.shift_id`)
       shiftId: poAllocations[0]?.shiftId,
       shiftName: poAllocations[0]?.shiftName,
@@ -742,18 +743,71 @@ const CreatePOGeneralInner: React.FC = () => {
           </div>
         </div>
 
-          {/* Line Number */}
+          {/* Production Line Numbers */}
           <div>
-            <label style={styles.label}>Production Line Number</label>
-            <input
-              type="text"
-              className="input-field"
-              placeholder="e.g. Line 46, Line 12, Line A"
-              value={lineNumber}
-              onChange={e => setLineNumber(e.target.value)}
-            />
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
-              The specific factory line assigned to this Production Order.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={styles.label}>Production Line Numbers (Assigned Lines)</label>
+              {lineNumber.trim() && (
+                <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700 }}>
+                  {parsePoLines(lineNumber).length} Line{parsePoLines(lineNumber).length > 1 ? 's' : ''} Configured
+                </span>
+              )}
+            </div>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                color: 'var(--primary-teal)',
+                fontWeight: 800,
+                fontSize: '13px',
+                pointerEvents: 'none'
+              }}>
+                Line
+              </div>
+              <input
+                type="text"
+                className="input-field"
+                style={{ paddingLeft: '50px' }}
+                placeholder="1, 6, 8 (Enter line numbers separated by comma)"
+                value={lineNumber.replace(/^Line\s*/i, '')}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (!val.trim()) {
+                    setLineNumber('');
+                  } else {
+                    setLineNumber(val.toLowerCase().startsWith('line') ? val : `Line ${val}`);
+                  }
+                }}
+              />
+            </div>
+            {lineNumber.trim() && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Assigned Lines:</span>
+                {parsePoLines(lineNumber).map((line, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                      color: 'var(--primary-teal)',
+                      border: '1px solid rgba(20, 184, 166, 0.35)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ✓ {line}
+                  </span>
+                ))}
+              </div>
+            )}
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+              Enter single or multiple line numbers (e.g. 1, 6, 8). Operators will select their line when beginning work.
             </span>
           </div>
 

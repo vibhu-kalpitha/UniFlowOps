@@ -290,12 +290,27 @@ export const OperatorHome: React.FC = () => {
                     Change PO
                   </button>
                 </div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {formatPoDisplayName({
-                    poNumber: po?.id || po?.poNumber || fetchedPoDetails?.poNumber,
-                    poName: po?.poName || fetchedPoDetails?.poName,
-                    styleName: po?.styleName || fetchedPoDetails?.styleName
-                  })}
+                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span>
+                    {formatPoDisplayName({
+                      poNumber: po?.id || po?.poNumber || fetchedPoDetails?.poNumber,
+                      poName: po?.poName || fetchedPoDetails?.poName,
+                      styleName: po?.styleName || fetchedPoDetails?.styleName
+                    })}
+                  </span>
+                  {activeJob?.selectedLine && (
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                      color: 'var(--primary-teal)',
+                      border: '1px solid rgba(20, 184, 166, 0.3)'
+                    }}>
+                      {activeJob.selectedLine}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -645,8 +660,8 @@ export const OperatorHome: React.FC = () => {
           operationName={pendingOperation.name as any}
           isModal={true}
           onClose={() => setPendingOperation(null)}
-          onSelectPo={(selectedPo) => {
-            setActiveJob({ productionOrder: selectedPo });
+          onSelectPo={(selectedPo, selectedLine) => {
+            setActiveJob({ productionOrder: selectedPo, selectedLine });
             const targetRoute = pendingOperation.route;
             setPendingOperation(null);
             navigate(targetRoute);
