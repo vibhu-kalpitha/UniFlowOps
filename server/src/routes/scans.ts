@@ -3073,4 +3073,232 @@ router.post('/aql/inspections/:id/complete', authenticateToken, async (req: Auth
   }
 });
 
+// GET /api/lookup/lifecycle/:code — Unified lookup for product stages & box contents
+router.get('/lookup/lifecycle/:code', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const rawCode = req.params.code;
+    const poFilter = (req.query.poId || req.query.productionOrderId) as string | undefined;
+    if (!rawCode || !rawCode.trim()) {
+      return res.status(400).json({ error: 'CODE_REQUIRED', message: 'Barcode / QR code is required' });
+    }
+    const cleanCode = rawCode.trim();
+    const upperCode = cleanCode.toUpperCase();
+
+    // 1. Try Box lookup
+    const box = await db.prepare(`
+      SELECT b.*, po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name, s.code as style_code
+      FROM boxes b
+      LEFT JOIN production_orders po ON po.id = b.production_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      WHERE UPPER(TRIM(b.box_number)) = ? OR UPPER(TRIM(b.box_code)) = ?
+      LIMIT 1
+    `).get(upperCode, upperCode) as any;
+
+    if (box) {
+      const boxItems = await db.prepare(`
+        SELECT bi.id as box_item_id, bi.packed_at, u.qr_code, u.size, u.status as item_status,
+               usr.full_name as packed_by_name,
+               (SELECT qc_result FROM qc_results WHERE item_id = u.id LIMIT 1) as qc_result,
+               (SELECT pre_qc_result FROM pre_qc_results WHERE item_id = u.id ORDER BY scanned_at DESC LIMIT 1) as pre_qc_result
+        FROM box_items bi
+        JOIN item_units u ON u.id = bi.item_id
+        LEFT JOIN users usr ON usr.id = bi.packed_by
+        WHERE bi.box_id = ? AND bi.active = 1
+        ORDER BY bi.packed_at DESC
+      `).all(box.id) as any[];
+
+      const aqlRows = await db.prepare(`
+        SELECT stage, result, failure_reason, started_at, completed_at
+        FROM aql_inspections
+        WHERE box_id = ?
+        ORDER BY started_at DESC
+      `).all(box.id) as any[];
+
+      return res.json({
+        type: 'box',
+        boxNumber: box.box_number || box.box_code,
+        boxCode: box.box_code,
+        boxId: box.id,
+        status: box.status,
+        capacity: box.capacity,
+        totalItems: boxItems.length,
+        productionOrderId: box.po_id || box.production_order_id,
+        poNumber: box.po_number || 'N/A',
+        poName: box.po_name,
+        style: box.style_name || box.style_code || 'Standard Style',
+        customer: box.customer || 'Customer',
+        aqlInspections: aqlRows,
+        items: boxItems.map(i => ({
+          qr: i.qr_code,
+          size: i.size,
+          status: i.item_status,
+          qcResult: i.qc_result || 'PASSED',
+          preQcResult: i.pre_qc_result,
+          packedAt: i.packed_at,
+          packedBy: i.packed_by_name
+        }))
+      });
+    }
+
+    // 2. Try Product QR lookup
+    let item = await db.prepare(`
+      SELECT u.*, po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name, s.code as style_code,
+             poc.config_code, poc.size as config_size, poc.product_type
+      FROM item_units u
+      LEFT JOIN production_orders po ON po.id = u.production_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN production_order_configs poc ON poc.id = u.product_config_id
+      WHERE UPPER(TRIM(u.qr_code)) = ?
+      LIMIT 1
+    `).get(upperCode) as any;
+
+    if (!item) {
+      const failLogMatch = await db.prepare(`
+        SELECT f.*, u.qr_code 
+        FROM qc_fail_log f
+        LEFT JOIN item_units u ON u.id = f.item_id
+        WHERE UPPER(TRIM(f.raw_qr)) = ?
+        ORDER BY f.attempt_number DESC LIMIT 1
+      `).get(upperCode) as any;
+      if (failLogMatch && failLogMatch.item_id) {
+        item = await db.prepare(`
+          SELECT u.*, po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name, s.code as style_code
+          FROM item_units u
+          LEFT JOIN production_orders po ON po.id = u.production_order_id
+          LEFT JOIN styles s ON s.id = po.style_id
+          WHERE u.id = ?
+        `).get(failLogMatch.item_id) as any;
+      }
+    }
+
+    if (item) {
+      const preQc = await db.prepare(`
+        SELECT * FROM pre_qc_results WHERE item_id = ? ORDER BY scanned_at DESC LIMIT 1
+      `).get(item.id) as any;
+
+      const qcResult = await db.prepare(`
+        SELECT qr.*, usr.full_name as operator_name 
+        FROM qc_results qr
+        LEFT JOIN users usr ON usr.id = qr.operator_id
+        WHERE qr.item_id = ?
+      `).get(item.id) as any;
+
+      const qcFail = await db.prepare(`
+        SELECT * FROM qc_fail_log WHERE item_id = ? ORDER BY attempt_number DESC LIMIT 1
+      `).get(item.id) as any;
+
+      const packing = await db.prepare(`
+        SELECT bi.*, b.box_number, b.box_code, b.status as box_status, usr.full_name as packed_by_name
+        FROM box_items bi
+        JOIN boxes b ON b.id = bi.box_id
+        LEFT JOIN users usr ON usr.id = bi.packed_by
+        WHERE bi.item_id = ? AND bi.active = 1
+        ORDER BY bi.packed_at DESC LIMIT 1
+      `).get(item.id) as any;
+
+      const aqlSamples = await db.prepare(`
+        SELECT s.*, insp.stage, insp.result as inspection_result, b.box_number
+        FROM aql_samples s
+        JOIN aql_inspections insp ON insp.id = s.inspection_id
+        LEFT JOIN boxes b ON b.id = insp.box_id
+        WHERE s.item_id = ?
+        ORDER BY s.scanned_at DESC
+      `).all(item.id) as any[];
+
+      const normalAql = aqlSamples.find(s => s.stage === 'NORMAL_AQL' || s.stage === 'AQL');
+      const finalAql = aqlSamples.find(s => s.stage === 'FINAL_AQL');
+
+      return res.json({
+        type: 'product',
+        qr: item.qr_code || cleanCode,
+        itemId: item.id,
+        productionOrderId: item.po_id || item.production_order_id,
+        poNumber: item.po_number || 'N/A',
+        poName: item.po_name,
+        style: item.style_name || item.style_code || 'Garment Style',
+        customer: item.customer,
+        size: item.size || item.config_size || 'N/A',
+        productType: item.product_type || 'Garment',
+        stages: {
+          preQc: {
+            status: preQc ? (preQc.pre_qc_result === 'PASS' ? 'PASSED' : 'FAILED') : 'REMAIN',
+            scannedAt: preQc?.scanned_at || null,
+            failureReason: preQc?.failure_reason || null
+          },
+          qc: {
+            status: qcResult ? (qcResult.qc_result === 'PASS' ? 'PASSED' : 'FAILED') : (qcFail ? 'FAILED' : 'REMAIN'),
+            scannedAt: qcResult?.scanned_at || qcFail?.scanned_at || null,
+            operatorName: qcResult?.operator_name || null,
+            failureReason: qcResult?.failure_reason || qcFail?.failure_reason || null
+          },
+          packing: {
+            status: packing ? 'PACKED' : 'REMAIN',
+            boxNumber: packing ? (packing.box_number || packing.box_code) : null,
+            packedAt: packing?.packed_at || null,
+            packedBy: packing?.packed_by_name || null
+          },
+          normalAql: {
+            status: normalAql ? (normalAql.result === 'PASS' ? 'PASSED' : 'FAILED') : 'REMAIN',
+            scannedAt: normalAql?.scanned_at || null,
+            boxNumber: normalAql?.box_number || packing?.box_number || null
+          },
+          finalAql: {
+            status: finalAql ? (finalAql.result === 'PASS' ? 'PASSED' : 'FAILED') : 'REMAIN',
+            scannedAt: finalAql?.scanned_at || null,
+            boxNumber: finalAql?.box_number || packing?.box_number || null
+          }
+        }
+      });
+    }
+
+    // 3. Fallback: Check if matches active PO range / configs
+    let matchedPo: any = null;
+    if (poFilter) {
+      matchedPo = await resolvePO(poFilter);
+    }
+    if (!matchedPo) {
+      const matchingConfig = await db.prepare(`
+        SELECT poc.*, po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name, s.code as style_code
+        FROM production_order_configs poc
+        JOIN production_orders po ON po.id = poc.production_order_id
+        LEFT JOIN styles s ON s.id = po.style_id
+        WHERE ? LIKE CONCAT(UPPER(TRIM(poc.product_qr_prefix)), '%')
+        LIMIT 1
+      `).get(upperCode) as any;
+
+      if (matchingConfig) {
+        matchedPo = matchingConfig;
+      }
+    }
+
+    if (matchedPo) {
+      return res.json({
+        type: 'product',
+        qr: cleanCode,
+        productionOrderId: matchedPo.po_id || matchedPo.id,
+        poNumber: matchedPo.po_number || 'N/A',
+        poName: matchedPo.po_name,
+        style: matchedPo.style_name || matchedPo.style_code || 'Garment Style',
+        customer: matchedPo.customer,
+        isUnscanned: true,
+        stages: {
+          preQc: { status: 'REMAIN' },
+          qc: { status: 'REMAIN' },
+          packing: { status: 'REMAIN' },
+          normalAql: { status: 'REMAIN' },
+          finalAql: { status: 'REMAIN' }
+        }
+      });
+    }
+
+    return res.status(404).json({
+      type: 'not-found',
+      query: cleanCode,
+      message: `"${cleanCode}" was not found as a registered Box or Product QR.`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

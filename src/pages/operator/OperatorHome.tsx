@@ -8,6 +8,7 @@ import { ProductionOrder, SalesOrder, OperationType } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { CodeLifecycleModal } from '../../components/CodeLifecycleModal';
 import '../../styles/tokens.css';
 
 export const OperatorHome: React.FC = () => {
@@ -505,154 +506,12 @@ export const OperatorHome: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Quick Search Modal ───────────────────────────────────── */}
-      {showSearch && (
-        <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modalContent, maxWidth: '480px' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>Quick Lookup</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Scan or type a product QR or box barcode</span>
-              </div>
-              <button style={styles.closeBtn} onClick={closeSearch}>
-                <X size={20} color="var(--text-secondary)" />
-              </button>
-            </div>
-
-            {/* Input */}
-            <div style={{ position: 'relative', marginBottom: '14px' }}>
-              <Search size={16} color="var(--text-secondary)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); handleSearch(e.target.value); }}
-                onKeyDown={e => { if (e.key === 'Enter') handleSearch(searchQuery); }}
-                placeholder="Type or scan QR code…"
-                style={{
-                  width: '100%',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: '1.5px solid var(--primary-teal)',
-                  backgroundColor: 'var(--bg-surface-2)',
-                  color: 'var(--text-primary)',
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  paddingLeft: '38px',
-                  paddingRight: '14px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  letterSpacing: '0.03em',
-                }}
-              />
-            </div>
-
-            {/* ── Result: Box Found ── */}
-            {searchResult === 'box' && searchedBox && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <BoxSelect size={18} color="var(--color-blue)" />
-                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-blue)', textTransform: 'uppercase' }}>
-                    Box Found
-                  </span>
-                </div>
-                <div style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: '1.5px solid rgba(59,130,246,0.3)', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>{searchedBox.boxNumber}</span>
-                    <StatusPill label={searchedBox.status === 'COMPLETED' ? 'Sealed' : 'Open'} variant={searchedBox.status === 'COMPLETED' ? 'green' : 'teal'} />
-                  </div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    SO: {searchedBox.soId} • Capacity: {searchedBox.items.length}/{searchedBox.capacity} items
-                  </div>
-                  <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed var(--border-color)' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Products inside ({searchedBox.items.length}):
-                    </span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                      {searchedBox.items.map((item, idx) => (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-surface-1)', borderRadius: '8px', padding: '8px 12px', border: '1px solid var(--border-color)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Package size={14} color="var(--primary-teal)" />
-                            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{item.qr}</span>
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.scannedAt}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Result: Product Found in a Box ── */}
-            {searchResult === 'product' && searchedProductBox && searchedProductItem && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <CheckCircle2 size={18} color="var(--color-green)" />
-                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-green)', textTransform: 'uppercase' }}>Product Found</span>
-                </div>
-                <div style={{ backgroundColor: 'rgba(16,185,129,0.08)', border: '1.5px solid rgba(16,185,129,0.3)', borderRadius: '14px', padding: '14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>{searchedProductItem.qr}</span>
-                    <StatusPill label="Packed ✅" variant="green" />
-                  </div>
-                  <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <span>Product</span>
-                      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{so?.product || 'Garment'}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <span>Packed In Box</span>
-                      <span style={{ fontWeight: 700, color: 'var(--color-blue)' }}>{searchedProductBox.boxNumber}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <span>Scanned At</span>
-                      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{searchedProductItem.scannedAt}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <span>Sales Order</span>
-                      <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>{searchedProductBox.soId}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Result: In-range product but not packed yet ── */}
-            {searchResult === 'product' && !searchedProductBox && (
-              <div style={{ backgroundColor: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.3)', borderRadius: '14px', padding: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <Package size={16} color="#F59E0B" />
-                  <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>{searchQuery.trim()}</span>
-                  <StatusPill label="Not Packed Yet" variant="amber" />
-                </div>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  This barcode is in PO range but has not been packed into any box yet.
-                </span>
-              </div>
-            )}
-
-            {/* ── Not found ── */}
-            {searchResult === 'not-found' && (
-              <div style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.3)', borderRadius: '14px', padding: '14px', textAlign: 'center' }}>
-                <X size={28} color="var(--color-red)" />
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>Not Found</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  "{searchQuery}" is not a known box or packed product.
-                </div>
-              </div>
-            )}
-
-            {/* ── Empty state ── */}
-            {!searchResult && (
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)' }}>
-                <ScanLine size={40} />
-                <div style={{ fontSize: '13px', marginTop: '10px' }}>Type a product QR or box number to look up</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* ── Quick Search / Scan Lifecycle Modal ───────────────────── */}
+      <CodeLifecycleModal
+        isOpen={showSearch}
+        onClose={() => setShowSearch(false)}
+        currentPoId={activeJob?.productionOrder?.id}
+      />
 
       {/* ── Production Order Selection Modal ───────────────────── */}
       {pendingOperation && (

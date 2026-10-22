@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy, Shirt, Plus, Search } from 'lucide-react';
+import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy, Shirt, Plus, Search, ScanLine } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { parsePoLines, formatPoLinesString } from '../../utils/formatters';
+import { CodeLifecycleModal } from '../../components/CodeLifecycleModal';
 import '../../styles/tokens.css';
 
 interface PoConfigItem {
@@ -44,6 +45,9 @@ export const AdminOrders: React.FC = () => {
   const { showToast } = useApp();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [orderSearchQuery, setOrderSearchQuery] = useState<string>('');
+  const [showLifecycleModal, setShowLifecycleModal] = useState<boolean>(false);
+  const [lifecycleSearchCode, setLifecycleSearchCode] = useState<string>('');
 
   // Reference catalog data for full edit
   const [stylesList, setStylesList] = useState<any[]>([]);
@@ -438,6 +442,28 @@ export const AdminOrders: React.FC = () => {
     navigate('/supervisor/production-orders/new/general');
   };
 
+  const filteredOrders = orders.filter(po => {
+    if (!orderSearchQuery.trim()) return true;
+    const q = orderSearchQuery.toLowerCase().trim();
+    const poNum = String(po.poNumber || po.po_number || '').toLowerCase();
+    const poName = String(po.poName || po.po_name || '').toLowerCase();
+    const styleName = String(po.styleName || po.style_name || '').toLowerCase();
+    const styleCode = String(po.styleCode || po.style_code || '').toLowerCase();
+    const customer = String(po.customer || '').toLowerCase();
+    const lineNum = String(po.lineNumber || po.line_number || '').toLowerCase();
+    const plant = String(po.plant || '').toLowerCase();
+
+    return (
+      poNum.includes(q) ||
+      poName.includes(q) ||
+      styleName.includes(q) ||
+      styleCode.includes(q) ||
+      customer.includes(q) ||
+      lineNum.includes(q) ||
+      plant.includes(q)
+    );
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
@@ -555,17 +581,113 @@ export const AdminOrders: React.FC = () => {
 
       {/* ── Active Tab Content: Orders vs Styles ── */}
       {activeTab === 'orders' ? (
-        loading && orders.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          Loading production orders...
-        </div>
-      ) : orders.length === 0 ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          No production orders registered.
-        </div>
-      ) : (
-        <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '14px' }}>
-          {orders.map(po => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Search Bar for POs, Styles & Barcode scanning */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            backgroundColor: 'var(--bg-surface-1)',
+            padding: '10px 14px',
+            borderRadius: '14px',
+            border: '1.5px solid var(--border-color)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+          }}>
+            <Search size={18} color="var(--primary-teal)" />
+            <input
+              type="text"
+              value={orderSearchQuery}
+              onChange={e => setOrderSearchQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && orderSearchQuery.trim()) {
+                  setLifecycleSearchCode(orderSearchQuery.trim());
+                  setShowLifecycleModal(true);
+                }
+              }}
+              placeholder="Search by PO Number, Style, Customer or scan Box / Product QR…"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+                fontWeight: 600,
+                outline: 'none',
+                flex: 1
+              }}
+            />
+            {orderSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setOrderSearchQuery('')}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setLifecycleSearchCode(orderSearchQuery.trim());
+                setShowLifecycleModal(true);
+              }}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                border: '1px solid var(--primary-teal)',
+                color: 'var(--primary-teal)',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap'
+              }}
+              title="Inspect lifecycle of product QR or box code"
+            >
+              <ScanLine size={14} /> Scan / Inspect QR
+            </button>
+          </div>
+
+          {loading && orders.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Loading production orders...
+            </div>
+          ) : orders.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              No production orders registered.
+            </div>
+          ) : filteredOrders.length === 0 ? (
+            <div style={{
+              padding: '30px',
+              textAlign: 'center',
+              backgroundColor: 'var(--bg-surface-1)',
+              borderRadius: '14px',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                No Production Orders matched "<strong>{orderSearchQuery}</strong>"
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLifecycleSearchCode(orderSearchQuery.trim());
+                  setShowLifecycleModal(true);
+                }}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ScanLine size={14} color="var(--primary-teal)" /> Inspect "{orderSearchQuery}" as Product QR or Box Barcode
+              </button>
+            </div>
+          ) : (
+            <div className="grid-2-desktop" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '14px' }}>
+              {filteredOrders.map(po => {
             const packedQty = Number(po.packedCount || po.packed_count || 0);
             const targetQty = Number(po.configuredQuantity || po.total_quantity || 500);
             const configs: any[] = po.configs || [];
@@ -755,7 +877,9 @@ export const AdminOrders: React.FC = () => {
             );
           })}
         </div>
-      )) : (
+      )}
+    </div>
+  ) : (
         /* ── Garment Styles Tab View ── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Search & Actions Bar */}
@@ -1934,6 +2058,13 @@ export const AdminOrders: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Scan & Lifecycle Lookup Modal ── */}
+      <CodeLifecycleModal
+        isOpen={showLifecycleModal}
+        onClose={() => setShowLifecycleModal(false)}
+        initialQuery={lifecycleSearchCode}
+      />
     </div>
   );
 };

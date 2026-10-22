@@ -4,8 +4,9 @@ import { useApp } from '../../context/AppContext';
 import { ProductionOrder } from '../../types';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
-import { ChevronRight, X, Copy } from 'lucide-react';
+import { ChevronRight, X, Copy, Search, ScanLine } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { CodeLifecycleModal } from '../../components/CodeLifecycleModal';
 import '../../styles/tokens.css';
 
 export const SupervisorOrders: React.FC = () => {
@@ -13,6 +14,9 @@ export const SupervisorOrders: React.FC = () => {
   const { productionOrders, refreshProductionOrders, showToast } = useApp();
   const [selectedPo, setSelectedPo] = useState<ProductionOrder | null>(null);
   const [updatingPrefix, setUpdatingPrefix] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showLifecycleModal, setShowLifecycleModal] = useState<boolean>(false);
+  const [lifecycleSearchCode, setLifecycleSearchCode] = useState<string>('');
 
   useEffect(() => {
     refreshProductionOrders();
@@ -105,13 +109,132 @@ export const SupervisorOrders: React.FC = () => {
     navigate('/supervisor/production-orders/new/general');
   };
 
+  const filteredOrders = productionOrders.filter(po => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    const poNum = String(po.id || '').toLowerCase();
+    const poName = String(po.poName || '').toLowerCase();
+    const mapPo = String(po.mapPo || '').toLowerCase();
+    const styleName = String(po.styleName || '').toLowerCase();
+    const styleCode = String(po.styleCode || '').toLowerCase();
+    const customer = String(po.customer || '').toLowerCase();
+    const lineNum = String(po.lineNumber || po.line_number || '').toLowerCase();
+    const plant = String(po.plant || '').toLowerCase();
+
+    return (
+      poNum.includes(q) ||
+      poName.includes(q) ||
+      mapPo.includes(q) ||
+      styleName.includes(q) ||
+      styleCode.includes(q) ||
+      customer.includes(q) ||
+      lineNum.includes(q) ||
+      plant.includes(q)
+    );
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Supervisor Order Oversight</h2>
 
-      {/* PO Cards Grid */}
-      <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
-        {productionOrders.map(po => {
+      {/* Quick Search & Barcode Scan Bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        backgroundColor: 'var(--bg-surface-1)',
+        padding: '10px 14px',
+        borderRadius: '14px',
+        border: '1.5px solid var(--border-color)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+      }}>
+        <Search size={18} color="var(--primary-teal)" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && searchQuery.trim()) {
+              setLifecycleSearchCode(searchQuery.trim());
+              setShowLifecycleModal(true);
+            }
+          }}
+          placeholder="Search by PO Number, Style, Customer or scan Box / Product QR…"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-primary)',
+            fontSize: '14px',
+            fontWeight: 600,
+            outline: 'none',
+            flex: 1
+          }}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+          >
+            <X size={16} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setLifecycleSearchCode(searchQuery.trim());
+            setShowLifecycleModal(true);
+          }}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(22, 184, 174, 0.15)',
+            border: '1px solid var(--primary-teal)',
+            color: 'var(--primary-teal)',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            whiteSpace: 'nowrap'
+          }}
+          title="Inspect lifecycle of product QR or box code"
+        >
+          <ScanLine size={14} /> Scan / Inspect QR
+        </button>
+      </div>
+
+      {filteredOrders.length === 0 ? (
+        <div style={{
+          padding: '30px',
+          textAlign: 'center',
+          backgroundColor: 'var(--bg-surface-1)',
+          borderRadius: '14px',
+          border: '1px solid var(--border-color)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+            No Production Orders matched "<strong>{searchQuery}</strong>"
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setLifecycleSearchCode(searchQuery.trim());
+              setShowLifecycleModal(true);
+            }}
+            className="btn btn-secondary"
+            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <ScanLine size={14} color="var(--primary-teal)" /> Inspect "{searchQuery}" as Product QR or Box Barcode
+          </button>
+        </div>
+      ) : (
+        <div className="grid-2-desktop" style={{ display: 'grid', gap: '12px' }}>
+          {filteredOrders.map(po => {
           const totalQty = po.totalQuantity || (po.productConfigurations?.reduce((sum, c) => sum + c.quantity, 0)) || 1000;
           const qcPassed = po.progress?.qcPassed || 0;
           const packedQty = po.progress?.packed || 0;
@@ -223,6 +346,7 @@ export const SupervisorOrders: React.FC = () => {
           );
         })}
       </div>
+      )}
 
       {/* PO Detail Modal */}
       {selectedPo && (
@@ -345,6 +469,13 @@ export const SupervisorOrders: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Scan & Lifecycle Lookup Modal ── */}
+      <CodeLifecycleModal
+        isOpen={showLifecycleModal}
+        onClose={() => setShowLifecycleModal(false)}
+        initialQuery={lifecycleSearchCode}
+      />
     </div>
   );
 };

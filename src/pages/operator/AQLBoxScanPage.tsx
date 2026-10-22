@@ -408,12 +408,17 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
 
             {scannedBox.packedItemQrs.length > 0 && (
               <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                  PACKED GARMENTS ({scannedBox.packedItemQrs.length} ITEMS):
-                </span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '100px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                    PACKED GARMENTS ({scannedBox.packedItemQrs.length} ITEMS):
+                  </span>
+                  {scannedBox.packedItemQrs.length > 6 && (
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Scroll to view all</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '200px', overflowY: 'auto', paddingRight: '2px' }}>
                   {scannedBox.packedItemQrs.map((qr, idx) => (
-                    <span key={idx} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 600 }}>
+                    <span key={idx} style={{ fontSize: '11px', padding: '4px 8px', borderRadius: '6px', backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontWeight: 600 }}>
                       {idx + 1}. {qr}
                     </span>
                   ))}

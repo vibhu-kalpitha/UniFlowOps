@@ -503,11 +503,33 @@ export const PackingPage: React.FC = () => {
 
             {box.items.length > 0 && (
               <div>
-                <span style={styles.sectionHeaderTitle}>Recently Packed</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-                  {box.items.slice(0, 6).map((item, idx) => (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={styles.sectionHeaderTitle}>Packed Products ({box.items.length})</span>
+                  {box.items.length > 4 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Scroll to view all</span>
+                  )}
+                </div>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  marginTop: '6px',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                  paddingRight: '4px'
+                }}>
+                  {box.items.map((item, idx) => (
                     <div key={idx} style={styles.itemRow}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: 'var(--text-muted)',
+                          width: '18px',
+                          textAlign: 'right'
+                        }}>
+                          {box.items.length - idx}.
+                        </span>
                         <Package size={18} color="var(--primary-teal)" />
                         <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
                           {item.qr}
@@ -519,11 +541,6 @@ export const PackingPage: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  {box.items.length > 6 && (
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                      +{box.items.length - 6} more items
-                    </span>
-                  )}
                 </div>
               </div>
             )}
