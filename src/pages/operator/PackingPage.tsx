@@ -203,6 +203,9 @@ export const PackingPage: React.FC = () => {
     };
   };
 
+  // In-flight guard to prevent parallel scan executions
+  const isPackingScanInFlightRef = React.useRef(false);
+
   /* ── Phase 2: Product barcode scan ─────────────────────────── */
   const handleScanProduct = async (code: string) => {
     if (!box) return { status: 'rejected' as const, message: 'Scan a box first!', code };
@@ -215,7 +218,22 @@ export const PackingPage: React.FC = () => {
       };
     }
 
+    const normalizedCode = code.trim().toUpperCase();
 
+    // 1. Instant client-side duplicate check: block if already present in active box items
+    if (box.items.some(i => (i.qr || '').trim().toUpperCase() === normalizedCode)) {
+      return {
+        status: 'duplicate' as const,
+        message: `⚠️ Item ${code} is already packed in box ${box.boxNumber}`,
+        code,
+      };
+    }
+
+    // 2. Prevent concurrent / parallel scan execution
+    if (isPackingScanInFlightRef.current) {
+      return;
+    }
+    isPackingScanInFlightRef.current = true;
 
     let scanRes: any = null;
     // Try API
@@ -252,6 +270,8 @@ export const PackingPage: React.FC = () => {
         message: errMsg,
         code,
       };
+    } finally {
+      isPackingScanInFlightRef.current = false;
     }
 
     const currentPoId = po?.id || po?.dbId;

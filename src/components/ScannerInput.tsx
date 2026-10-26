@@ -35,6 +35,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [muted, setMuted] = useState(() => localStorage.getItem('uniflow_mute_audio') === 'true');
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const isSubmittingRef = useRef<boolean>(false);
+  const lastSubmittedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
   // Play audio/haptic feedback
   const triggerBeep = (type: 'accepted' | 'duplicate' | 'rejected') => {
@@ -77,6 +79,21 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     const code = rawCode.trim().replace(/[\r\n]/g, '');
     if (!code) return;
 
+    const now = Date.now();
+    const upperCode = code.toUpperCase();
+
+    // Prevent rapid duplicate trigger of the exact same code within 1000ms
+    if (lastSubmittedRef.current.code === upperCode && now - lastSubmittedRef.current.time < 1000) {
+      return;
+    }
+
+    // Prevent concurrent in-flight submissions
+    if (isSubmittingRef.current) {
+      return;
+    }
+
+    isSubmittingRef.current = true;
+    lastSubmittedRef.current = { code: upperCode, time: now };
     setInputValue('');
     try {
       const result = await onScan(code);
@@ -92,6 +109,8 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
       };
       setFeedback(failFeedback);
       triggerBeep('rejected');
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 

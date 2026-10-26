@@ -2244,40 +2244,31 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       }
     }
 
-    // STEP 7, 8, 9 — DUPLICATE CHECK SCOPED ONLY TO CURRENT PO (po.id) using authoritative Box -> PO relationship
-    const existingActivePack = await db.prepare(`
-      SELECT bi.*, b.box_code, b.box_number, b.production_order_id as box_po_id
-      FROM box_items bi 
-      JOIN boxes b ON b.id = bi.box_id 
-      JOIN item_units iu ON iu.id = bi.item_id
-      WHERE (b.production_order_id = ? OR b.production_order_id = ? OR b.production_order_id = ?)
-        AND UPPER(TRIM(iu.qr_code)) = ?
-        AND bi.active = 1
-    `).get(po.id, po.po_number, po.map_po, itemQr.trim().toUpperCase()) as any;
-
-    if (existingActivePack) {
-      const existingBoxCode = existingActivePack.box_code || existingActivePack.box_number || 'another box';
-      if (existingActivePack.box_id === box.id) {
-        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'DUPLICATE', 'ALREADY_PACKED', 'Item already packed in this box');
-        return res.status(200).json({
-          message: `Item ${itemQr} is already packed in box ${existingBoxCode}`,
-          boxNumber: existingBoxCode,
-          itemCount: currentItemsCount,
-          capacity: box.capacity,
-          isDuplicate: true
-        });
-      } else {
-        const dupMessage = `Item ${itemQr} is ALREADY PACKED in Box ${existingBoxCode} for this Production Order.`;
-        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED', dupMessage);
-        return res.status(400).json({
-          error: 'ALREADY_PACKED',
-          message: dupMessage
-        });
-      }
-    }
-
+    // STEP 7, 8, 9 — DUPLICATE CHECK & PACK EXECUTION INSIDE ATOMIC TRANSACTION WITH ROW LOCK
     const boxItemId = `bi-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    await db.transaction(async (tx) => {
+    const duplicateInfo = await db.transaction<{ isSameBox: boolean; existingBoxCode: string } | null>(async (tx) => {
+      // Row lock on item_units to serialize concurrent scans for this exact item
+      await tx.prepare(`SELECT id, status FROM item_units WHERE id = ? FOR UPDATE`).get(item.id);
+
+      // Duplicate check scoped to current PO inside transaction
+      const existingActivePack = await tx.prepare(`
+        SELECT bi.*, b.box_code, b.box_number, b.production_order_id as box_po_id
+        FROM box_items bi 
+        JOIN boxes b ON b.id = bi.box_id 
+        JOIN item_units iu ON iu.id = bi.item_id
+        WHERE (b.production_order_id = ? OR b.production_order_id = ? OR b.production_order_id = ?)
+          AND UPPER(TRIM(iu.qr_code)) = ?
+          AND bi.active = 1
+      `).get(po.id, po.po_number, po.map_po, itemQr.trim().toUpperCase()) as any;
+
+      if (existingActivePack) {
+        const existingBoxCode = existingActivePack.box_code || existingActivePack.box_number || 'another box';
+        return {
+          isSameBox: existingActivePack.box_id === box.id,
+          existingBoxCode
+        };
+      }
+
       await tx.prepare(`
         INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
         VALUES (?, ?, ?, ?, NOW(3), 1)
@@ -2288,7 +2279,29 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       if (currentItemsCount + 1 >= box.capacity) {
         await tx.prepare(`UPDATE boxes SET status = 'COMPLETE', completed_at = NOW(3) WHERE id = ?`).run(box.id);
       }
+
+      return null;
     });
+
+    if (duplicateInfo) {
+      if (duplicateInfo.isSameBox) {
+        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'DUPLICATE', 'ALREADY_PACKED', 'Item already packed in this box');
+        return res.status(200).json({
+          message: `Item ${itemQr} is already packed in box ${duplicateInfo.existingBoxCode}`,
+          boxNumber: duplicateInfo.existingBoxCode,
+          itemCount: currentItemsCount,
+          capacity: box.capacity,
+          isDuplicate: true
+        });
+      } else {
+        const dupMessage = `Item ${itemQr} is ALREADY PACKED in Box ${duplicateInfo.existingBoxCode} for this Production Order.`;
+        await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'ALREADY_PACKED', dupMessage);
+        return res.status(400).json({
+          error: 'ALREADY_PACKED',
+          message: dupMessage
+        });
+      }
+    }
 
     await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'ACCEPTED');
     await auditLog(operatorId, 'PACK_ITEM', 'boxes', box.id, { itemQr, count: currentItemsCount + 1 });

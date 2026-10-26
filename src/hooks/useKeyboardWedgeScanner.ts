@@ -34,6 +34,14 @@ export function useKeyboardWedgeScanner({ onScan, enabled = true }: ScannerOptio
       }
 
       if (e.key === 'Enter' || e.key === 'Tab') {
+        // If the keystroke occurred inside an input element (e.g. ScannerInput text box),
+        // let the input's form onSubmit handle it to prevent double-firing.
+        if (isInputElem) {
+          bufferRef.current = '';
+          keyTimesRef.current = [];
+          return;
+        }
+
         const raw = bufferRef.current.trim().replace(/[\r\n]+/g, '');
         if (raw.length >= 3) {
           // Calculate average inter-character delay to distinguish scanner from human typing
