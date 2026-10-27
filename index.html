@@ -20,9 +20,29 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Automatically recover if browser cached an old bundle hash that is no longer on the server
+      window.addEventListener('error', function (e) {
+        if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+          if (!sessionStorage.getItem('asset_retry_done')) {
+            sessionStorage.setItem('asset_retry_done', '1');
+            if ('caches' in window) {
+              caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+              }).then(function () {
+                window.location.reload();
+              });
+            } else {
+              window.location.reload();
+            }
+          }
+        }
+      }, true);
+
       if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            reg.update().catch(() => {});
+          }).catch((err) => {
             console.log('SW registration skipped or failed:', err);
           });
         });

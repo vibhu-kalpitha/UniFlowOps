@@ -1,16 +1,6 @@
-const CACHE_NAME = 'uniflow-ops-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-];
+const CACHE_NAME = 'uniflow-ops-v4';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
   self.skipWaiting();
 });
 
@@ -37,22 +27,38 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-First for Navigation (HTML) so new app updates & bundles load immediately!
+  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match('/index.html');
+        })
+    );
+    return;
+  }
+
+  // Stale-while-revalidate for static assets
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached shell, fetch fresh copy in background
-        fetch(event.request).then((networkResponse) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-      return fetch(event.request).catch(() => {
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
+          return networkResponse;
+        })
+        .catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
     })
   );
 });

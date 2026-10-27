@@ -85,8 +85,8 @@ app.use(express.static(distPath, {
 
 // Fallback all non-API GET routes to index.html for SPA client routing
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'API_NOT_FOUND', message: `API route ${req.method} ${req.path} not found` });
+  if (req.path.startsWith('/api') || req.path.startsWith('/assets/')) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: `Route or asset ${req.method} ${req.path} not found` });
   }
   const indexPath = path.join(distPath, 'index.html');
   if (fs.existsSync(indexPath)) {
