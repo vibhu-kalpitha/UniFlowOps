@@ -748,7 +748,6 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       LEFT JOIN production_lines pl ON pl.id = so.line_id
       LEFT JOIN users u ON u.id = qr.operator_id
       ORDER BY qr.scanned_at DESC
-      LIMIT 100
     `).all() as any[];
 
     // 15. Detailed AQL & Final AQL Logs with real line_number and PO line fallback
@@ -767,7 +766,6 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       LEFT JOIN production_lines pl ON pl.id = so.line_id
       LEFT JOIN users u ON u.id = ai.inspector_id
       ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
-      LIMIT 100
     `).all() as any[];
 
     // 16. Detailed Pre-QC Logs with real line_number and PO line fallback
@@ -786,7 +784,6 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         LEFT JOIN production_lines pl ON pl.id = so.line_id
         LEFT JOIN users u ON u.id = pq.operator_id
         ORDER BY pq.scanned_at DESC
-        LIMIT 100
       `).all() as any[];
     } catch {
       preQcLogs = [];

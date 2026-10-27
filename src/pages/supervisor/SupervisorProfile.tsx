@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
-import { User, Key, Globe, Info, LogOut, Shield, ChevronRight, X } from 'lucide-react';
+import { Building, Info, LogOut } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import '../../styles/tokens.css';
 
@@ -10,26 +10,10 @@ export const SupervisorProfile: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, logoutUser, showToast } = useApp();
 
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [oldPassword, setOldPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-
   const handleLogout = async () => {
     await logoutUser();
     showToast('Logged out of UniFlow Ops', 'info');
     navigate('/login');
-  };
-
-  const handleChangePassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!oldPassword || !newPassword) {
-      showToast('Please fill all password fields', 'warning');
-      return;
-    }
-    showToast('Password changed successfully!', 'success');
-    setShowPasswordModal(false);
-    setOldPassword('');
-    setNewPassword('');
   };
 
   return (
@@ -43,7 +27,10 @@ export const SupervisorProfile: React.FC = () => {
           {currentUser?.name || 'Supervisor'}
         </h2>
         <div style={{ marginTop: '6px' }}>
-          <StatusPill label="SUPERVISOR • LINE 04 & 02" variant="teal" />
+          <StatusPill
+            label={`SUPERVISOR • ${currentUser?.plant || currentUser?.lineId || 'Innovus Plant'}`}
+            variant="teal"
+          />
         </div>
 
         <div style={{ marginTop: '20px', width: '100%', textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
@@ -58,21 +45,16 @@ export const SupervisorProfile: React.FC = () => {
 
       {/* Right Column: Options */}
       <div className="profile-options-grid" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* Change Password (FOR SUPERVISOR) */}
-        <div
-          className="card"
-          style={{ ...styles.menuCard, cursor: 'pointer' }}
-          onClick={() => setShowPasswordModal(true)}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+        {/* Company Details */}
+        <div className="card" style={styles.menuCard}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={styles.iconCircle}>
-              <Key size={18} color="var(--primary-teal)" />
+              <Building size={18} color="var(--primary-teal)" />
             </div>
-            <div style={{ flex: 1 }}>
-              <span style={styles.menuTitle}>Change Password</span>
-              <span style={styles.menuDesc}>Update supervisor login security credentials</span>
+            <div>
+              <span style={styles.menuTitle}>Company Details</span>
+              <span style={styles.menuDesc}>Innovus Garments (Pvt) Ltd • Factory #04</span>
             </div>
-            <ChevronRight size={18} color="var(--text-secondary)" />
           </div>
         </div>
 
@@ -89,48 +71,6 @@ export const SupervisorProfile: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Change Password Modal */}
-      {showPasswordModal && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Change Password</h3>
-              <button style={{ background: 'none', border: 'none' }} onClick={() => setShowPasswordModal(false)}>
-                <X size={20} color="var(--text-secondary)" />
-              </button>
-            </div>
-
-            <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <label style={styles.label}>Current Password</label>
-                <input
-                  type="password"
-                  className="input-field"
-                  value={oldPassword}
-                  onChange={e => setOldPassword(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div>
-                <label style={styles.label}>New Password</label>
-                <input
-                  type="password"
-                  className="input-field"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  required
-                />
-              </div>
-
-              <button type="submit" className="btn-primary" style={{ marginTop: '10px' }}>
-                Update Password
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -1,17 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { UserRole } from '../../types';
-import { User, Globe, Info, LogOut, Shield, ChevronRight } from 'lucide-react';
+import { Info, LogOut } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import '../../styles/tokens.css';
 
 export const OperatorProfile: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, currentRole, logoutUser, showToast } = useApp();
-
-  const [language, setLanguage] = useState('English');
-  const [showRoleModal, setShowRoleModal] = useState(false);
+  const { currentUser, logoutUser, showToast } = useApp();
 
   const handleLogout = async () => {
     await logoutUser();
@@ -43,60 +39,8 @@ export const OperatorProfile: React.FC = () => {
         </button>
       </div>
 
-      {/* Right Column: Options & Diagnostic Tools */}
+      {/* Right Column: Information */}
       <div className="profile-options-grid" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* My Details */}
-        <div className="card" style={styles.menuCard}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={styles.iconCircle}>
-              <User size={18} color="var(--primary-teal)" />
-            </div>
-            <div>
-              <span style={styles.menuTitle}>My Account Details</span>
-              <span style={styles.menuDesc}>ID: {currentUser?.id || 'op-001'} • Username: @{currentUser?.username || 'operator'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Language */}
-        <div className="card" style={styles.menuCard}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={styles.iconCircle}>
-              <Globe size={18} color="var(--color-blue)" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <span style={styles.menuTitle}>Language Preference</span>
-              <span style={styles.menuDesc}>Select display language</span>
-            </div>
-            <select
-              style={styles.langSelect}
-              value={language}
-              onChange={e => {
-                setLanguage(e.target.value);
-                showToast(`Language set to ${e.target.value}`, 'info');
-              }}
-            >
-              <option value="English">English</option>
-              <option value="Sinhala">Sinhala (සිංහල)</option>
-              <option value="Tamil">Tamil (தமிழ்)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Test Scanner Diagnostic */}
-        <div className="card" style={{ ...styles.menuCard, cursor: 'pointer' }} onClick={() => navigate('/test-scanner')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-            <div style={styles.iconCircle}>
-              <Globe size={18} color="var(--primary-teal)" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <span style={styles.menuTitle}>Test Scanner Diagnostic</span>
-              <span style={styles.menuDesc}>Inspect raw keystrokes & timing</span>
-            </div>
-            <ChevronRight size={18} color="var(--text-secondary)" />
-          </div>
-        </div>
-
         {/* About UniFlow Ops */}
         <div className="card" style={styles.menuCard}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

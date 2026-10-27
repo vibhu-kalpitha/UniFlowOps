@@ -2,7 +2,6 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { CheckCircle2, Package, Search, ArrowLeftRight, Wifi, WifiOff, ScanLine } from 'lucide-react';
-import { ScannerStatus } from '../../components/ScannerStatus';
 import '../../styles/tokens.css';
 
 export const ScanCenter: React.FC = () => {
@@ -63,9 +62,6 @@ export const ScanCenter: React.FC = () => {
           <span style={styles.tileDesc}>Move items between boxes</span>
         </button>
       </div>
-
-      {/* Scanner Status Bar */}
-      <ScannerStatus showConnectButton={true} style={{ marginTop: '12px' }} />
 
       {/* Cancel Button */}
       <button className="btn-secondary" onClick={() => navigate(-1)} style={{ marginTop: 'auto' }}>

@@ -576,30 +576,18 @@ export const AdminUsers: React.FC = () => {
                 <label style={styles.label}>Initial Password</label>
                 <input type="password" className="input-field" placeholder="At least 6 characters" value={password} onChange={e => setPassword(e.target.value)} required />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
-                <div>
-                  <label style={styles.label}>Role</label>
-                  <select
-                    className="input-field select-field"
-                    value={isSupervisorUser ? 'Operator' : role}
-                    disabled={isSupervisorUser}
-                    onChange={e => setRole(e.target.value as any)}
-                  >
-                    <option value="Operator">Operator</option>
-                    {!isSupervisorUser && <option value="Supervisor">Supervisor</option>}
-                    {!isSupervisorUser && <option value="Admin">Admin</option>}
-                  </select>
-                </div>
-                <div>
-                  <label style={styles.label}>Line Assignment</label>
-                  <select className="input-field select-field" value={lineId} onChange={e => setLineId(e.target.value)}>
-                    <option value="Line 01">Line 01</option>
-                    <option value="Line 02">Line 02</option>
-                    <option value="Line 03">Line 03</option>
-                    <option value="Line 04">Line 04</option>
-                    <option value="All Lines">All Lines</option>
-                  </select>
-                </div>
+              <div>
+                <label style={styles.label}>Role</label>
+                <select
+                  className="input-field select-field"
+                  value={isSupervisorUser ? 'Operator' : role}
+                  disabled={isSupervisorUser}
+                  onChange={e => setRole(e.target.value as any)}
+                >
+                  <option value="Operator">Operator</option>
+                  {!isSupervisorUser && <option value="Supervisor">Supervisor</option>}
+                  {!isSupervisorUser && <option value="Admin">Admin</option>}
+                </select>
               </div>
 
               <div>

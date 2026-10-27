@@ -214,7 +214,6 @@ export const OperatorHome: React.FC = () => {
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#18B879' }}></span>
             <span style={{ fontSize: '12px', fontWeight: 700, color: '#18B879' }}>Shift A Active</span>
           </div>
-          <ScannerStatus compact={true} />
         </div>
       </div>
 

@@ -545,9 +545,9 @@ export const ShiftManagementPage: React.FC = () => {
                       display: 'grid',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
                       gap: '10px',
-                      maxHeight: '440px',
+                      maxHeight: '250px',
                       overflowY: 'auto',
-                      paddingRight: '4px'
+                      paddingRight: '6px'
                     }}>
                       {filteredMembers.map(member => (
                         <div

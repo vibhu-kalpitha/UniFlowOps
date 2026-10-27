@@ -551,53 +551,6 @@ export const AdminReports: React.FC = () => {
           </button>
         )}
       </div>
-
-      {/* ── Descriptive Analytical Summary Narrative ──────────── */}
-      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--primary-teal)', margin: 0, padding: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-          <FileText size={18} color="var(--primary-teal)" />
-          <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>
-            Executive Performance Narrative & Summary Analysis ({timeRange})
-          </h3>
-        </div>
-
-        <p style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6, margin: 0 }}>
-          For the selected period (<strong>{timeRange}</strong>), the factory monitored <strong>{filteredOrders.length} Production Order(s)</strong> across active styles.
-          Total configured target volume stands at <strong>{totalPlanned.toLocaleString()} units</strong>, with <strong>{totalPacked.toLocaleString()} units packed</strong> into cartons ({overallCompletion}% overall completion rate).
-          Quality Control (QC) inspection processed <strong>{(totalQcPassed + totalQcFailed).toLocaleString()} units</strong> with a <strong>{overallQcPassRate}% first-pass yield</strong> ({totalQcPassed} passed, {totalQcFailed} rejected).
-          AQL sample box audits completed <strong>{totalAqlPassed} box approvals</strong> and <strong>{totalAqlFailed} box rejections</strong>.
-          A total of <strong>{totalTransfers} box transfer(s)</strong> were dispatched to warehouse inventory, while <strong>{totalScrapped} item(s)</strong> were permanently scrapped.
-        </p>
-
-        {/* 4 Summary Stat Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))', gap: '10px', marginTop: '14px' }}>
-          <div style={styles.statBox('rgba(20, 184, 166, 0.12)', 'var(--primary-teal)')}>
-            <span style={styles.statVal}>{totalPlanned.toLocaleString()}</span>
-            <span style={styles.statLbl}>Planned Units</span>
-          </div>
-          <div style={styles.statBox('rgba(16, 185, 129, 0.12)', '#10B981')}>
-            <span style={{ ...styles.statVal, color: '#10B981' }}>{totalQcPassed.toLocaleString()}</span>
-            <span style={styles.statLbl}>QC Passed ({overallQcPassRate}%)</span>
-          </div>
-          <div style={styles.statBox('rgba(59, 130, 246, 0.12)', '#3B82F6')}>
-            <span style={{ ...styles.statVal, color: '#3B82F6' }}>{totalPacked.toLocaleString()}</span>
-            <span style={styles.statLbl}>Packed Units ({overallCompletion}%)</span>
-          </div>
-          <div style={styles.statBox('rgba(139, 92, 246, 0.12)', '#8B5CF6')}>
-            <span style={{ ...styles.statVal, color: '#8B5CF6' }}>{totalAqlPassed} / {totalAqlPassed + totalAqlFailed}</span>
-            <span style={styles.statLbl}>AQL Passed Boxes</span>
-          </div>
-          <div style={styles.statBox('rgba(245, 158, 11, 0.12)', '#F59E0B')}>
-            <span style={{ ...styles.statVal, color: '#F59E0B' }}>{totalTransfers}</span>
-            <span style={styles.statLbl}>Box Transfers</span>
-          </div>
-          <div style={styles.statBox('rgba(239, 68, 68, 0.12)', '#EF4444')}>
-            <span style={{ ...styles.statVal, color: '#EF4444' }}>{totalScrapped}</span>
-            <span style={styles.statLbl}>Scrapped Garments</span>
-          </div>
-        </div>
-      </div>
-
       {/* ── Comprehensive Production Order Breakdown Table ──────── */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>

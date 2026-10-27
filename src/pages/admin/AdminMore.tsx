@@ -1,15 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { UserRole } from '../../types';
-import { Building, Layers, Shirt, Package, Wifi, Lock, Settings, Shield, LogOut, ChevronRight, X, User } from 'lucide-react';
+import { Building, Info, LogOut } from 'lucide-react';
+import { StatusPill } from '../../components/StatusPill';
 import '../../styles/tokens.css';
 
 export const AdminMore: React.FC = () => {
   const navigate = useNavigate();
-  const { currentRole, logoutUser, showToast } = useApp();
-
-  const [activeModal, setActiveModal] = useState<string | null>(null);
+  const { currentUser, logoutUser, showToast } = useApp();
 
   const handleLogout = async () => {
     await logoutUser();
@@ -17,109 +15,89 @@ export const AdminMore: React.FC = () => {
     navigate('/login');
   };
 
-  const settingsItems = [
-    { id: 'sessions', title: 'User Sessions & Login Activity', desc: 'Inspect active tokens, IP addresses and revoke access', icon: Lock, color: 'var(--primary-teal)' },
-    { id: 'company', title: 'Company Details', desc: 'Innovus Garments (Pvt) Ltd • Factory #04', icon: Building, color: 'var(--primary-teal)' },
-    { id: 'lines', title: 'Production Lines', desc: '4 active assembly lines (Line 01 - 04)', icon: Layers, color: 'var(--color-blue)' },
-    { id: 'styles', title: 'Products & Styles', desc: 'Catalog of garment style specifications', icon: Shirt, color: 'var(--color-purple)' },
-    { id: 'box', title: 'Box Settings', desc: 'Default box capacity: 12 units', icon: Package, color: 'var(--color-amber)' },
-    { id: 'scanners', title: 'Scanner Devices', desc: '14 paired Bluetooth barcode scanners', icon: Wifi, color: 'var(--color-green)' },
-    { id: 'test-scanner', title: 'Test Scanner Diagnostic', desc: 'Inspect raw keystrokes, timing & terminators', icon: Wifi, color: 'var(--primary-teal)' }
-  ];
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <h2 style={{ fontSize: '20px', fontWeight: 800 }}>System Settings & More</h2>
+    <div className="profile-desktop-grid">
+      {/* Left Column: Hero Identity Card */}
+      <div style={styles.profileHero}>
+        <div style={styles.avatarBig}>
+          <span>{currentUser?.avatarInitials || 'AD'}</span>
+        </div>
+        <h2 style={{ fontSize: '20px', fontWeight: 800, marginTop: '12px' }}>
+          {currentUser?.name || 'Administrator'}
+        </h2>
+        <div style={{ marginTop: '6px' }}>
+          <StatusPill
+            label={`${(currentUser?.role || 'admin').toUpperCase()} • ${currentUser?.plant || 'Innovus Plant'}`}
+            variant="teal"
+          />
+        </div>
 
-      {/* Quick Navigation Links */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '8px' }}>
-        <button className="btn-secondary" onClick={() => navigate('/admin/users')}>
-          <User size={16} style={{ marginRight: '6px' }} /> Users
+        <div style={{ marginTop: '20px', width: '100%', textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+          <span style={styles.menuDesc}>ID: {currentUser?.id || 'admin-001'} • Username: @{currentUser?.username || 'admin'}</span>
+        </div>
+
+        {/* Logout Action */}
+        <button className="btn-danger" onClick={handleLogout} style={{ marginTop: '24px', width: '100%' }}>
+          <LogOut size={18} style={{ marginRight: '8px' }} /> Log Out
         </button>
-        <button className="btn-secondary" onClick={() => navigate('/admin/reports')}>
-          <Package size={16} style={{ marginRight: '6px' }} /> Reports
-        </button>
-        {currentRole === 'supervisor' && (
-          <>
-            <button className="btn-secondary" onClick={() => navigate('/supervisor/shifts')}>
-              <Building size={16} style={{ marginRight: '6px' }} /> Shift Roster
-            </button>
-            <button className="btn-secondary" onClick={() => navigate('/supervisor/profile')}>
-              <User size={16} style={{ marginRight: '6px' }} /> Profile
-            </button>
-          </>
-        )}
       </div>
 
-      {/* Settings Grid */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {settingsItems.map(item => {
-          const IconComp = item.icon;
-          return (
-            <div
-              key={item.id}
-              className="card"
-              style={{ ...styles.menuCard, cursor: 'pointer' }}
-              onClick={() => {
-                if (item.id === 'test-scanner') {
-                  navigate('/test-scanner');
-                } else if (item.id === 'sessions') {
-                  navigate('/admin/sessions');
-                } else {
-                  setActiveModal(item.id);
-                  showToast(`Opened ${item.title} configuration`, 'info');
-                }
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                <div style={styles.iconCircle}>
-                  <IconComp size={18} color={item.color} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <span style={styles.menuTitle}>{item.title}</span>
-                  <span style={styles.menuDesc}>{item.desc}</span>
-                </div>
-                <ChevronRight size={18} color="var(--text-secondary)" />
-              </div>
+      {/* Right Column: Company & Information Cards */}
+      <div className="profile-options-grid" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Company Details */}
+        <div className="card" style={styles.menuCard}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={styles.iconCircle}>
+              <Building size={18} color="var(--primary-teal)" />
             </div>
-          );
-        })}
-      </div>
-
-      {/* Switch Demo Role */}
-      {/* Logout Action */}
-      <button className="btn-danger" onClick={handleLogout} style={{ marginTop: 'auto' }}>
-        <LogOut size={18} style={{ marginRight: '8px' }} /> Log Out
-      </button>
-
-      {/* Settings Modal */}
-      {activeModal && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>
-                {settingsItems.find(i => i.id === activeModal)?.title}
-              </h3>
-              <button style={{ background: 'none', border: 'none' }} onClick={() => setActiveModal(null)}>
-                <X size={20} color="var(--text-secondary)" />
-              </button>
+            <div>
+              <span style={styles.menuTitle}>Company Details</span>
+              <span style={styles.menuDesc}>Innovus Garments (Pvt) Ltd • Factory #04</span>
             </div>
-
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              {settingsItems.find(i => i.id === activeModal)?.desc}. All settings operate in real-time mode.
-            </p>
-
-            <button className="btn-primary" onClick={() => setActiveModal(null)}>
-              Save Settings
-            </button>
           </div>
         </div>
-      )}
+
+        {/* About UniFlow Ops */}
+        <div className="card" style={styles.menuCard}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={styles.iconCircle}>
+              <Info size={18} color="var(--color-green)" />
+            </div>
+            <div>
+              <span style={styles.menuTitle}>About UniFlow Ops</span>
+              <span style={styles.menuDesc}>Version 5.0 • Software developed by Innovus</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
 
 const styles: Record<string, React.CSSProperties> = {
+  profileHero: {
+    backgroundColor: 'var(--bg-surface-1)',
+    border: '1px solid var(--border-color)',
+    borderRadius: '20px',
+    padding: '24px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center'
+  },
+  avatarBig: {
+    width: '68px',
+    height: '68px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--bg-surface-2)',
+    border: '2px solid var(--primary-teal)',
+    color: 'var(--primary-teal)',
+    fontWeight: 800,
+    fontSize: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   menuCard: {
     backgroundColor: 'var(--bg-surface-1)',
     margin: 0,
@@ -146,26 +124,5 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-secondary)',
     display: 'block',
     marginTop: '2px'
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 9999,
-    padding: '16px'
-  },
-  modalContent: {
-    backgroundColor: 'var(--bg-surface-1)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '24px',
-    padding: '20px',
-    width: '100%',
-    maxWidth: '340px'
   }
 };

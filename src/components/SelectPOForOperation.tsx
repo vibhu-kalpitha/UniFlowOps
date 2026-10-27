@@ -24,7 +24,6 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPoForLine, setSelectedPoForLine] = useState<ProductionOrder | null>(null);
-  const [customLineInput, setCustomLineInput] = useState('');
 
   const isGenericPoSelect = !operationName || ['ALL', 'Select PO', 'Change PO', 'Production Order'].includes(operationName as string);
 
@@ -61,7 +60,7 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
       {/* Step Header */}
       <div style={{ marginBottom: '20px', paddingRight: isModal ? '36px' : '0' }}>
         <button
-          onClick={() => { setSelectedPoForLine(null); setCustomLineInput(''); }}
+          onClick={() => { setSelectedPoForLine(null); }}
           style={{
             background: 'none',
             border: 'none',
@@ -186,45 +185,6 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
           </div>
         );
       })()}
-
-      {/* Manual Line Input fallback if needed */}
-      <div style={{
-        marginTop: '20px',
-        paddingTop: '16px',
-        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        flexWrap: 'wrap'
-      }}>
-        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Working on another line?</span>
-        <div style={{ display: 'flex', gap: '8px', flex: '1 1 200px' }}>
-          <input
-            type="text"
-            className="input-field"
-            placeholder="e.g. Line 12"
-            value={customLineInput}
-            onChange={(e) => setCustomLineInput(e.target.value)}
-            style={{ padding: '6px 12px', fontSize: '0.85rem', flex: 1, minHeight: '36px' }}
-          />
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={!customLineInput.trim()}
-            onClick={() => {
-              if (customLineInput.trim()) {
-                const formatted = customLineInput.trim().toLowerCase().startsWith('line')
-                  ? customLineInput.trim()
-                  : `Line ${customLineInput.trim()}`;
-                handleSelectLine(formatted);
-              }
-            }}
-            style={{ padding: '6px 14px', fontSize: '0.85rem', minHeight: '36px' }}
-          >
-            Confirm Line
-          </button>
-        </div>
-      </div>
     </div>
   );
 

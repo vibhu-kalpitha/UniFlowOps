@@ -2160,7 +2160,6 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
         WHERE (pq.production_order_id = ? OR iu.production_order_id = ?)
           ${line ? "AND (pq.line_number = ? OR (pq.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY pq.scanned_at DESC
-        LIMIT 500
       `).all(...(line ? [po.id, po.id, line, `%${line}%`] : [po.id, po.id])) as any[];
 
       const passCount = rows.filter(r => r.result === 'PASS').length;
@@ -2193,7 +2192,6 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
         WHERE iu.production_order_id = ?
           ${line ? "AND (qr.line_number = ? OR (qr.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY qr.scanned_at DESC
-        LIMIT 500
       `).all(...(line ? [po.id, line, `%${line}%`] : [po.id])) as any[];
 
       const passCount = rows.filter(r => r.qc_result === 'PASS' && r.test_result === 'PASS').length;
@@ -2224,7 +2222,6 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
         WHERE b.production_order_id = ?
           ${line ? "AND (b.line_number = ? OR (b.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY b.created_at DESC
-        LIMIT 200
       `).all(...(line ? [po.id, line, `%${line}%`] : [po.id])) as any[];
 
       const boxIds = boxRows.map(b => b.id);
