@@ -201,12 +201,41 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     ? productConfigurations.reduce((sum, c) => sum + c.quantity, 0)
     : 0;
 
+  // Parse dynamic QC and Pre-QC tests with robust backwards compatibility
+  let parsedQcTests: string[] | undefined;
+  if (po.qc_tests) {
+    try {
+      const parsed = typeof po.qc_tests === 'string' ? JSON.parse(po.qc_tests) : po.qc_tests;
+      if (Array.isArray(parsed) && parsed.length > 0) parsedQcTests = parsed;
+    } catch (_) {}
+  }
+  if (!parsedQcTests || parsedQcTests.length === 0) {
+    if (po.qc_test_mode === 'QC_ONLY') parsedQcTests = ['Endline QC'];
+    else if (po.qc_test_mode === 'TEST_ONLY') parsedQcTests = ['Functional Test'];
+    else parsedQcTests = ['Endline QC', 'Functional Test'];
+  }
+
+  let parsedPreQcTests: string[] | undefined;
+  if (po.pre_qc_tests) {
+    try {
+      const parsed = typeof po.pre_qc_tests === 'string' ? JSON.parse(po.pre_qc_tests) : po.pre_qc_tests;
+      if (Array.isArray(parsed) && parsed.length > 0) parsedPreQcTests = parsed;
+    } catch (_) {}
+  }
+  if (!parsedPreQcTests || parsedPreQcTests.length === 0) {
+    parsedPreQcTests = ['Pre-QC Inspection'];
+  }
+
+  const preQcStationCount = Math.max(1, Number(po.pre_qc_station_count) || 1);
+
   // QC Test Mode
   let qcTestMode: string = 'QC & Test';
-  if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
-  else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Test Only';
+  if (parsedQcTests.length === 1 && (parsedQcTests[0] === 'Endline QC' || parsedQcTests[0] === 'QC')) qcTestMode = 'QC Only';
+  else if (parsedQcTests.length === 1 && (parsedQcTests[0] === 'Functional Test' || parsedQcTests[0] === 'Test')) qcTestMode = 'Functional Test Only';
+  else if (po.qc_test_mode === 'QC_ONLY') qcTestMode = 'QC Only';
+  else if (po.qc_test_mode === 'TEST_ONLY') qcTestMode = 'Functional Test Only';
 
-  const qcStationCount = Number(po.qc_station_count) === 1 ? 1 : 2;
+  const qcStationCount = Math.max(1, Number(po.qc_station_count) || 1);
 
   // Load PO-level allocations
   const poAllocations = await db.prepare(`
@@ -352,6 +381,12 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     qcStationCount,
     qc_station_count: qcStationCount,
     stationCount: qcStationCount,
+    qcTests: parsedQcTests,
+    qc_tests: parsedQcTests,
+    preQcTests: parsedPreQcTests,
+    pre_qc_tests: parsedPreQcTests,
+    preQcStationCount,
+    pre_qc_station_count: preQcStationCount,
     productConfigurations,
     boxConfigurations,
     allowNoProductPrefix: Boolean(po.allow_no_product_prefix),
@@ -471,6 +506,12 @@ const createPoSchema = z.object({
   qcStationCount: z.union([z.number(), z.string()]).optional(),
   qc_station_count: z.union([z.number(), z.string()]).optional(),
   stationCount: z.union([z.number(), z.string()]).optional(),
+  qcTests: z.union([z.array(z.string()), z.string()]).optional(),
+  qc_tests: z.union([z.array(z.string()), z.string()]).optional(),
+  preQcTests: z.union([z.array(z.string()), z.string()]).optional(),
+  pre_qc_tests: z.union([z.array(z.string()), z.string()]).optional(),
+  preQcStationCount: z.union([z.number(), z.string()]).optional(),
+  pre_qc_station_count: z.union([z.number(), z.string()]).optional(),
   shiftId: z.string().optional(),
   shift_id: z.string().optional(),
   plant: z.string().optional(),
@@ -618,8 +659,36 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
     if (body.qcTestMode === 'QC Only' || body.qcTestMode === 'QC_ONLY') dbQcTestMode = 'QC_ONLY';
     else if (body.qcTestMode === 'Test Only' || body.qcTestMode === 'TEST_ONLY') dbQcTestMode = 'TEST_ONLY';
 
+    // QC Tests array
+    let dbQcTests: string[] = [];
+    const rawQcTests = body.qcTests || (req.body as any)?.qc_tests;
+    if (Array.isArray(rawQcTests)) {
+      dbQcTests = rawQcTests.map(t => String(t).trim()).filter(Boolean);
+    }
+    if (dbQcTests.length === 0) {
+      if (dbQcTestMode === 'QC_ONLY') dbQcTests = ['Endline QC'];
+      else if (dbQcTestMode === 'TEST_ONLY') dbQcTests = ['Functional Test'];
+      else dbQcTests = ['Endline QC', 'Functional Test'];
+    }
+
+    // Pre-QC Tests array
+    let dbPreQcTests: string[] = [];
+    const rawPreQcTests = body.preQcTests || (req.body as any)?.pre_qc_tests;
+    if (Array.isArray(rawPreQcTests)) {
+      dbPreQcTests = rawPreQcTests.map(t => String(t).trim()).filter(Boolean);
+    }
+    if (dbPreQcTests.length === 0 && (body.selectedOperations.includes('Pre QC') || body.selectedOperations.includes('PRE_QC'))) {
+      dbPreQcTests = ['Pre-QC Inspection'];
+    }
+
     const rawStationCount = (req.body as any)?.qcStationCount ?? (req.body as any)?.qc_station_count ?? (req.body as any)?.stationCount ?? body.qcStationCount ?? body.qc_station_count ?? body.stationCount;
-    const dbQcStationCount = Number(rawStationCount) === 1 ? 1 : 2;
+    const dbQcStationCount = Math.max(1, Math.min(10, Number(rawStationCount) || 1));
+
+    const rawPreQcStationCount = (req.body as any)?.preQcStationCount ?? (req.body as any)?.pre_qc_station_count ?? body.preQcStationCount ?? body.pre_qc_station_count;
+    const dbPreQcStationCount = Math.max(1, Math.min(10, Number(rawPreQcStationCount) || 1));
+
+    const qcTestsJson = JSON.stringify(dbQcTests);
+    const preQcTestsJson = dbPreQcTests.length > 0 ? JSON.stringify(dbPreQcTests) : null;
 
     const rawShiftId = body.shiftId || body.shift_id;
     let poShiftId: string | null = null;
@@ -636,9 +705,9 @@ router.post('/production-orders', authenticateToken, requireRole(['SUPERVISOR', 
 
     await db.transaction(async (tx) => {
       await tx.prepare(`
-        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, plant, line_number, qc_test_mode, qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, poPlantVal, poLineNumber, dbQcTestMode, dbQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
+        INSERT INTO production_orders (id, po_number, po_name, map_po, customer, style_id, start_date, due_date, supervisor_id, plant, line_number, qc_test_mode, qc_station_count, qc_tests, pre_qc_tests, pre_qc_station_count, shift_id, allow_no_product_prefix, allow_no_box_prefix, remarks, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+      `).run(poDbId, body.id, poNameVal, body.mapPo, body.customer || 'Factory Customer', styleId, body.startDate, body.dueDate, req.user!.id, poPlantVal, poLineNumber, dbQcTestMode, dbQcStationCount, qcTestsJson, preQcTestsJson, dbPreQcStationCount, poShiftId, allowNoProductPrefix, allowNoBoxPrefix, body.remarks || '', statusUpper);
 
       for (const opStr of body.selectedOperations) {
         let code = opStr;
@@ -2167,7 +2236,7 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
           FROM box_items bi
           JOIN item_units iu ON iu.id = bi.item_id
           WHERE bi.box_id IN (${placeholders})
-          ORDER BY bi.scanned_at ASC
+          ORDER BY bi.packed_at ASC
         `).all(...boxIds) as any[];
 
         for (const ir of itemRows) {

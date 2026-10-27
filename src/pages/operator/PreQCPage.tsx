@@ -24,14 +24,41 @@ export const PreQCPage: React.FC = () => {
 
   const po = activeJob?.productionOrder;
 
+  const configuredPreQcTests: string[] = React.useMemo(() => {
+    if (Array.isArray(po?.preQcTests) && po.preQcTests.length > 0) return po.preQcTests;
+    if (Array.isArray((po as any)?.pre_qc_tests) && (po as any).pre_qc_tests.length > 0) return (po as any).pre_qc_tests;
+    return ['Pre-QC Inspection'];
+  }, [po?.preQcTests, (po as any)?.pre_qc_tests]);
+
+  const rawStationCount = po?.preQcStationCount ?? (po as any)?.pre_qc_station_count;
+  const stationCount = Math.max(1, Math.min(10, Number(rawStationCount) || 1));
+
+  const [testResults, setTestResults] = useState<Record<string, 'PASS' | 'FAIL'>>({});
+  const [testFailureReasons, setTestFailureReasons] = useState<Record<string, string>>({});
+  const [savedTestsMap, setSavedTestsMap] = useState<Record<string, boolean>>({});
+
+  const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
   const [activeViewTab, setActiveViewTab] = useState<'scan' | 'history'>('scan');
-  const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [preQcResult, setPreQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [failureReason, setFailureReason] = useState<string>('');
   const [recentScans, setRecentScans] = useState<ScannedItem[]>([]);
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const initRes: Record<string, 'PASS' | 'FAIL'> = {};
+    const initReas: Record<string, string> = {};
+    const initSaved: Record<string, boolean> = {};
+    configuredPreQcTests.forEach(t => {
+      initRes[t] = 'PASS';
+      initReas[t] = '';
+      initSaved[t] = false;
+    });
+    setTestResults(initRes);
+    setTestFailureReasons(initReas);
+    setSavedTestsMap(initSaved);
+  }, [configuredPreQcTests, scannedItem?.qr]);
 
   // Live Pre QC progress state from server
   const [poProgress, setPoProgress] = useState<{
@@ -203,13 +230,21 @@ export const PreQCPage: React.FC = () => {
 
     setIsSaving(true);
     try {
+      const isAllPass = configuredPreQcTests.every(t => (testResults[t] || 'PASS') === 'PASS');
+      const overallResult = isAllPass ? 'PASS' : 'FAIL';
+      const combinedReason = configuredPreQcTests
+        .filter(t => testResults[t] === 'FAIL')
+        .map(t => `${t}: ${testFailureReasons[t] || 'Defect'}`)
+        .join(' | ');
+
       const recRes = await apiFetch<any>('/api/pre-qc/record', {
         method: 'POST',
         body: JSON.stringify({
           code: scannedItem.qr,
           productionOrderId: po?.dbId || po?.id,
-          preQcResult,
-          failureReason: preQcResult === 'FAIL' ? failureReason : undefined,
+          preQcResult: overallResult,
+          failureReason: isAllPass ? undefined : combinedReason,
+          testDetails: testResults,
           lineNumber: activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined
         }),
       });
@@ -220,13 +255,13 @@ export const PreQCPage: React.FC = () => {
 
       const savedRecord: ScannedItem = {
         ...scannedItem,
-        status: preQcResult === 'PASS' ? 'VALID' : 'INVALID',
+        status: isAllPass ? 'VALID' : 'INVALID',
         scannedAt: new Date().toLocaleTimeString()
       };
 
       setRecentScans(prev => [savedRecord, ...prev.slice(0, 9)]);
 
-      if (preQcResult === 'PASS') {
+      if (isAllPass) {
         showToast(`✅ Pre QC PASSED recorded for ${scannedItem.qr}!`, 'success');
       } else {
         showToast(`❌ Pre QC FAIL recorded for ${scannedItem.qr}`, 'warning');
@@ -237,13 +272,60 @@ export const PreQCPage: React.FC = () => {
 
       setTimeout(() => {
         setScannedItem(null);
-        setPreQcResult('PASS');
-        setFailureReason('');
         setSaved(false);
       }, 1000);
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       showToast(`Save failed: ${errMsg}`, 'error');
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveSpecificTest = async (testName: string) => {
+    if (!scannedItem || isSaving) return;
+    setIsSaving(true);
+    const resultVal = testResults[testName] || 'PASS';
+    const reasonVal = testFailureReasons[testName];
+
+    try {
+      const recRes = await apiFetch<any>('/api/pre-qc/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: scannedItem.qr,
+          productionOrderId: po?.dbId || po?.id,
+          preQcResult: resultVal,
+          failureReason: resultVal === 'FAIL' ? `${testName}: ${reasonVal || 'Defect'}` : undefined,
+          testDetails: { [testName]: { result: resultVal, failureReason: reasonVal } },
+          lineNumber: activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined
+        }),
+      });
+
+      if (recRes?.progress) {
+        updateProgressFromRes(recRes.progress);
+      }
+
+      setSavedTestsMap(prev => {
+        const next = { ...prev, [testName]: true };
+        const allCompleted = configuredPreQcTests.every(t => next[t]);
+        if (allCompleted) {
+          showToast(`🎉 All Pre-QC tests recorded for ${scannedItem.qr}!`, 'success');
+          const savedRecord: ScannedItem = {
+            ...scannedItem,
+            status: 'VALID',
+            scannedAt: new Date().toLocaleTimeString()
+          };
+          setRecentScans(p => [savedRecord, ...p.slice(0, 9)]);
+          setTimeout(() => {
+            setScannedItem(null);
+          }, 1000);
+        } else {
+          showToast(`✅ ${testName} recorded for ${scannedItem.qr}!`, 'success');
+        }
+        return next;
+      });
+    } catch (err: any) {
+      showToast(`Save failed: ${err.message || err}`, 'error');
+    } finally {
       setIsSaving(false);
     }
   };
@@ -481,57 +563,144 @@ export const PreQCPage: React.FC = () => {
 
           {/* Result Selection Control */}
           {scannedItem.status === 'VALID' && (
-            <div className="card" style={{ margin: 0, backgroundColor: 'var(--bg-surface-1)' }}>
-              <span style={styles.controlLabel}>Select Pre QC Result</span>
-              <div style={styles.segmentRow}>
+            stationCount === 1 ? (
+              <div className="card" style={{ margin: 0, backgroundColor: 'var(--bg-surface-1)' }}>
+                <span style={{ ...styles.controlLabel, color: 'var(--primary-teal)', fontWeight: 800, marginBottom: '12px', display: 'block' }}>
+                  Station 1 — {configuredPreQcTests.join(' & ')}
+                </span>
+
+                {configuredPreQcTests.map(testName => (
+                  <div key={testName} style={{ marginBottom: '14px', padding: '12px', borderRadius: '10px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ ...styles.controlLabel, marginBottom: '8px', display: 'block' }}>
+                      ✓ {testName}
+                    </span>
+                    <div style={styles.segmentRow}>
+                      <button
+                        type="button"
+                        style={(testResults[testName] || 'PASS') === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                        onClick={() => setTestResults(prev => ({ ...prev, [testName]: 'PASS' }))}
+                      >
+                        <Check size={18} /> PASS
+                      </button>
+                      <button
+                        type="button"
+                        style={testResults[testName] === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                        onClick={() => setTestResults(prev => ({ ...prev, [testName]: 'FAIL' }))}
+                      >
+                        <XCircle size={18} /> FAIL
+                      </button>
+                    </div>
+
+                    {testResults[testName] === 'FAIL' && (
+                      <div style={{ marginTop: '10px' }}>
+                        <input
+                          type="text"
+                          value={testFailureReasons[testName] || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setTestFailureReasons(prev => ({ ...prev, [testName]: val }));
+                          }}
+                          placeholder={`${testName} Failure Reason...`}
+                          style={styles.reasonInput}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
                 <button
-                  type="button"
-                  style={preQcResult === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
-                  onClick={() => setPreQcResult('PASS')}
+                  className="btn-primary"
+                  onClick={handleSave}
+                  disabled={saved || isSaving}
+                  style={{
+                    marginTop: '8px',
+                    width: '100%',
+                    background: saved
+                      ? 'var(--color-green)'
+                      : Object.values(testResults).some(r => r === 'FAIL')
+                      ? 'var(--color-red)'
+                      : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-dark) 100%)',
+                    opacity: saved ? 0.7 : 1,
+                  }}
                 >
-                  <Check size={18} /> PASS
-                </button>
-                <button
-                  type="button"
-                  style={preQcResult === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
-                  onClick={() => setPreQcResult('FAIL')}
-                >
-                  <XCircle size={18} /> FAIL
+                  {saved ? '✅ Saved to Database!' : 'Save All Pre-QC Test Results'}
                 </button>
               </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {configuredPreQcTests.map((testName, idx) => {
+                  const isTestSaved = savedTestsMap[testName];
+                  const isTestFail = testResults[testName] === 'FAIL';
+                  return (
+                    <div key={testName} className="card" style={{ margin: 0, backgroundColor: 'var(--bg-surface-1)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ ...styles.controlLabel, margin: 0 }}>
+                          Station {Math.min(idx + 1, stationCount)} — {testName}
+                        </span>
+                        {isTestSaved && (
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={14} /> ✓ Completed
+                          </span>
+                        )}
+                      </div>
 
-              {/* Optional Failure Reason input when FAIL selected */}
-              {preQcResult === 'FAIL' && (
-                <div style={{ marginTop: '12px' }}>
-                  <span style={styles.controlLabel}>Failure Reason (Optional)</span>
-                  <input
-                    type="text"
-                    value={failureReason}
-                    onChange={(e) => setFailureReason(e.target.value)}
-                    placeholder="e.g. Label error, wrong size, fabric defect..."
-                    style={styles.reasonInput}
-                  />
-                </div>
-              )}
+                      {isTestSaved ? (
+                        <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: '13px', color: '#10B981', fontWeight: 700 }}>
+                          {testName} Completed
+                        </div>
+                      ) : (
+                        <>
+                          <div style={styles.segmentRow}>
+                            <button
+                              type="button"
+                              style={(testResults[testName] || 'PASS') === 'PASS' ? styles.passBtnActive : styles.segmentBtn}
+                              onClick={() => setTestResults(prev => ({ ...prev, [testName]: 'PASS' }))}
+                            >
+                              <Check size={18} /> PASS
+                            </button>
+                            <button
+                              type="button"
+                              style={testResults[testName] === 'FAIL' ? styles.failBtnActive : styles.segmentBtn}
+                              onClick={() => setTestResults(prev => ({ ...prev, [testName]: 'FAIL' }))}
+                            >
+                              <XCircle size={18} /> FAIL
+                            </button>
+                          </div>
 
-              <button
-                className="btn-primary"
-                onClick={handleSave}
-                disabled={saved || isSaving}
-                style={{
-                  marginTop: '16px',
-                  width: '100%',
-                  background: saved
-                    ? 'var(--color-green)'
-                    : preQcResult === 'FAIL'
-                    ? 'var(--color-red)'
-                    : 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-dark) 100%)',
-                  opacity: saved ? 0.7 : 1,
-                }}
-              >
-                {saved ? '✅ Saved to Database!' : `Save Pre QC ${preQcResult} Result`}
-              </button>
-            </div>
+                          {isTestFail && (
+                            <div style={{ marginTop: '10px' }}>
+                              <input
+                                type="text"
+                                value={testFailureReasons[testName] || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setTestFailureReasons(prev => ({ ...prev, [testName]: val }));
+                                }}
+                                placeholder={`${testName} Failure Reason...`}
+                                style={styles.reasonInput}
+                              />
+                            </div>
+                          )}
+
+                          <button
+                            className="btn-primary"
+                            onClick={() => handleSaveSpecificTest(testName)}
+                            disabled={isSaving}
+                            style={{
+                              marginTop: '12px',
+                              width: '100%',
+                              background: 'linear-gradient(135deg, var(--primary-teal) 0%, var(--primary-teal-dark) 100%)',
+                            }}
+                          >
+                            Save {testName} Result
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
       )}

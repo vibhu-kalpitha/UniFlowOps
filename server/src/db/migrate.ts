@@ -948,12 +948,43 @@ async function runSchemaAlignment012(): Promise<void> {
   }
 }
 
+async function runSchemaAlignment013() {
+  console.log('── Running Schema Alignment 013 (Dynamic Tests & Station Counts) ──');
+  try {
+    if (await tableExists('production_orders')) {
+      if (!(await columnExists('production_orders', 'qc_tests'))) {
+        try { await db.exec(`ALTER TABLE production_orders ADD COLUMN qc_tests TEXT NULL AFTER qc_station_count;`); }
+        catch (e: any) { console.warn('  013: production_orders.qc_tests warning:', e?.message); }
+      }
+      if (!(await columnExists('production_orders', 'pre_qc_tests'))) {
+        try { await db.exec(`ALTER TABLE production_orders ADD COLUMN pre_qc_tests TEXT NULL AFTER qc_tests;`); }
+        catch (e: any) { console.warn('  013: production_orders.pre_qc_tests warning:', e?.message); }
+      }
+      if (!(await columnExists('production_orders', 'pre_qc_station_count'))) {
+        try { await db.exec(`ALTER TABLE production_orders ADD COLUMN pre_qc_station_count INT NOT NULL DEFAULT 1 AFTER pre_qc_tests;`); }
+        catch (e: any) { console.warn('  013: production_orders.pre_qc_station_count warning:', e?.message); }
+      }
+    }
+    if (await tableExists('qc_results') && !(await columnExists('qc_results', 'test_details'))) {
+      try { await db.exec(`ALTER TABLE qc_results ADD COLUMN test_details TEXT NULL AFTER failure_reason;`); }
+      catch (e: any) { console.warn('  013: qc_results.test_details warning:', e?.message); }
+    }
+    if (await tableExists('pre_qc_results') && !(await columnExists('pre_qc_results', 'test_details'))) {
+      try { await db.exec(`ALTER TABLE pre_qc_results ADD COLUMN test_details TEXT NULL AFTER failure_reason;`); }
+      catch (e: any) { console.warn('  013: pre_qc_results.test_details warning:', e?.message); }
+    }
+  } catch (e: any) {
+    console.warn('  013 alignment warning (non-fatal):', e?.message);
+  }
+}
+
   console.log(`🎉 Migrations summary: ${applied.length} applied, ${skipped.length} already up-to-date.`);
   await runSchemaAlignment007();
   await runSchemaAlignment008();
   await runSchemaAlignment009();
   await runSchemaAlignment010();
   await runSchemaAlignment012();
+  await runSchemaAlignment013();
   return { applied, skipped };
 }
 

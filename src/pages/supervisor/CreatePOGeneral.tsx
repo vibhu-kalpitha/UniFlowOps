@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { apiFetch } from '../../services/api';
@@ -14,6 +14,22 @@ interface StyleItem {
   name: string;
   customer?: string;
   season?: string;
+}
+
+export interface ShiftItem {
+  id: string;
+  code: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+  members: Array<{
+    member_id: string;
+    operator_id: string;
+    full_name: string;
+    username: string;
+    employee_no: string;
+    plant?: string;
+  }>;
 }
 
 interface ShiftRosterRow {
@@ -70,17 +86,47 @@ const CreatePOGeneralInner: React.FC = () => {
     'Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
   ]);
   const [qcTestMode, setQcTestMode] = useState<QcTestMode>('QC & Test');
-  const [qcStationCount, setQcStationCount] = useState<1 | 2>(1);
+  const [qcTests, setQcTests] = useState<string[]>(['Endline QC', 'Functional Test']);
+  const [availableQcTests, setAvailableQcTests] = useState<string[]>(['Endline QC', 'Functional Test']);
+  const [customQcInput, setCustomQcInput] = useState('');
+  const [qcStationCount, setQcStationCount] = useState<number>(1);
 
-  // Roster state — loaded from /api/shifts/all-members
+  const [preQcTests, setPreQcTests] = useState<string[]>(['Pre-QC Inspection']);
+  const [availablePreQcTests, setAvailablePreQcTests] = useState<string[]>(['Pre-QC Inspection']);
+  const [customPreQcInput, setCustomPreQcInput] = useState('');
+  const [preQcStationCount, setPreQcStationCount] = useState<number>(1);
+
+  const handleAddCustomQcTest = () => {
+    const trimmed = customQcInput.trim();
+    if (!trimmed) return;
+    if (!availableQcTests.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      setAvailableQcTests(prev => [...prev, trimmed]);
+    }
+    if (!qcTests.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      setQcTests(prev => [...prev, trimmed]);
+    }
+    setCustomQcInput('');
+  };
+
+  const handleAddCustomPreQcTest = () => {
+    const trimmed = customPreQcInput.trim();
+    if (!trimmed) return;
+    if (!availablePreQcTests.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      setAvailablePreQcTests(prev => [...prev, trimmed]);
+    }
+    if (!preQcTests.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      setPreQcTests(prev => [...prev, trimmed]);
+    }
+    setCustomPreQcInput('');
+  };
+
+  // Roster state — loaded from /api/shifts and /api/shifts/all-members
+  const [shiftsList, setShiftsList] = useState<ShiftItem[]>([]);
   const [rosterRows, setRosterRows] = useState<ShiftRosterRow[]>([]);
   const [loadingRoster, setLoadingRoster] = useState(true);
 
   // Selected PO allocations (operator+shift combos for THIS PO)
   const [poAllocations, setPoAllocations] = useState<PoAllocation[]>([]);
-
-  // Expanded shifts in roster view
-  const [expandedShiftGroups, setExpandedShiftGroups] = useState<Set<string>>(new Set());
 
   // Copy Previous PO state
   const [previousOrders, setPreviousOrders] = useState<ProductionOrder[]>([]);
@@ -88,12 +134,13 @@ const CreatePOGeneralInner: React.FC = () => {
   const [selectedCopyPoId, setSelectedCopyPoId] = useState<string>('');
   const [copiedSourcePo, setCopiedSourcePo] = useState<ProductionOrder | null>(null);
 
-  // Load styles, roster, and previous POs
+  // Load styles, roster, shifts, and previous POs
   const loadData = useCallback(async () => {
-    const [stylesResult, rosterResult, posResult] = await Promise.allSettled([
+    const [stylesResult, rosterResult, posResult, shiftsResult] = await Promise.allSettled([
       apiFetch<StyleItem[]>('/api/styles'),
       apiFetch<ShiftRosterRow[]>('/api/shifts/all-members'),
       apiFetch<ProductionOrder[]>('/api/production-orders'),
+      apiFetch<ShiftItem[]>('/api/shifts'),
     ]);
 
     if (stylesResult.status === 'fulfilled') {
@@ -108,19 +155,62 @@ const CreatePOGeneralInner: React.FC = () => {
       showToast('Failed to load styles from database', 'error');
     }
 
+    if (shiftsResult.status === 'fulfilled' && Array.isArray(shiftsResult.value)) {
+      setShiftsList(shiftsResult.value);
+    }
+
     if (rosterResult.status === 'fulfilled') {
       setRosterRows(rosterResult.value);
-      // Auto-expand all shifts in roster
-      const codes = new Set(rosterResult.value.map(r => r.shift_id));
-      setExpandedShiftGroups(codes);
+      // If shifts API didn't return or was empty, construct shiftsList from rosterRows
+      if (shiftsResult.status !== 'fulfilled' || !Array.isArray(shiftsResult.value) || shiftsResult.value.length === 0) {
+        const grouped: Record<string, ShiftItem> = {};
+        rosterResult.value.forEach(r => {
+          if (!grouped[r.shift_id]) {
+            grouped[r.shift_id] = {
+              id: r.shift_id,
+              code: r.shift_code,
+              name: r.shift_name,
+              start_time: r.start_time,
+              end_time: r.end_time,
+              members: []
+            };
+          }
+          grouped[r.shift_id].members.push({
+            member_id: r.member_id,
+            operator_id: r.operator_id,
+            full_name: r.full_name,
+            username: r.username,
+            employee_no: r.employee_no,
+            plant: r.plant
+          });
+        });
+        setShiftsList(Object.values(grouped));
+      }
     } else {
-      // Fallback mock roster if API fails
-      setRosterRows([
-        { member_id: 'sm-1', shift_id: 'shift-a', shift_code: 'A', shift_name: 'Shift A', start_time: '06:00', end_time: '10:00', operator_id: 'usr-001', full_name: 'Chamika Silva', username: 'chamika', employee_no: 'EMP-101' },
-        { member_id: 'sm-2', shift_id: 'shift-b', shift_code: 'B', shift_name: 'Shift B', start_time: '10:00', end_time: '14:00', operator_id: 'usr-001', full_name: 'Chamika Silva', username: 'chamika', employee_no: 'EMP-101' },
-        { member_id: 'sm-3', shift_id: 'shift-a', shift_code: 'A', shift_name: 'Shift A', start_time: '06:00', end_time: '10:00', operator_id: 'usr-004', full_name: 'Kavindu Perera', username: 'kavindu', employee_no: 'EMP-104' },
+      // Fallback mock shifts if API fails
+      setShiftsList([
+        {
+          id: 'shift-a',
+          code: 'A',
+          name: 'Shift A',
+          start_time: '06:00',
+          end_time: '14:00',
+          members: [
+            { member_id: 'sm-1', operator_id: 'usr-001', full_name: 'Chamika Silva', username: 'chamika', employee_no: 'EMP-101' },
+            { member_id: 'sm-3', operator_id: 'usr-004', full_name: 'Kavindu Perera', username: 'kavindu', employee_no: 'EMP-104' }
+          ]
+        },
+        {
+          id: 'shift-b',
+          code: 'B',
+          name: 'Shift B',
+          start_time: '14:00',
+          end_time: '22:00',
+          members: [
+            { member_id: 'sm-2', operator_id: 'usr-001', full_name: 'Chamika Silva', username: 'chamika', employee_no: 'EMP-101' }
+          ]
+        }
       ]);
-      setExpandedShiftGroups(new Set(['shift-a', 'shift-b', 'shift-c', 'shift-d']));
     }
     setLoadingRoster(false);
 
@@ -175,7 +265,20 @@ const CreatePOGeneralInner: React.FC = () => {
           setSelectedOps(parsed.selectedOperations.map(normalizeOpName));
         }
         if (parsed.qcTestMode) setQcTestMode(parsed.qcTestMode);
-        if (parsed.qcStationCount) setQcStationCount(parsed.qcStationCount);
+        if (parsed.qcTests && Array.isArray(parsed.qcTests) && parsed.qcTests.length > 0) {
+          setQcTests(parsed.qcTests);
+          setAvailableQcTests(prev => Array.from(new Set([...prev, ...parsed.qcTests])));
+        } else if (parsed.qcTestMode) {
+          const fallback = parsed.qcTestMode === 'QC Only' ? ['Endline QC'] : (parsed.qcTestMode === 'Test Only' || parsed.qcTestMode === 'Functional Test Only') ? ['Functional Test'] : ['Endline QC', 'Functional Test'];
+          setQcTests(fallback);
+          setAvailableQcTests(prev => Array.from(new Set([...prev, ...fallback])));
+        }
+        if (parsed.qcStationCount) setQcStationCount(Number(parsed.qcStationCount) || 1);
+        if (parsed.preQcTests && Array.isArray(parsed.preQcTests) && parsed.preQcTests.length > 0) {
+          setPreQcTests(parsed.preQcTests);
+          setAvailablePreQcTests(prev => Array.from(new Set([...prev, ...parsed.preQcTests])));
+        }
+        if (parsed.preQcStationCount) setPreQcStationCount(Number(parsed.preQcStationCount) || 1);
         if (parsed.allocations && Array.isArray(parsed.allocations)) {
           setPoAllocations(parsed.allocations.map((a: any) => ({
             operatorId: a.operatorId || a.workerId || a.operator_id || a.worker_id || a.id || '',
@@ -252,9 +355,23 @@ const CreatePOGeneralInner: React.FC = () => {
     setSelectedOps(opsToSet);
 
     const nextQcMode = sourcePo.qcTestMode || qcTestMode;
-    const nextQcStations = (sourcePo.qcStationCount as 1 | 2) || qcStationCount;
+    const nextQcTests = Array.isArray(sourcePo.qcTests) && sourcePo.qcTests.length > 0
+      ? sourcePo.qcTests
+      : (sourcePo.qcTestMode === 'QC Only' ? ['Endline QC'] : (sourcePo.qcTestMode === 'Test Only' || sourcePo.qcTestMode === 'Functional Test Only') ? ['Functional Test'] : ['Endline QC', 'Functional Test']);
+    setQcTests(nextQcTests);
+    setAvailableQcTests(prev => Array.from(new Set([...prev, ...nextQcTests])));
+
+    const nextPreQcTests = Array.isArray(sourcePo.preQcTests) && sourcePo.preQcTests.length > 0
+      ? sourcePo.preQcTests
+      : ['Pre-QC Inspection'];
+    setPreQcTests(nextPreQcTests);
+    setAvailablePreQcTests(prev => Array.from(new Set([...prev, ...nextPreQcTests])));
+
+    const nextQcStations = Number(sourcePo.qcStationCount) || 1;
+    const nextPreQcStations = Number(sourcePo.preQcStationCount) || 1;
     setQcTestMode(nextQcMode);
-    setQcStationCount(nextQcStations);
+    setQcStationCount(Math.min(nextQcStations, nextQcTests.length || 1));
+    setPreQcStationCount(Math.min(nextPreQcStations, nextPreQcTests.length || 1));
 
     // Operator Shift Allocations
     const rawAllocations = sourcePo.allocations || sourcePo.shifts || [];
@@ -301,6 +418,9 @@ const CreatePOGeneralInner: React.FC = () => {
       selectedOperations: opsToSet,
       qcTestMode: nextQcMode,
       qcStationCount: nextQcStations,
+      qcTests: nextQcTests,
+      preQcTests: nextPreQcTests,
+      preQcStationCount: nextPreQcStations,
       allocations: mapped.map(a => ({
         workerId: a.operatorId,
         workerName: a.operatorName,
@@ -342,48 +462,52 @@ const CreatePOGeneralInner: React.FC = () => {
     showToast(`Copied all configurations from ${sourcePo.id}! You can now customize the PO Name, Number, or any setting.`, 'success');
   };
 
-  // Group roster rows by shift
-  const rosterByShift = rosterRows.reduce<Record<string, { shift: ShiftRosterRow; members: ShiftRosterRow[] }>>((acc, row) => {
-    if (!acc[row.shift_id]) {
-      acc[row.shift_id] = { shift: row, members: [] };
-    }
-    acc[row.shift_id].members.push(row);
-    return acc;
-  }, {});
+  const isShiftSelected = (shiftId: string, shiftCode?: string) => {
+    return poAllocations.some(a => a.shiftId === shiftId || (shiftCode && a.shiftCode === shiftCode));
+  };
 
-  const toggleRosterRowSelection = (row: ShiftRosterRow) => {
-    const key = `${row.operator_id}|${row.shift_id}`;
-    const already = poAllocations.some(a => a.operatorId === row.operator_id && a.shiftId === row.shift_id);
-    if (already) {
-      setPoAllocations(prev => prev.filter(a => !(a.operatorId === row.operator_id && a.shiftId === row.shift_id)));
+  const toggleShiftSelection = (shift: ShiftItem) => {
+    const isCurrentlySelected = isShiftSelected(shift.id, shift.code);
+    if (isCurrentlySelected) {
+      setPoAllocations(prev => prev.filter(a => a.shiftId !== shift.id && a.shiftCode !== shift.code));
     } else {
-      setPoAllocations(prev => [...prev, {
-        operatorId: row.operator_id,
-        operatorName: row.full_name,
-        shiftId: row.shift_id,
-        shiftName: row.shift_name,
-        shiftCode: row.shift_code,
-        startTime: row.start_time,
-        endTime: row.end_time,
-      }]);
+      const members = shift.members || [];
+      if (members.length === 0) {
+        setPoAllocations(prev => [...prev, {
+          operatorId: '',
+          operatorName: '',
+          shiftId: shift.id,
+          shiftName: shift.name,
+          shiftCode: shift.code,
+          startTime: shift.start_time || '06:00',
+          endTime: shift.end_time || '14:00',
+        }]);
+      } else {
+        const newAllocs: PoAllocation[] = members.map(m => ({
+          operatorId: m.operator_id,
+          operatorName: m.full_name,
+          shiftId: shift.id,
+          shiftName: shift.name,
+          shiftCode: shift.code,
+          startTime: shift.start_time || '06:00',
+          endTime: shift.end_time || '14:00',
+        }));
+        setPoAllocations(prev => {
+          const existingKeys = new Set(prev.map(a => `${a.operatorId}|${a.shiftId}`));
+          const toAdd = newAllocs.filter(a => !existingKeys.has(`${a.operatorId}|${a.shiftId}`));
+          return [...prev, ...toAdd];
+        });
+      }
     }
   };
 
-  const isRowSelected = (row: ShiftRosterRow) =>
-    poAllocations.some(a => a.operatorId === row.operator_id && a.shiftId === row.shift_id);
+  const selectedShiftCount = useMemo(() => {
+    return new Set(poAllocations.map(a => a.shiftCode || a.shiftId).filter(Boolean)).size;
+  }, [poAllocations]);
 
-  const removeAllocation = (operatorId: string, shiftId: string) => {
-    setPoAllocations(prev => prev.filter(a => !(a.operatorId === operatorId && a.shiftId === shiftId)));
-  };
-
-  const toggleShiftGroup = (shiftId: string) => {
-    setExpandedShiftGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(shiftId)) next.delete(shiftId);
-      else next.add(shiftId);
-      return next;
-    });
-  };
+  const uniqueOperatorCount = useMemo(() => {
+    return new Set(poAllocations.map(a => a.operatorId).filter(Boolean)).size;
+  }, [poAllocations]);
 
   const toggleOp = (op: OperationType) => {
     setSelectedOps(prev => prev.includes(op) ? prev.filter(o => o !== op) : [...prev, op]);
@@ -404,7 +528,7 @@ const CreatePOGeneralInner: React.FC = () => {
       return;
     }
     if (poAllocations.length === 0) {
-      showToast('Please add at least one operator allocation from the shift roster', 'warning');
+      showToast('Please select at least one Shift Group for this PO', 'warning');
       return;
     }
 
@@ -431,6 +555,9 @@ const CreatePOGeneralInner: React.FC = () => {
       selectedOperations: selectedOps,
       qcTestMode: selectedOps.includes('QC Test') ? qcTestMode : undefined,
       qcStationCount: selectedOps.includes('QC Test') ? qcStationCount : 1,
+      qcTests: selectedOps.includes('QC Test') ? qcTests : undefined,
+      preQcTests: selectedOps.includes('Pre QC') ? preQcTests : undefined,
+      preQcStationCount: selectedOps.includes('Pre QC') ? preQcStationCount : 1,
       // All operator+shift allocations to persist in operator_work_assignments
       allocations: poAllocations.map(a => ({
         workerId: a.operatorId,
@@ -811,172 +938,138 @@ const CreatePOGeneralInner: React.FC = () => {
             </span>
           </div>
 
-        {/* ── Operator–Shift Allocation Panel ─────────────────── */}
-        <div style={{ border: '1.5px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden' }}>
+        {/* ── Shift Groups Allocation Panel ─────────────────── */}
+        <div style={{ border: '1.5px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden', backgroundColor: 'var(--bg-surface-1)' }}>
           {/* Panel header */}
-          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Users size={16} color="var(--primary-teal)" />
-                Operator Shift Allocations for this PO
+                Shift Groups Allocated to this PO
               </div>
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Select which operator↔shift combinations will be authorized to work this Production Order.
-                Pre-assigned roster is loaded from <strong>Shift Management</strong>.
+                Select which Shift Groups will work on this Production Order. All operators in the selected shifts will automatically receive and be authorized for this PO.
               </p>
             </div>
             <button
               type="button"
               onClick={() => navigate('/supervisor/shifts')}
-              style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', background: 'none', border: '1px solid var(--primary-teal)', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', background: 'none', border: '1px solid var(--primary-teal)', padding: '5px 12px', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
             >
-              Manage Roster ↗
+              Manage Shifts ↗
             </button>
           </div>
 
-          {/* Selected allocations summary */}
-          {poAllocations.length > 0 && (
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'rgba(22,184,174,0.05)' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-                Selected ({poAllocations.length})
+          {/* Shift Cards Grid */}
+          <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {loadingRoster && shiftsList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                Loading shift groups…
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {poAllocations.map(alloc => {
-                  const opName = alloc.operatorName || alloc.operatorId || 'Operator';
-                  const shiftLetter = ((alloc.shiftCode || 'A').toUpperCase().charAt(0)) || 'A';
-                  const colors = SHIFT_COLORS[shiftLetter] || SHIFT_COLORS.A;
+            ) : shiftsList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                No shift groups found. Go to{' '}
+                <button type="button" onClick={() => navigate('/supervisor/shifts')} style={{ color: 'var(--primary-teal)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
+                  Shift Management
+                </button>{' '}
+                to create shift groups.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                {shiftsList.map(shift => {
+                  const shiftCodeUpper = (shift.code || 'A').toUpperCase();
+                  const colors = SHIFT_COLORS[shiftCodeUpper] || SHIFT_COLORS.A;
+                  const isSelected = isShiftSelected(shift.id, shift.code);
+                  const memberCount = shift.members?.length || 0;
+
                   return (
                     <div
-                      key={`${alloc.operatorId || ''}|${alloc.shiftId || ''}`}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: colors.bg, border: `1.5px solid ${colors.border}`, borderRadius: '8px', padding: '5px 10px' }}
+                      key={shift.id}
+                      onClick={() => toggleShiftSelection(shift)}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        border: `1.5px solid ${isSelected ? colors.border : 'var(--border-color)'}`,
+                        backgroundColor: isSelected ? colors.bg : 'var(--bg-surface-2)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? '0 2px 10px rgba(0,0,0,0.08)' : 'none'
+                      }}
                     >
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: colors.text, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800, color: '#fff' }}>
-                        {opName.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>{opName}</div>
-                        <div style={{ fontSize: '10px', color: colors.text }}>
-                          <Clock size={9} style={{ display: 'inline', marginRight: '3px' }} />
-                          {alloc.shiftName || 'Shift'} · {alloc.startTime || '06:00'}–{alloc.endTime || '14:00'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{
+                          width: '38px',
+                          height: '38px',
+                          borderRadius: '10px',
+                          backgroundColor: isSelected ? colors.text : 'var(--bg-surface-1)',
+                          border: `1px solid ${isSelected ? colors.border : 'var(--border-color)'}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '15px',
+                          fontWeight: 900,
+                          color: isSelected ? '#fff' : colors.text
+                        }}>
+                          {shift.code}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                            {shift.name}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <Users size={11} color="var(--text-muted)" />
+                            <span><strong>{memberCount}</strong> {memberCount === 1 ? 'Operator' : 'Operators'}</span>
+                          </div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => removeAllocation(alloc.operatorId, alloc.shiftId)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
-                      >
-                        <X size={13} />
-                      </button>
+
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '6px',
+                        border: `2px solid ${isSelected ? colors.text : 'var(--border-color)'}`,
+                        backgroundColor: isSelected ? colors.text : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#fff',
+                        transition: 'all 0.15s'
+                      }}>
+                        {isSelected && <Check size={14} strokeWidth={3} />}
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* Roster grouped by shift */}
-          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {loadingRoster ? (
-              <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                Loading shift roster…
-              </div>
-            ) : Object.keys(rosterByShift).length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                No operators assigned to any shift yet.{' '}
-                <button type="button" onClick={() => navigate('/supervisor/shifts')} style={{ color: 'var(--primary-teal)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '13px' }}>
-                  Go to Shift Management →
-                </button>
-              </div>
-            ) : (
-              Object.values(rosterByShift).map(({ shift, members }) => {
-                const colors = SHIFT_COLORS[shift.shift_code] || SHIFT_COLORS.A;
-                const isOpen = expandedShiftGroups.has(shift.shift_id);
-                const selectedCount = members.filter(m => isRowSelected(m)).length;
-
-                return (
-                  <div key={shift.shift_id} style={{ border: `1px solid ${isOpen ? colors.border : 'var(--border-color)'}`, borderRadius: '12px', overflow: 'hidden', transition: 'border-color 0.2s' }}>
-                    {/* Shift group header */}
-                    <div
-                      onClick={() => toggleShiftGroup(shift.shift_id)}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', cursor: 'pointer', backgroundColor: isOpen ? colors.bg : 'transparent', transition: 'background-color 0.2s' }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Clock size={15} color={colors.text} />
-                        <span style={{ fontSize: '13px', fontWeight: 800, color: colors.text }}>{shift.shift_name}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{shift.start_time} – {shift.end_time}</span>
-                        <span style={{ fontSize: '11px', backgroundColor: 'var(--bg-surface-2)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1px 7px', color: 'var(--text-muted)' }}>
-                          {members.length} assigned
-                        </span>
-                        {selectedCount > 0 && (
-                          <span style={{ fontSize: '11px', backgroundColor: colors.bg, border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '1px 7px', color: colors.text, fontWeight: 700 }}>
-                            {selectedCount} selected for PO
-                          </span>
-                        )}
-                      </div>
-                      {isOpen ? <ChevronDown size={15} color="var(--text-muted)" /> : <ChevronRight size={15} color="var(--text-muted)" />}
-                    </div>
-
-                    {/* Members in this shift */}
-                    {isOpen && (
-                      <div style={{ borderTop: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', gap: '0' }}>
-                        {members.map((member, idx) => {
-                          const selected = isRowSelected(member);
-                          return (
-                            <div
-                              key={member.member_id}
-                              onClick={() => toggleRosterRowSelection(member)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '10px 14px',
-                                cursor: 'pointer',
-                                backgroundColor: selected ? colors.bg : (idx % 2 === 0 ? 'var(--bg-surface-1)' : 'var(--bg-surface-2)'),
-                                borderTop: idx > 0 ? '1px solid var(--border-color)' : 'none',
-                                transition: 'background-color 0.15s',
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                {selected
-                                  ? <CheckSquare size={18} color={colors.text} />
-                                  : <Square size={18} color="var(--text-muted)" />
-                                }
-                                <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: selected ? colors.text : 'var(--bg-surface-2)', border: `1px solid ${selected ? colors.border : 'var(--border-color)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800, color: selected ? '#fff' : 'var(--text-muted)' }}>
-                                  {(member.full_name || member.username || 'O').charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{member.full_name}</div>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '1px' }}>
-                                    <span>{member.employee_no} · @{member.username}</span>
-                                    {member.plant && (
-                                      <span style={{
-                                        fontSize: '10px',
-                                        fontWeight: 700,
-                                        padding: '1px 6px',
-                                        borderRadius: '4px',
-                                        backgroundColor: 'rgba(22, 184, 174, 0.15)',
-                                        color: 'var(--primary-teal)'
-                                      }}>
-                                        {member.plant}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                              {selected && (
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: colors.text, backgroundColor: colors.bg, border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '3px 8px' }}>
-                                  ✓ Added to PO
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
             )}
+
+            {/* Selected shifts & total operator summary */}
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: '10px',
+              backgroundColor: poAllocations.length > 0 ? 'rgba(22, 184, 174, 0.08)' : 'var(--bg-surface-2)',
+              border: `1px solid ${poAllocations.length > 0 ? 'rgba(22, 184, 174, 0.25)' : 'var(--border-color)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
+                {poAllocations.length > 0 ? (
+                  <span>
+                    ✓ <strong>{selectedShiftCount}</strong> Shift Group{selectedShiftCount !== 1 ? 's' : ''} Selected · <strong>{uniqueOperatorCount}</strong> unique operator{uniqueOperatorCount !== 1 ? 's' : ''} will be authorized for this PO
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    No shift groups selected yet. Click on one or more Shift Groups above to assign them to this PO.
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1002,44 +1095,268 @@ const CreatePOGeneralInner: React.FC = () => {
                     <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{op}</span>
                   </div>
 
-                  {op === 'QC Test' && isChecked && (
-                    <div style={{ marginLeft: '12px', padding: '12px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                      <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>Mode</label>
-                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                        Specify whether operator must perform both QC &amp; Test, QC Only, or Test Only.
-                      </p>
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                        {(['QC & Test', 'QC Only', 'Test Only'] as QcTestMode[]).map(mode => (
-                          <label
-                            key={mode}
+                  {op === 'Pre QC' && isChecked && (
+                    <div style={{ marginLeft: '12px', padding: '14px 16px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
+                            Pre-QC Tests Configuration (Multi-Select)
+                          </label>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {preQcTests.length} test{preQcTests.length !== 1 ? 's' : ''} selected
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          Select which tests operators must perform in Pre-QC inspection or add custom tests.
+                        </p>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {availablePreQcTests.map(testName => {
+                            const isSelected = preQcTests.includes(testName);
+                            return (
+                              <button
+                                key={testName}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    if (preQcTests.length === 1) {
+                                      showToast('At least one Pre-QC test must remain selected', 'warning');
+                                      return;
+                                    }
+                                    const updated = preQcTests.filter(t => t !== testName);
+                                    setPreQcTests(updated);
+                                    if (preQcStationCount > updated.length) setPreQcStationCount(Math.max(1, updated.length));
+                                  } else {
+                                    setPreQcTests([...preQcTests, testName]);
+                                  }
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '6px 14px',
+                                  borderRadius: '20px',
+                                  border: `1.5px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                                  backgroundColor: isSelected ? 'rgba(20, 184, 166, 0.15)' : 'var(--bg-surface-1)',
+                                  color: isSelected ? 'var(--primary-teal)' : 'var(--text-secondary)',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                {isSelected ? <CheckSquare size={14} color="var(--primary-teal)" /> : <Square size={14} color="var(--text-muted)" />}
+                                <span>{testName}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            className="input-field"
+                            style={{ maxWidth: '280px', padding: '6px 12px', fontSize: '12px' }}
+                            placeholder="e.g. Fabric Inspection, Trim Check..."
+                            value={customPreQcInput}
+                            onChange={e => setCustomPreQcInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustomPreQcTest();
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddCustomPreQcTest}
                             style={{
-                              display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px',
-                              border: `2px solid ${qcTestMode === mode ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                              backgroundColor: qcTestMode === mode ? 'rgba(22,184,174,0.12)' : 'var(--bg-surface-1)',
-                              cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              padding: '7px 14px',
+                              borderRadius: '8px',
+                              backgroundColor: 'var(--primary-teal)',
+                              color: '#fff',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
                             }}
                           >
-                            <input type="radio" name="qcTestMode" value={mode} checked={qcTestMode === mode} onChange={() => setQcTestMode(mode)} style={{ accentColor: 'var(--primary-teal)' }} />
-                            {mode}
-                          </label>
-                        ))}
+                            <Plus size={14} /> Add Test
+                          </button>
+                        </div>
                       </div>
 
-                      {/* QC Station Selection */}
-                      <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
-                        <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800 }}>QC STATION</label>
+                      <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
+                            PRE-QC STATION COUNT (Max: {Math.max(1, preQcTests.length)} Station{preQcTests.length > 1 ? 's' : ''})
+                          </label>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Selected: {preQcStationCount} Station{preQcStationCount > 1 ? 's' : ''}
+                          </span>
+                        </div>
                         <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                          Select <strong>1 Station</strong> (combined single Save for Endline &amp; Functional Test) or <strong>2 Stations</strong> (independent saves).
+                          Select station count: <strong>1 Station</strong> (combined single Save for all selected tests) or up to <strong>{preQcTests.length} Stations</strong> (independent saves).
                         </p>
-                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                          {([1, 2] as const).map(count => (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {Array.from({ length: Math.max(1, preQcTests.length) }, (_, i) => i + 1).map(count => (
                             <label
                               key={count}
                               style={{
-                                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 16px',
+                                borderRadius: '10px',
+                                border: `2px solid ${preQcStationCount === count ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                                backgroundColor: preQcStationCount === count ? 'rgba(20, 184, 166, 0.12)' : 'var(--bg-surface-1)',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                color: preQcStationCount === count ? 'var(--primary-teal)' : 'var(--text-primary)'
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="preQcStationCount"
+                                value={count}
+                                checked={preQcStationCount === count}
+                                onChange={() => setPreQcStationCount(count)}
+                                style={{ accentColor: 'var(--primary-teal)' }}
+                              />
+                              {count} {count === 1 ? 'Station' : 'Stations'}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {op === 'QC Test' && isChecked && (
+                    <div style={{ marginLeft: '12px', padding: '14px 16px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
+                            QC Tests Configuration (Multi-Select)
+                          </label>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {qcTests.length} test{qcTests.length !== 1 ? 's' : ''} selected
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          Select which tests operators must perform (e.g. Endline QC, Functional Test, or add custom tests like Incline Test).
+                        </p>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {availableQcTests.map(testName => {
+                            const isSelected = qcTests.includes(testName);
+                            return (
+                              <button
+                                key={testName}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    if (qcTests.length === 1) {
+                                      showToast('At least one QC test must remain selected', 'warning');
+                                      return;
+                                    }
+                                    const updated = qcTests.filter(t => t !== testName);
+                                    setQcTests(updated);
+                                    if (qcStationCount > updated.length) setQcStationCount(Math.max(1, updated.length));
+                                  } else {
+                                    setQcTests([...qcTests, testName]);
+                                  }
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '6px 14px',
+                                  borderRadius: '20px',
+                                  border: `1.5px solid ${isSelected ? 'var(--primary-teal)' : 'var(--border-color)'}`,
+                                  backgroundColor: isSelected ? 'rgba(20, 184, 166, 0.15)' : 'var(--bg-surface-1)',
+                                  color: isSelected ? 'var(--primary-teal)' : 'var(--text-secondary)',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                {isSelected ? <CheckSquare size={14} color="var(--primary-teal)" /> : <Square size={14} color="var(--text-muted)" />}
+                                <span>{testName}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            className="input-field"
+                            style={{ maxWidth: '280px', padding: '6px 12px', fontSize: '12px' }}
+                            placeholder="e.g. Incline Test, Drop Test..."
+                            value={customQcInput}
+                            onChange={e => setCustomQcInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddCustomQcTest();
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddCustomQcTest}
+                            style={{
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              padding: '7px 14px',
+                              borderRadius: '8px',
+                              backgroundColor: 'var(--primary-teal)',
+                              color: '#fff',
+                              border: 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Plus size={14} /> Add Test
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
+                            QC STATION COUNT (Max: {Math.max(1, qcTests.length)} Station{qcTests.length > 1 ? 's' : ''})
+                          </label>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Selected: {qcStationCount} Station{qcStationCount > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                          Select station count: <strong>1 Station</strong> (combined single Save for all selected tests) or up to <strong>{qcTests.length} Stations</strong> (independent saves).
+                        </p>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {Array.from({ length: Math.max(1, qcTests.length) }, (_, i) => i + 1).map(count => (
+                            <label
+                              key={count}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 16px',
+                                borderRadius: '10px',
                                 border: `2px solid ${qcStationCount === count ? 'var(--primary-teal)' : 'var(--border-color)'}`,
-                                backgroundColor: qcStationCount === count ? 'rgba(22,184,174,0.12)' : 'var(--bg-surface-1)',
-                                cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                                backgroundColor: qcStationCount === count ? 'rgba(20, 184, 166, 0.12)' : 'var(--bg-surface-1)',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                color: qcStationCount === count ? 'var(--primary-teal)' : 'var(--text-primary)'
                               }}
                             >
                               <input
@@ -1050,7 +1367,7 @@ const CreatePOGeneralInner: React.FC = () => {
                                 onChange={() => setQcStationCount(count)}
                                 style={{ accentColor: 'var(--primary-teal)' }}
                               />
-                              {count === 1 ? '1 Station' : '2 Stations'}
+                              {count} {count === 1 ? 'Station' : 'Stations'}
                             </label>
                           ))}
                         </div>

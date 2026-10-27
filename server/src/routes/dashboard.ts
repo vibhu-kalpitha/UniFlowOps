@@ -220,7 +220,7 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
     const userPlant = req.user?.plant;
     const selectedPoId = (req.query.poId || '').toString().trim();
 
-    // Query authorized POs for this supervisor (If supervisor has a plant, restrict to their plant)
+    // Query authorized POs for this supervisor (Supervisors have global production visibility, restricted only by plant if plant is configured)
     let poWhere = ``;
     let poParams: any[] = [];
     if (isSupervisorOnly && userPlant && userPlant.trim() !== '') {

@@ -705,10 +705,12 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
 
     const preQcLine = (req.body.lineNumber || req.body.selectedLine || po.line_number || '').trim();
     const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+    const testDetails = req.body.testDetails || req.body.test_details;
+    const testDetailsJson = testDetails ? JSON.stringify(testDetails) : null;
     await db.prepare(`
-      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, failure_reason, scanned_at, line_number)
-      VALUES (?, ?, ?, ?, ?, ?, NOW(3), ?)
-    `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason, preQcLine || null);
+      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, test_details, failure_reason, scanned_at, line_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?)
+    `).run(preQcId, item.id, req.user!.id, po.id, result, testDetailsJson, failureReason, preQcLine || null);
 
     const progress = await calculatePreQCProgress(po.id, req.user);
     return res.json({
@@ -1403,6 +1405,7 @@ const qcResultSchema = z.object({
   stage: z.enum(['QC', 'TEST', 'ALL']).optional(),
   qcResult: z.enum(['PASS', 'FAIL']).optional(),
   testResult: z.enum(['PASS', 'FAIL']).optional(),
+  testDetails: z.any().optional(),
   failureReason: z.string().optional(),
   lineNumber: z.string().optional(),
   selectedLine: z.string().optional()
@@ -1654,21 +1657,24 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
         `).run(alertId, `${targetStage} failed for item ${itemQr} on PO ${po.po_number} (Reason: ${failureReason || 'Defect detected'})`, failLogId);
       }
 
+      const testDetailsVal = (parsed as any).testDetails || (req.body as any).testDetails || (req.body as any).test_details;
+      const testDetailsJson = testDetailsVal ? JSON.stringify(testDetailsVal) : null;
+
       if (existingQc) {
         retryCount = (existingQc.retry_count || 0) + 1;
         await tx.prepare(`
           UPDATE qc_results 
-          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3),
+          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, test_details = COALESCE(?, test_details), failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3),
               line_number = COALESCE(NULLIF(?, ''), line_number)
           WHERE item_id = ?
-        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, effectiveLineNumber, item.id);
+        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, testDetailsJson, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, effectiveLineNumber, item.id);
       } else {
         retryCount = 0;
         const qcId = `qc-${Date.now()}`;
         await tx.prepare(`
-          INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at, line_number)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?, ?)
-        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || null, qcScannedAt, testScannedAt, effectiveLineNumber);
+          INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, test_details, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at, line_number)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?, ?)
+        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, testDetailsJson, failureReason || null, qcScannedAt, testScannedAt, effectiveLineNumber);
       }
 
       await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalItemStatus, item.id);

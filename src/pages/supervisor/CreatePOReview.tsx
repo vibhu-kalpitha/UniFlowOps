@@ -77,6 +77,9 @@ const CreatePOReviewInner: React.FC = () => {
       selectedOperations: draftPoGeneral.selectedOperations,
       qcTestMode: draftPoGeneral.qcTestMode,
       qcStationCount: draftPoGeneral.qcStationCount || 1,
+      qcTests: draftPoGeneral.qcTests,
+      preQcTests: draftPoGeneral.preQcTests,
+      preQcStationCount: draftPoGeneral.preQcStationCount || 1,
       allowNoProductPrefix: draftAllowNoProductPrefix,
       allowNoBoxPrefix: draftAllowNoBoxPrefix,
       productConfigurations: draftConfigs,
@@ -254,18 +257,26 @@ const CreatePOReviewInner: React.FC = () => {
               <span style={{ ...styles.sumVal, color: '#c084fc', fontWeight: 800 }}>{draftPoGeneral.lineNumber}</span>
             </div>
           )}
-          {draftPoGeneral.shiftName && (
-            <div>
-              <span style={styles.sumLabel}>Work Shift</span>
-              <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>{draftPoGeneral.shiftName}</span>
-            </div>
-          )}
-          {effectiveAllocations.length > 0 && (
-            <div>
-              <span style={styles.sumLabel}>Assigned Operators</span>
-              <span style={styles.sumVal}>{effectiveAllocations.map((s: any) => s.workerName || s.operatorName || s.workerId || s.operatorId).join(', ')}</span>
-            </div>
-          )}
+          {effectiveAllocations.length > 0 && (() => {
+            const shiftNames = Array.from(new Set(effectiveAllocations.map((s: any) => s.shiftName || (s.shiftCode ? `Shift ${s.shiftCode}` : null)).filter(Boolean)));
+            return (
+              <div>
+                <span style={styles.sumLabel}>Allocated Shift Group(s)</span>
+                <span style={{ ...styles.sumVal, color: 'var(--primary-teal)', fontWeight: 800 }}>
+                  {shiftNames.length > 0 ? shiftNames.join(', ') : (draftPoGeneral.shiftName || 'Shift')}
+                </span>
+              </div>
+            );
+          })()}
+          {effectiveAllocations.length > 0 && (() => {
+            const opNames = Array.from(new Set(effectiveAllocations.map((s: any) => s.workerName || s.operatorName || s.workerId || s.operatorId).filter(Boolean)));
+            return (
+              <div>
+                <span style={styles.sumLabel}>Authorized Operators ({opNames.length})</span>
+                <span style={styles.sumVal}>{opNames.join(', ')}</span>
+              </div>
+            );
+          })()}
           {draftPoGeneral.qcTestMode && (
             <div>
               <span style={styles.sumLabel}>QC Mode Sub-Selection</span>
@@ -290,7 +301,7 @@ const CreatePOReviewInner: React.FC = () => {
 
       {/* Selected Operations Card */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0 }}>
-        <span style={styles.cardSubTitle}>REQUIRED OPERATIONS</span>
+        <span style={styles.cardSubTitle}>REQUIRED OPERATIONS &amp; TESTS</span>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
           {draftPoGeneral.selectedOperations?.map((op: string) => (
             <span
@@ -308,6 +319,24 @@ const CreatePOReviewInner: React.FC = () => {
             </span>
           ))}
         </div>
+        {(draftPoGeneral.selectedOperations?.includes('Pre QC') || draftPoGeneral.selectedOperations?.includes('QC Test')) && (
+          <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+            {draftPoGeneral.selectedOperations?.includes('Pre QC') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Pre-QC Tests:</strong>
+                <span>{Array.isArray(draftPoGeneral.preQcTests) && draftPoGeneral.preQcTests.length > 0 ? draftPoGeneral.preQcTests.join(', ') : 'Pre-QC Inspection'}</span>
+                <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700 }}>({draftPoGeneral.preQcStationCount || 1} Station{Number(draftPoGeneral.preQcStationCount) !== 1 ? 's' : ''})</span>
+              </div>
+            )}
+            {draftPoGeneral.selectedOperations?.includes('QC Test') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>QC Tests:</strong>
+                <span>{Array.isArray(draftPoGeneral.qcTests) && draftPoGeneral.qcTests.length > 0 ? draftPoGeneral.qcTests.join(', ') : 'Endline QC, Functional Test'}</span>
+                <span style={{ fontSize: '11px', color: 'var(--primary-teal)', fontWeight: 700 }}>({draftPoGeneral.qcStationCount || 1} Station{Number(draftPoGeneral.qcStationCount) !== 1 ? 's' : ''})</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Product Configurations Summary */}

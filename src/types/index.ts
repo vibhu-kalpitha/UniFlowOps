@@ -13,7 +13,7 @@ export interface User {
 
 export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
 
-export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only';
+export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only' | 'Functional Test Only' | 'QC & Functional Test';
 
 export interface ProductConfigSizeMaster {
   id: string;
@@ -132,8 +132,14 @@ export interface ProductionOrder {
   status: 'Current' | 'Completed' | 'Draft';
   selectedOperations: OperationType[];
   qcTestMode?: QcTestMode;
-  qcStationCount?: 1 | 2;
+  qcStationCount?: number;
   qc_station_count?: number;
+  qcTests?: string[];
+  qc_tests?: string[];
+  preQcTests?: string[];
+  pre_qc_tests?: string[];
+  preQcStationCount?: number;
+  pre_qc_station_count?: number;
   productConfigurations?: ProductConfiguration[];
   boxConfigurations?: PoBoxConfiguration[];
   allowNoProductPrefix?: boolean;

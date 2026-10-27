@@ -288,7 +288,7 @@ export const AdminOrders: React.FC = () => {
     let resolvedQcMode = 'QC & Test';
     const rawQc = po.qcTestMode || po.qc_test_mode;
     if (rawQc === 'QC_ONLY' || rawQc === 'QC Only') resolvedQcMode = 'QC Only';
-    else if (rawQc === 'TEST_ONLY' || rawQc === 'Test Only') resolvedQcMode = 'Test Only';
+    else if (rawQc === 'TEST_ONLY' || rawQc === 'Test Only' || rawQc === 'Functional Test Only') resolvedQcMode = 'Functional Test Only';
 
     setFullForm({
       poNumber: po.poNumber || po.po_number || '',
@@ -1553,9 +1553,9 @@ export const AdminOrders: React.FC = () => {
                       }}
                       style={styles.select}
                     >
-                      <option value="QC & Test">QC & Test (Standard)</option>
+                      <option value="QC & Test">QC & Functional Test (Standard)</option>
                       <option value="QC Only">QC Only</option>
-                      <option value="Test Only">Test Only</option>
+                      <option value="Functional Test Only">Functional Test Only</option>
                     </select>
                   </div>
                 </div>
