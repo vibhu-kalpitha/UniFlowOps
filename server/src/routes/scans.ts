@@ -703,11 +703,12 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       await db.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
     }
 
+    const preQcLine = (req.body.lineNumber || req.body.selectedLine || po.line_number || '').trim();
     const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     await db.prepare(`
-      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, failure_reason, scanned_at)
-      VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-    `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason);
+      INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, failure_reason, scanned_at, line_number)
+      VALUES (?, ?, ?, ?, ?, ?, NOW(3), ?)
+    `).run(preQcId, item.id, req.user!.id, po.id, result, failureReason, preQcLine || null);
 
     const progress = await calculatePreQCProgress(po.id, req.user);
     return res.json({
@@ -1402,7 +1403,9 @@ const qcResultSchema = z.object({
   stage: z.enum(['QC', 'TEST', 'ALL']).optional(),
   qcResult: z.enum(['PASS', 'FAIL']).optional(),
   testResult: z.enum(['PASS', 'FAIL']).optional(),
-  failureReason: z.string().optional()
+  failureReason: z.string().optional(),
+  lineNumber: z.string().optional(),
+  selectedLine: z.string().optional()
 });
 
 router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next) => {
@@ -1412,6 +1415,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     const itemQr = parsed.itemQr.trim().toUpperCase();
     const targetPoKey = parsed.productionOrderId || parsed.productionOrderNumber || parsed.salesOrderId || parsed.salesOrderNumber || null;
     const failureReason = parsed.failureReason;
+    const rawSelectedLine = (parsed.lineNumber || parsed.selectedLine || (req.body as any).lineNumber || (req.body as any).selectedLine || '').trim();
 
     const operatorId = req.user!.id;
     const userRole = req.user!.role;
@@ -1632,14 +1636,16 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
         }
       }
 
+      const effectiveLineNumber = rawSelectedLine || po.line_number || null;
+
       const stageResultVal = targetStage === 'QC' ? nextQcResult : nextTestResult;
       if (stageResultVal === 'FAIL') {
         failCount += 1;
         const failLogId = `qcfail-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
-          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, po_id, failure_type)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, ?)
-        `).run(failLogId, item.id, operatorId, nextQcResult, nextTestResult, failureReason || null, failCount, idempotencyKey || null, itemQr, po.id, `${targetStage}_FAIL`);
+          INSERT INTO qc_fail_log (id, item_id, operator_id, qc_result, test_result, failure_reason, attempt_number, scanned_at, idempotency_key, raw_qr, po_id, failure_type, line_number)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?, ?, ?, ?, ?)
+        `).run(failLogId, item.id, operatorId, nextQcResult, nextTestResult, failureReason || null, failCount, idempotencyKey || null, itemQr, po.id, `${targetStage}_FAIL`, effectiveLineNumber);
 
         const alertId = `alt-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
         await tx.prepare(`
@@ -1652,16 +1658,17 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
         retryCount = (existingQc.retry_count || 0) + 1;
         await tx.prepare(`
           UPDATE qc_results 
-          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3)
+          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3),
+              line_number = COALESCE(NULLIF(?, ''), line_number)
           WHERE item_id = ?
-        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, item.id);
+        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, effectiveLineNumber, item.id);
       } else {
         retryCount = 0;
         const qcId = `qc-${Date.now()}`;
         await tx.prepare(`
-          INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?)
-        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || null, qcScannedAt, testScannedAt);
+          INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at, line_number)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?, ?)
+        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, failureReason || null, qcScannedAt, testScannedAt, effectiveLineNumber);
       }
 
       await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalItemStatus, item.id);
@@ -2074,21 +2081,27 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       `).get(boxNumber.trim().toUpperCase(), boxNumber.trim().toUpperCase(), po.id, po.po_number, po.map_po) as any;
     }
 
+    const packingLine = (req.body.lineNumber || req.body.selectedLine || po.line_number || '').trim();
+
     if (box) {
       if (!box.production_order_id || box.capacity !== configuredCapacity) {
         await db.prepare(`UPDATE boxes SET production_order_id = ?, capacity = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, configuredCapacity, box.id);
         box.production_order_id = po.id;
         box.capacity = configuredCapacity;
       }
+      if (packingLine && (!box.line_number || box.line_number === '')) {
+        await db.prepare(`UPDATE boxes SET line_number = ? WHERE id = ?`).run(packingLine, box.id);
+        box.line_number = packingLine;
+      }
     } else {
       const boxId = `box-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const code = boxNumber.trim().toUpperCase();
       try {
         await db.prepare(`
-          INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at)
-          VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3))
-        `).run(boxId, code, code, po.id, configuredCapacity);
-        box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: configuredCapacity, status: 'OPEN' };
+          INSERT INTO boxes (id, box_code, box_number, production_order_id, capacity, status, created_at, line_number)
+          VALUES (?, ?, ?, ?, ?, 'OPEN', NOW(3), ?)
+        `).run(boxId, code, code, po.id, configuredCapacity, packingLine || null);
+        box = { id: boxId, box_code: code, box_number: code, production_order_id: po.id, capacity: configuredCapacity, status: 'OPEN', line_number: packingLine || null };
       } catch (insertErr: any) {
         box = await db.prepare(`
           SELECT * FROM boxes 
@@ -2644,12 +2657,15 @@ router.post('/aql/boxes/scan', authenticateToken, async (req: AuthRequest, res, 
     `).get(box.id, targetStage, targetStage) as any;
 
     let inspectionId = existingInspection ? existingInspection.id : `aql-${targetStage.toLowerCase()}-${Date.now()}`;
+    const aqlLine = (req.body.lineNumber || req.body.selectedLine || (box as any).line_number || '').trim();
 
     if (!existingInspection) {
       await db.prepare(`
-        INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, stage, started_at)
-        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, NOW(3))
-      `).run(inspectionId, box.id, box.production_order_id, operatorId, totalItems > 0 ? totalItems : 3, targetStage);
+        INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, stage, started_at, line_number)
+        VALUES (?, ?, ?, ?, ?, 'PENDING', ?, NOW(3), ?)
+      `).run(inspectionId, box.id, box.production_order_id, operatorId, totalItems > 0 ? totalItems : 3, targetStage, aqlLine || null);
+    } else if (aqlLine && (!existingInspection.line_number || existingInspection.line_number === '')) {
+      await db.prepare(`UPDATE aql_inspections SET line_number = ? WHERE id = ?`).run(aqlLine, existingInspection.id);
     }
 
     // Load sample history for THIS STAGE across all inspections for this box to find each item's LATEST sample result
@@ -2948,11 +2964,12 @@ router.post('/aql/inspections/direct-complete', authenticateToken, async (req: A
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found' });
     }
 
+    const aqlLine = (req.body.lineNumber || req.body.selectedLine || (box as any).line_number || '').trim();
     const inspectionId = `aql-${targetStage.toLowerCase()}-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     await db.prepare(`
-      INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, stage, failure_reason, started_at, completed_at)
-      VALUES (?, ?, ?, ?, 12, ?, ?, ?, NOW(3), NOW(3))
-    `).run(inspectionId, box.id, box.production_order_id, operatorId, result, targetStage, failureReason || null);
+      INSERT INTO aql_inspections (id, box_id, production_order_id, inspector_id, required_samples, result, stage, failure_reason, started_at, completed_at, line_number)
+      VALUES (?, ?, ?, ?, 12, ?, ?, ?, NOW(3), NOW(3), ?)
+    `).run(inspectionId, box.id, box.production_order_id, operatorId, result, targetStage, failureReason || null, aqlLine || null);
 
     const boxStatus = result === 'PASSED'
       ? (isFinalAql ? 'FINAL_AQL_PASSED' : 'AQL_PASSED')

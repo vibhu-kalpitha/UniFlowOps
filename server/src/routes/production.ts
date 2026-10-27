@@ -2060,7 +2060,7 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
     }
 
     const po = await db.queryOne<any>(`
-      SELECT id, po_number, po_name, line_number, total_quantity
+      SELECT id, po_number, po_name, line_number
       FROM production_orders
       WHERE id = ? OR po_number = ?
     `, [poId, poId]);
@@ -2069,19 +2069,30 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Production order not found' });
     }
 
+    // Safely calculate target quantity from production_order_configs
+    const cfgQtyRow = await db.queryOne<any>(`
+      SELECT COALESCE(SUM(quantity), 0) as totalQty
+      FROM production_order_configs
+      WHERE production_order_id = ?
+    `, [po.id]);
+    const targetQuantity = Number(cfgQtyRow?.totalQty || 0);
+
     const effectiveLine = line || po.line_number || 'Line 1';
 
     if (operation === 'PRE_QC' || operation === 'PRE-QC') {
       const rows = await db.prepare(`
         SELECT pq.id, iu.qr_code, pq.pre_qc_result as result, pq.failure_reason, pq.scanned_at,
-               u.full_name as operator_name, iu.size
+               u.full_name as operator_name, iu.size,
+               COALESCE(pq.line_number, po.line_number, 'Line 1') as line_number
         FROM pre_qc_results pq
         JOIN item_units iu ON iu.id = pq.item_id
+        LEFT JOIN production_orders po ON (po.id = pq.production_order_id OR po.id = iu.production_order_id)
         LEFT JOIN users u ON u.id = pq.operator_id
         WHERE (pq.production_order_id = ? OR iu.production_order_id = ?)
+          ${line ? "AND (pq.line_number = ? OR (pq.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY pq.scanned_at DESC
         LIMIT 500
-      `).all(po.id, po.id) as any[];
+      `).all(...(line ? [po.id, po.id, line, `%${line}%`] : [po.id, po.id])) as any[];
 
       const passCount = rows.filter(r => r.result === 'PASS').length;
       const failCount = rows.filter(r => r.result === 'FAIL').length;
@@ -2095,7 +2106,7 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
           total: rows.length,
           passCount,
           failCount,
-          targetQuantity: po.total_quantity || 0
+          targetQuantity
         },
         records: rows
       });
@@ -2104,14 +2115,17 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
     if (operation === 'QC' || operation === 'QC_TEST' || operation === 'QC TEST') {
       const rows = await db.prepare(`
         SELECT qr.id, iu.qr_code, qr.qc_result, qr.test_result, qr.failure_reason, qr.scanned_at,
-               u.full_name as operator_name, iu.size
+               u.full_name as operator_name, iu.size,
+               COALESCE(qr.line_number, po.line_number, 'Line 1') as line_number
         FROM qc_results qr
         JOIN item_units iu ON iu.id = qr.item_id
+        LEFT JOIN production_orders po ON po.id = iu.production_order_id
         LEFT JOIN users u ON u.id = qr.operator_id
         WHERE iu.production_order_id = ?
+          ${line ? "AND (qr.line_number = ? OR (qr.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY qr.scanned_at DESC
         LIMIT 500
-      `).all(po.id) as any[];
+      `).all(...(line ? [po.id, line, `%${line}%`] : [po.id])) as any[];
 
       const passCount = rows.filter(r => r.qc_result === 'PASS' && r.test_result === 'PASS').length;
       const failCount = rows.filter(r => r.qc_result === 'FAIL' || r.test_result === 'FAIL').length;
@@ -2125,7 +2139,7 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
           total: rows.length,
           passCount,
           failCount,
-          targetQuantity: po.total_quantity || 0
+          targetQuantity
         },
         records: rows
       });
@@ -2134,12 +2148,15 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
     if (operation === 'PACKING') {
       const boxRows = await db.prepare(`
         SELECT b.id, b.box_code, b.box_number, b.capacity, b.status, b.created_at, b.completed_at,
+               COALESCE(b.line_number, po.line_number, 'Line 1') as line_number,
                (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id) as item_count
         FROM boxes b
+        LEFT JOIN production_orders po ON po.id = b.production_order_id
         WHERE b.production_order_id = ?
+          ${line ? "AND (b.line_number = ? OR (b.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY b.created_at DESC
         LIMIT 200
-      `).all(po.id) as any[];
+      `).all(...(line ? [po.id, line, `%${line}%`] : [po.id])) as any[];
 
       const boxIds = boxRows.map(b => b.id);
       let itemsByBox: Record<string, string[]> = {};
@@ -2173,7 +2190,7 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
         summary: {
           totalBoxes: boxRows.length,
           totalPackedUnits,
-          targetQuantity: po.total_quantity || 0
+          targetQuantity
         },
         records
       });
@@ -2183,15 +2200,18 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
       const rows = await db.prepare(`
         SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason,
                ai.required_samples, ai.started_at, ai.completed_at,
+               COALESCE(ai.line_number, b.line_number, po.line_number, 'Line 1') as line_number,
                u.full_name as inspector_name,
                (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
         FROM aql_inspections ai
         JOIN boxes b ON b.id = ai.box_id
+        LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
         LEFT JOIN users u ON u.id = ai.inspector_id
         WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+          ${line ? "AND (ai.line_number = ? OR b.line_number = ? OR (ai.line_number IS NULL AND po.line_number LIKE ?))" : ""}
         ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
         LIMIT 200
-      `).all(po.id, po.id) as any[];
+      `).all(...(line ? [po.id, po.id, line, line, `%${line}%`] : [po.id, po.id])) as any[];
 
       const passCount = rows.filter(r => r.result === 'PASS').length;
       const failCount = rows.filter(r => r.result === 'FAIL').length;
@@ -2204,7 +2224,8 @@ router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest,
         summary: {
           total: rows.length,
           passCount,
-          failCount
+          failCount,
+          targetQuantity
         },
         records: rows
       });

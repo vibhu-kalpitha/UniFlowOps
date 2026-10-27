@@ -145,7 +145,8 @@ export const PackingPage: React.FC = () => {
 
     try {
       const targetPoKey = currentPoId || '';
-      const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}`);
+      const lineParam = activeJob?.selectedLine ? `&lineNumber=${encodeURIComponent(activeJob.selectedLine)}` : '';
+      const res = await apiFetch(`/api/boxes/by-code/${encodeURIComponent(code)}?productionOrderId=${encodeURIComponent(targetPoKey)}${lineParam}`);
       if (res && res.box) {
         isApiSuccess = true;
         apiBoxId = res.box.id;
@@ -248,6 +249,7 @@ export const PackingPage: React.FC = () => {
           itemQr:                 code,
           productionOrderId:     po?.dbId || po?.id,
           productionOrderNumber: po?.id || 'PO-2026-0184',
+          lineNumber:            activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined,
         }),
       });
       if (scanRes?.isDuplicate) {
@@ -470,9 +472,9 @@ export const PackingPage: React.FC = () => {
 
       {activeViewTab === 'history' ? (
         <LineOperationHistoryView
-          poId={po?.id || po?.dbId || ''}
-          poNumber={po?.poNumber || (po as any)?.po_number || ''}
-          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          poId={po?.dbId || po?.id || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || po?.id || ''}
+          selectedLine={activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || 'Line 1'}
           operation="PACKING"
         />
       ) : (

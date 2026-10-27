@@ -127,7 +127,7 @@ export const LineOperationHistoryView: React.FC<LineOperationHistoryViewProps> =
               fontSize: '11px',
               fontWeight: 700
             }}>
-              PO: <strong style={{ color: 'var(--text-primary)' }}>{poNumber}</strong>
+              PO: <strong style={{ color: 'var(--text-primary)' }}>{poNumber || data?.poNumber || poId}</strong>
             </span>
             <StatusPill label="READ-ONLY VIEW" variant="teal" />
           </div>

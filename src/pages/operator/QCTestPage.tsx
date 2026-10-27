@@ -444,6 +444,7 @@ export const QCTestPage: React.FC = () => {
         productionOrderNumber: po?.id || 'PO-2026-0184',
         stage: stageToSave,
         failureReason: resultVal === 'FAIL' ? reasonVal : undefined,
+        lineNumber: activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined,
       };
 
       if (stageToSave === 'QC') {
@@ -571,6 +572,7 @@ export const QCTestPage: React.FC = () => {
         qcResult,
         testResult,
         failureReason: (qcResult === 'FAIL' || testResult === 'FAIL') ? combinedFailureReason : undefined,
+        lineNumber: activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined,
       };
 
       saveRes = await apiFetch('/api/qc/results', {
@@ -770,9 +772,9 @@ export const QCTestPage: React.FC = () => {
 
       {activeViewTab === 'history' ? (
         <LineOperationHistoryView
-          poId={po?.id || po?.dbId || ''}
-          poNumber={po?.poNumber || (po as any)?.po_number || ''}
-          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          poId={po?.dbId || po?.id || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || po?.id || ''}
+          selectedLine={activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || 'Line 1'}
           operation="QC"
         />
       ) : (

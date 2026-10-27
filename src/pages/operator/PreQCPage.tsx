@@ -209,7 +209,8 @@ export const PreQCPage: React.FC = () => {
           code: scannedItem.qr,
           productionOrderId: po?.dbId || po?.id,
           preQcResult,
-          failureReason: preQcResult === 'FAIL' ? failureReason : undefined
+          failureReason: preQcResult === 'FAIL' ? failureReason : undefined,
+          lineNumber: activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined
         }),
       });
 
@@ -410,9 +411,9 @@ export const PreQCPage: React.FC = () => {
 
       {activeViewTab === 'history' ? (
         <LineOperationHistoryView
-          poId={po?.id || ''}
-          poNumber={po?.id || ''}
-          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          poId={po?.dbId || po?.id || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || po?.id || ''}
+          selectedLine={activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || 'Line 1'}
           operation="PRE_QC"
         />
       ) : (

@@ -628,6 +628,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
     const adminBoxRows = await db.prepare(`
       SELECT 
         b.id, b.box_code, b.box_number, b.capacity, b.status, b.created_at, b.production_order_id,
+        COALESCE(NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
         po.po_number, po.po_name, s.name as style_name,
         (SELECT COUNT(bi.id) FROM box_items bi WHERE bi.box_id = b.id AND bi.active = 1) as active_count
       FROM boxes b
@@ -659,6 +660,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         id: b.id,
         boxCode: b.box_code || b.box_number,
         boxNumber: b.box_number || b.box_code,
+        lineName: b.line_name || 'Line 1',
         poNumber: b.po_number || b.production_order_id,
         poName: b.po_name || null,
         styleName: b.style_name || 'Standard Style',
@@ -692,9 +694,37 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       LIMIT 100
     `).all() as any[];
 
-    // 12. Production Lines list for filtering
-    const linesList = await db.prepare(`SELECT DISTINCT name FROM production_lines WHERE active = 1 ORDER BY name ASC`).all() as any[];
-    const availableLines = linesList.map((l: any) => l.name).filter(Boolean);
+    // 12. Production Lines list for filtering - strictly collect actual lines allocated to POs or used in operations
+    const allocatedLinesSet = new Set<string>();
+    try {
+      const poLinesRows = await db.prepare(`SELECT DISTINCT line_number FROM production_orders WHERE line_number IS NOT NULL AND line_number != ''`).all() as any[];
+      for (const r of poLinesRows) {
+        const parts = String(r.line_number || '').split(/[,;/+]+/).map(p => p.trim()).filter(Boolean);
+        for (const p of parts) {
+          allocatedLinesSet.add(p.startsWith('Line') ? p : `Line ${p}`);
+        }
+      }
+      const loggedLinesRows = await db.prepare(`
+        SELECT DISTINCT line_number FROM (
+          SELECT line_number FROM qc_results WHERE line_number IS NOT NULL AND line_number != ''
+          UNION
+          SELECT line_number FROM pre_qc_results WHERE line_number IS NOT NULL AND line_number != ''
+          UNION
+          SELECT line_number FROM boxes WHERE line_number IS NOT NULL AND line_number != ''
+          UNION
+          SELECT line_number FROM aql_inspections WHERE line_number IS NOT NULL AND line_number != ''
+        ) t
+      `).all().catch(() => []) as any[];
+      for (const r of loggedLinesRows) {
+        if (r?.line_number && String(r.line_number).trim()) {
+          const val = String(r.line_number).trim();
+          allocatedLinesSet.add(val.startsWith('Line') ? val : `Line ${val}`);
+        }
+      }
+    } catch {
+      // safe fallback
+    }
+    const availableLines = Array.from(allocatedLinesSet).sort();
 
     // 13. Styles Master Data for inspection tab
     const adminStyles = await db.query(`
@@ -704,10 +734,12 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       ORDER BY s.created_at DESC
     `);
 
-    // 14. Detailed QC Inspection Logs
+    // 14. Detailed QC Inspection Logs with real line_number and PO line fallback
     const qcLogs = await db.prepare(`
       SELECT qr.id, qr.item_id, iu.qr_code as item_qr, qr.qc_result, qr.test_result, qr.failure_reason, qr.scanned_at,
-             po.id as po_id, po.po_number, s.name as style_name, pl.name as line_name, u.full_name as operator_name
+             po.id as po_id, po.po_number, s.name as style_name,
+             COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
+             u.full_name as operator_name
       FROM qc_results qr
       JOIN item_units iu ON iu.id = qr.item_id
       LEFT JOIN production_orders po ON po.id = iu.production_order_id
@@ -719,11 +751,13 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       LIMIT 100
     `).all() as any[];
 
-    // 15. Detailed AQL & Final AQL Logs
+    // 15. Detailed AQL & Final AQL Logs with real line_number and PO line fallback
     const aqlLogs = await db.prepare(`
       SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason, ai.required_samples,
              ai.started_at, ai.completed_at,
-             po.id as po_id, po.po_number, s.name as style_name, pl.name as line_name, u.full_name as inspector_name,
+             po.id as po_id, po.po_number, s.name as style_name,
+             COALESCE(NULLIF(TRIM(ai.line_number), ''), NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
+             u.full_name as inspector_name,
              (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
       FROM aql_inspections ai
       LEFT JOIN boxes b ON b.id = ai.box_id
@@ -736,12 +770,14 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       LIMIT 100
     `).all() as any[];
 
-    // 16. Detailed Pre-QC Logs
+    // 16. Detailed Pre-QC Logs with real line_number and PO line fallback
     let preQcLogs: any[] = [];
     try {
       preQcLogs = await db.prepare(`
         SELECT pq.id, pq.item_id, iu.qr_code as item_qr, pq.pre_qc_result, pq.failure_reason, pq.scanned_at,
-               po.id as po_id, po.po_number, s.name as style_name, pl.name as line_name, u.full_name as operator_name
+               po.id as po_id, po.po_number, s.name as style_name,
+               COALESCE(NULLIF(TRIM(pq.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
+               u.full_name as operator_name
         FROM pre_qc_results pq
         JOIN item_units iu ON iu.id = pq.item_id
         LEFT JOIN production_orders po ON (po.id = pq.production_order_id OR po.id = iu.production_order_id)

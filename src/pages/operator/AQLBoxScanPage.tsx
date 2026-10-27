@@ -149,7 +149,8 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
         body: JSON.stringify({
           boxNumber: code,
           stage: stageCode,
-          productionOrderId: currentPoId
+          productionOrderId: currentPoId,
+          lineNumber: activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || undefined
         }),
       });
       isApiSuccess = true;
@@ -357,9 +358,9 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
 
       {activeViewTab === 'history' ? (
         <LineOperationHistoryView
-          poId={po?.id || po?.dbId || ''}
-          poNumber={po?.poNumber || (po as any)?.po_number || ''}
-          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          poId={po?.dbId || po?.id || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || po?.id || ''}
+          selectedLine={activeJob?.selectedLine || po?.lineNumber || (po as any)?.line_number || 'Line 1'}
           operation="AQL"
         />
       ) : (

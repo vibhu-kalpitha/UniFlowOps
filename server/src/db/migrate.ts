@@ -813,6 +813,8 @@ export async function runMigrations(): Promise<{ applied: string[]; skipped: str
         try { await db.exec(`ALTER TABLE production_orders ADD COLUMN plant VARCHAR(191) NULL AFTER supervisor_id`); }
         catch (e: any) { console.warn('  011: production_orders.plant warning (non-fatal):', e?.message); }
       }
+    } else if (file === '012_operation_line_numbers.sql') {
+      await runSchemaAlignment012();
     } else {
       const sql = fs.readFileSync(filePath, 'utf-8');
       await db.exec(sql);
@@ -857,11 +859,101 @@ async function runSchemaAlignment007(): Promise<void> {
   }
 }
 
+async function runSchemaAlignment012(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (012 Operation Line Numbers & Historical Backfill)...');
+  
+  if (await tableExists('qc_results') && !(await columnExists('qc_results', 'line_number'))) {
+    try { await db.exec(`ALTER TABLE qc_results ADD COLUMN line_number VARCHAR(100) NULL AFTER station;`); }
+    catch (e: any) { console.warn('  012: qc_results.line_number warning (non-fatal):', e?.message); }
+  }
+
+  if (await tableExists('qc_fail_log') && !(await columnExists('qc_fail_log', 'line_number'))) {
+    try { await db.exec(`ALTER TABLE qc_fail_log ADD COLUMN line_number VARCHAR(100) NULL AFTER station;`); }
+    catch (e: any) { console.warn('  012: qc_fail_log.line_number warning (non-fatal):', e?.message); }
+  }
+
+  if (await tableExists('pre_qc_results') && !(await columnExists('pre_qc_results', 'line_number'))) {
+    try { await db.exec(`ALTER TABLE pre_qc_results ADD COLUMN line_number VARCHAR(100) NULL AFTER operator_id;`); }
+    catch (e: any) { console.warn('  012: pre_qc_results.line_number warning (non-fatal):', e?.message); }
+  }
+
+  if (await tableExists('pre_qc_scans') && !(await columnExists('pre_qc_scans', 'line_number'))) {
+    try { await db.exec(`ALTER TABLE pre_qc_scans ADD COLUMN line_number VARCHAR(100) NULL AFTER pre_qc_qr;`); }
+    catch (e: any) { console.warn('  012: pre_qc_scans.line_number warning (non-fatal):', e?.message); }
+  }
+
+  if (await tableExists('boxes') && !(await columnExists('boxes', 'line_number'))) {
+    try { await db.exec(`ALTER TABLE boxes ADD COLUMN line_number VARCHAR(100) NULL AFTER box_number;`); }
+    catch (e: any) { console.warn('  012: boxes.line_number warning (non-fatal):', e?.message); }
+  }
+
+  if (await tableExists('aql_inspections') && !(await columnExists('aql_inspections', 'line_number'))) {
+    try { await db.exec(`ALTER TABLE aql_inspections ADD COLUMN line_number VARCHAR(100) NULL AFTER stage;`); }
+    catch (e: any) { console.warn('  012: aql_inspections.line_number warning (non-fatal):', e?.message); }
+  }
+
+  // Safe backfill from production_orders
+  try {
+    if (await tableExists('qc_results') && await columnExists('qc_results', 'line_number')) {
+      await db.exec(`
+        UPDATE qc_results qr
+        JOIN item_units iu ON iu.id = qr.item_id
+        JOIN production_orders po ON po.id = iu.production_order_id
+        SET qr.line_number = po.line_number
+        WHERE (qr.line_number IS NULL OR qr.line_number = '') AND po.line_number IS NOT NULL AND po.line_number != '';
+      `);
+    }
+    if (await tableExists('qc_fail_log') && await columnExists('qc_fail_log', 'line_number')) {
+      await db.exec(`
+        UPDATE qc_fail_log qf
+        JOIN production_orders po ON po.id = qf.po_id
+        SET qf.line_number = po.line_number
+        WHERE (qf.line_number IS NULL OR qf.line_number = '') AND po.line_number IS NOT NULL AND po.line_number != '';
+      `);
+    }
+    if (await tableExists('pre_qc_results') && await columnExists('pre_qc_results', 'line_number')) {
+      await db.exec(`
+        UPDATE pre_qc_results pq
+        JOIN production_orders po ON po.id = pq.production_order_id
+        SET pq.line_number = po.line_number
+        WHERE (pq.line_number IS NULL OR pq.line_number = '') AND po.line_number IS NOT NULL AND po.line_number != '';
+      `);
+    }
+    if (await tableExists('pre_qc_scans') && await columnExists('pre_qc_scans', 'line_number')) {
+      await db.exec(`
+        UPDATE pre_qc_scans pqs
+        JOIN production_orders po ON po.id = pqs.production_order_id
+        SET pqs.line_number = po.line_number
+        WHERE (pqs.line_number IS NULL OR pqs.line_number = '') AND po.line_number IS NOT NULL AND po.line_number != '';
+      `);
+    }
+    if (await tableExists('boxes') && await columnExists('boxes', 'line_number')) {
+      await db.exec(`
+        UPDATE boxes b
+        JOIN production_orders po ON po.id = b.production_order_id
+        SET b.line_number = po.line_number
+        WHERE (b.line_number IS NULL OR b.line_number = '') AND po.line_number IS NOT NULL AND po.line_number != '';
+      `);
+    }
+    if (await tableExists('aql_inspections') && await columnExists('aql_inspections', 'line_number')) {
+      await db.exec(`
+        UPDATE aql_inspections ai
+        JOIN production_orders po ON po.id = ai.production_order_id
+        SET ai.line_number = po.line_number
+        WHERE (ai.line_number IS NULL OR ai.line_number = '') AND po.line_number IS NOT NULL AND po.line_number != '';
+      `);
+    }
+  } catch (e: any) {
+    console.warn('  012 backfill warning (non-fatal):', e?.message);
+  }
+}
+
   console.log(`🎉 Migrations summary: ${applied.length} applied, ${skipped.length} already up-to-date.`);
   await runSchemaAlignment007();
   await runSchemaAlignment008();
   await runSchemaAlignment009();
   await runSchemaAlignment010();
+  await runSchemaAlignment012();
   return { applied, skipped };
 }
 

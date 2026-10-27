@@ -346,19 +346,19 @@ export const AdminReports: React.FC = () => {
   const rawQcLogs: any[] = adminData?.qcLogs || [];
   const rawAqlLogs: any[] = adminData?.aqlLogs || [];
   const rawPreQcLogs: any[] = adminData?.preQcLogs || [];
-  const availableLines: string[] = adminData?.filter?.availableLines || ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5'];
+  const availableLines: string[] = adminData?.filter?.availableLines || [];
 
   // Inspection section multi-attribute filter helper
   const matchesInspectionFilters = (item: any) => {
     const itemStyle = (item.style_name || item.styleName || item.name || '').toLowerCase();
     const itemPo = (item.po_number || item.poNumber || item.po_name || '').toLowerCase();
-    const itemLine = (item.line_name || item.lineName || item.line || '').toLowerCase();
+    const itemLine = (item.line_name || item.lineName || item.line || item.line_number || '').toLowerCase();
     const rawDate = item.scanned_at || item.created_at || item.started_at || item.completed_at || item.removed_at || item.date || '';
     const itemDate = rawDate ? new Date(rawDate).toISOString().slice(0, 10) : '';
 
     if (selectedStyleFilter && itemStyle && !itemStyle.includes(selectedStyleFilter.toLowerCase())) return false;
     if (selectedPoFilter && itemPo && !itemPo.includes(selectedPoFilter.toLowerCase())) return false;
-    if (selectedLineFilter && itemLine && !itemLine.includes(selectedLineFilter.toLowerCase())) return false;
+    if (selectedLineFilter && (!itemLine || !itemLine.includes(selectedLineFilter.toLowerCase()))) return false;
     if (selectedDateFilter && itemDate && itemDate !== selectedDateFilter) return false;
 
     if (searchTerm.trim()) {
@@ -1119,7 +1119,7 @@ export const AdminReports: React.FC = () => {
                         <td data-label="PO NUMBER" style={styles.td}>{qc.po_number || 'N/A'}</td>
                         <td data-label="STYLE" style={styles.td}>{qc.style_name || 'Standard'}</td>
                         <td data-label="LINE" style={styles.td}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{qc.line_name || 'Line 1'}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{qc.line_name || qc.line_number || '—'}</span>
                         </td>
                         <td data-label="QC RESULT" style={styles.td}>
                           <StatusPill label={qc.qc_result || 'PASS'} variant={qc.qc_result === 'PASS' ? 'green' : 'red'} />
@@ -1320,7 +1320,7 @@ export const AdminReports: React.FC = () => {
                         <td data-label="PO NUMBER" style={styles.td}>{aql.po_number || 'N/A'}</td>
                         <td data-label="STYLE" style={styles.td}>{aql.style_name || 'Standard'}</td>
                         <td data-label="LINE" style={styles.td}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{aql.line_name || 'Line 1'}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{aql.line_name || aql.line_number || '—'}</span>
                         </td>
                         <td data-label="STAGE" style={styles.td}>
                           <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>{aql.stage || 'Final AQL'}</span>
@@ -1407,7 +1407,7 @@ export const AdminReports: React.FC = () => {
                         <td data-label="PO NUMBER" style={styles.td}>{pq.po_number || 'N/A'}</td>
                         <td data-label="STYLE" style={styles.td}>{pq.style_name || 'Standard'}</td>
                         <td data-label="LINE" style={styles.td}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{pq.line_name || 'Line 1'}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{pq.line_name || pq.line_number || '—'}</span>
                         </td>
                         <td data-label="PRE-QC RESULT" style={styles.td}>
                           <StatusPill label={pq.pre_qc_result || 'PASS'} variant={pq.pre_qc_result === 'PASS' ? 'green' : 'red'} />
