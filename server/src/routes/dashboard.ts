@@ -689,8 +689,72 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       LEFT JOIN production_orders po ON po.id = p.production_order_id
       LEFT JOIN users u ON u.id = p.removed_by
       ORDER BY p.removed_at DESC
-      LIMIT 20
+      LIMIT 100
     `).all() as any[];
+
+    // 12. Production Lines list for filtering
+    const linesList = await db.prepare(`SELECT DISTINCT name FROM production_lines WHERE active = 1 ORDER BY name ASC`).all() as any[];
+    const availableLines = linesList.map((l: any) => l.name).filter(Boolean);
+
+    // 13. Styles Master Data for inspection tab
+    const adminStyles = await db.query(`
+      SELECT s.*,
+        (SELECT COUNT(id) FROM production_orders WHERE style_id = s.id) as po_count
+      FROM styles s
+      ORDER BY s.created_at DESC
+    `);
+
+    // 14. Detailed QC Inspection Logs
+    const qcLogs = await db.prepare(`
+      SELECT qr.id, qr.item_id, iu.qr_code as item_qr, qr.qc_result, qr.test_result, qr.failure_reason, qr.scanned_at,
+             po.id as po_id, po.po_number, s.name as style_name, pl.name as line_name, u.full_name as operator_name
+      FROM qc_results qr
+      JOIN item_units iu ON iu.id = qr.item_id
+      LEFT JOIN production_orders po ON po.id = iu.production_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
+      LEFT JOIN production_lines pl ON pl.id = so.line_id
+      LEFT JOIN users u ON u.id = qr.operator_id
+      ORDER BY qr.scanned_at DESC
+      LIMIT 100
+    `).all() as any[];
+
+    // 15. Detailed AQL & Final AQL Logs
+    const aqlLogs = await db.prepare(`
+      SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason, ai.required_samples,
+             ai.started_at, ai.completed_at,
+             po.id as po_id, po.po_number, s.name as style_name, pl.name as line_name, u.full_name as inspector_name,
+             (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
+      FROM aql_inspections ai
+      LEFT JOIN boxes b ON b.id = ai.box_id
+      LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN sales_orders so ON so.id = ai.sales_order_id
+      LEFT JOIN production_lines pl ON pl.id = so.line_id
+      LEFT JOIN users u ON u.id = ai.inspector_id
+      ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+      LIMIT 100
+    `).all() as any[];
+
+    // 16. Detailed Pre-QC Logs
+    let preQcLogs: any[] = [];
+    try {
+      preQcLogs = await db.prepare(`
+        SELECT pq.id, pq.item_id, iu.qr_code as item_qr, pq.pre_qc_result, pq.failure_reason, pq.scanned_at,
+               po.id as po_id, po.po_number, s.name as style_name, pl.name as line_name, u.full_name as operator_name
+        FROM pre_qc_results pq
+        JOIN item_units iu ON iu.id = pq.item_id
+        LEFT JOIN production_orders po ON (po.id = pq.production_order_id OR po.id = iu.production_order_id)
+        LEFT JOIN styles s ON s.id = po.style_id
+        LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
+        LEFT JOIN production_lines pl ON pl.id = so.line_id
+        LEFT JOIN users u ON u.id = pq.operator_id
+        ORDER BY pq.scanned_at DESC
+        LIMIT 100
+      `).all() as any[];
+    } catch {
+      preQcLogs = [];
+    }
 
     return res.json({
       filter: {
@@ -700,7 +764,8 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         fromDate: fromDate || null,
         toDate: toDate || null,
         availableStyles,
-        availablePos
+        availablePos,
+        availableLines
       },
       kpis: {
         totalStyles,
@@ -720,7 +785,11 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       activeProductionOrders: formattedActiveOrders,
       adminBoxes,
       recentAuditLogs,
-      recentScrapped
+      recentScrapped,
+      adminStyles,
+      qcLogs,
+      aqlLogs,
+      preQcLogs
     });
   } catch (err) {
     next(err);

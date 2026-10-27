@@ -5,9 +5,10 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
 interface ScannedItem {
@@ -69,6 +70,7 @@ export const QCTestPage: React.FC = () => {
   const stationCount = Number(rawStationCount) === 1 ? 1 : 2;
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
+  const [activeViewTab, setActiveViewTab] = useState<'scan' | 'history'>('scan');
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
@@ -714,10 +716,70 @@ export const QCTestPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Split Grid for Desktop */}
-      <div className="desktop-split-7-5">
-        {/* Left Panel: Scanner & Controls */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
+      {/* View Switcher: Live Scanning vs Line History */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        backgroundColor: 'var(--bg-surface-2)',
+        padding: '4px',
+        borderRadius: '10px',
+        width: 'fit-content'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('scan')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <ScanLine size={14} /> Live Scan Station
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('history')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Layers size={14} /> Line Records & Completed QRs
+        </button>
+      </div>
+
+      {activeViewTab === 'history' ? (
+        <LineOperationHistoryView
+          poId={po?.id || po?.dbId || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || ''}
+          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          operation="QC"
+        />
+      ) : (
+        /* Split Grid for Desktop */
+        <div className="desktop-split-7-5">
+          {/* Left Panel: Scanner & Controls */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
           {/* PO Progress Card - Operator Work Primary */}
           <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
             {/* PRIMARY / LARGE: Operator Work */}
@@ -1343,6 +1405,7 @@ export const QCTestPage: React.FC = () => {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

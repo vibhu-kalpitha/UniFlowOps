@@ -6,10 +6,11 @@ import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight } from 'lucide-react';
+import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
 interface BoxItem {
@@ -35,6 +36,7 @@ export const PackingPage: React.FC = () => {
   const so = activeJob?.salesOrder;
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
+  const [activeViewTab, setActiveViewTab] = useState<'scan' | 'history'>('scan');
 
   const initialTarget = po?.totalQuantity || 500;
   const initialPacked = po?.progress?.packed || 0;
@@ -414,8 +416,68 @@ export const PackingPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Workflow Controls Panel */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
+      {/* View Switcher: Live Scanning vs Line History */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        backgroundColor: 'var(--bg-surface-2)',
+        padding: '4px',
+        borderRadius: '10px',
+        width: 'fit-content'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('scan')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <ScanLine size={14} /> Live Scan Station
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('history')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Layers size={14} /> Line Records & Completed Boxes
+        </button>
+      </div>
+
+      {activeViewTab === 'history' ? (
+        <LineOperationHistoryView
+          poId={po?.id || po?.dbId || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || ''}
+          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          operation="PACKING"
+        />
+      ) : (
+        /* Workflow Controls Panel */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
         {/* PO Packing Progress & Operator Metrics - Operator Primary */}
         <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
           {/* PRIMARY / LARGE: Operator Work */}
@@ -589,6 +651,7 @@ export const PackingPage: React.FC = () => {
           </>
         )}
       </div>
+      )}
 
       {/* Completion Modal */}
       {showFinishModal && box && (

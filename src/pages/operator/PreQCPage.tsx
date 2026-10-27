@@ -5,9 +5,10 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
 interface ScannedItem {
@@ -24,6 +25,7 @@ export const PreQCPage: React.FC = () => {
   const po = activeJob?.productionOrder;
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
+  const [activeViewTab, setActiveViewTab] = useState<'scan' | 'history'>('scan');
   const [scannedItem, setScannedItem] = useState<ScannedItem | null>(null);
   const [preQcResult, setPreQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [failureReason, setFailureReason] = useState<string>('');
@@ -354,8 +356,69 @@ export const PreQCPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Barcode Scanner Input */}
-      <div style={styles.scannerBox}>
+      {/* View Switcher: Live Scanning vs Line History */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        backgroundColor: 'var(--bg-surface-2)',
+        padding: '4px',
+        borderRadius: '10px',
+        width: 'fit-content'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('scan')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <ScanLine size={14} /> Live Scan Station
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('history')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Layers size={14} /> Line Records & Completed QRs
+        </button>
+      </div>
+
+      {activeViewTab === 'history' ? (
+        <LineOperationHistoryView
+          poId={po?.id || ''}
+          poNumber={po?.id || ''}
+          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          operation="PRE_QC"
+        />
+      ) : (
+        <>
+          {/* Barcode Scanner Input */}
+          <div style={styles.scannerBox}>
         <ScannerStatus showConnectButton={true} style={{ marginBottom: '10px' }} />
         <ScannerInput
           onScan={handleScanCode}
@@ -504,6 +567,8 @@ export const PreQCPage: React.FC = () => {
             ))}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

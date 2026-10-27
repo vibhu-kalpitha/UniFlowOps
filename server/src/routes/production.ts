@@ -1630,6 +1630,115 @@ router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, nex
   }
 });
 
+// DELETE /api/boxes/:boxId/items/:qrCode — Delete a specific item from a box (Admin & Supervisor)
+router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const role = (req.user?.role || '').toLowerCase();
+    if (role !== 'admin' && role !== 'supervisor') {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Only Admins and Supervisors can remove items from boxes.' });
+    }
+
+    const { boxId, qrCode } = req.params;
+    const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(boxId, boxId, boxId) as any;
+    if (!box) {
+      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found.' });
+    }
+
+    const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qrCode.trim().toUpperCase()) as any;
+    if (!item) {
+      return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: `Item '${qrCode}' not found.` });
+    }
+
+    const boxItem = await db.prepare(`SELECT * FROM box_items WHERE box_id = ? AND item_id = ? AND active = 1`).get(box.id, item.id) as any;
+    if (!boxItem) {
+      return res.status(404).json({ error: 'ITEM_NOT_IN_BOX', message: `Item '${qrCode}' is not in Box ${box.box_code || box.box_number}.` });
+    }
+
+    await db.transaction(async (tx) => {
+      // 1. Delete item from box_items
+      await tx.prepare(`DELETE FROM box_items WHERE id = ?`).run(boxItem.id);
+
+      // 2. Reset item status back to 'QC_PASSED' if it passed QC, else 'CREATED'
+      const qcPass = await tx.prepare(`SELECT id FROM qc_results WHERE item_id = ? AND qc_result = 'PASS' AND test_result = 'PASS'`).get(item.id) as any;
+      const newStatus = qcPass ? 'QC_PASSED' : 'CREATED';
+      await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
+
+      // 3. Re-open box if count is below capacity
+      const remainingRow = await tx.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND active = 1`).get(box.id) as any;
+      const remainingCount = Number(remainingRow?.cnt || 0);
+      if (remainingCount < box.capacity) {
+        await tx.prepare(`UPDATE boxes SET status = 'OPEN', updated_at = NOW(3) WHERE id = ?`).run(box.id);
+      }
+    });
+
+    await auditLog(req.user!.id, 'REMOVE_BOX_ITEM', 'boxes', box.id, {
+      boxCode: box.box_code || box.box_number,
+      itemQr: qrCode
+    });
+
+    return res.json({
+      success: true,
+      message: `Item '${qrCode}' removed from Box ${box.box_code || box.box_number} successfully.`
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/qc-logs/:id — Delete a QC inspection log entry
+router.delete('/admin/qc-logs/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    await db.transaction(async (tx) => {
+      await tx.prepare(`DELETE FROM qc_results WHERE id = ?`).run(id);
+      await tx.prepare(`DELETE FROM qc_fail_log WHERE id = ?`).run(id);
+    });
+    await auditLog(req.user!.id, 'DELETE_QC_LOG', 'qc_results', id, {});
+    return res.json({ success: true, message: 'QC inspection log deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/pre-qc-logs/:id — Delete a Pre-QC validation log entry
+router.delete('/admin/pre-qc-logs/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    await db.prepare(`DELETE FROM pre_qc_results WHERE id = ?`).run(id);
+    await auditLog(req.user!.id, 'DELETE_PRE_QC_LOG', 'pre_qc_results', id, {});
+    return res.json({ success: true, message: 'Pre-QC validation log deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/aql-logs/:id — Delete an AQL inspection log entry
+router.delete('/admin/aql-logs/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    await db.transaction(async (tx) => {
+      await tx.prepare(`DELETE FROM aql_samples WHERE inspection_id = ?`).run(id).catch(() => {});
+      await tx.prepare(`DELETE FROM aql_inspections WHERE id = ?`).run(id);
+    });
+    await auditLog(req.user!.id, 'DELETE_AQL_LOG', 'aql_inspections', id, {});
+    return res.json({ success: true, message: 'AQL inspection log deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/scrapped/:id — Delete a scrapped item entry
+router.delete('/admin/scrapped/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    await db.prepare(`DELETE FROM permanently_removed_items WHERE id = ?`).run(id);
+    await auditLog(req.user!.id, 'DELETE_SCRAPPED_ITEM', 'permanently_removed_items', id, {});
+    return res.json({ success: true, message: 'Scrapped item log deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // =========================================================================
 // PRODUCT CONFIGURATION MASTER-DATA ENDPOINTS (FULLY DYNAMIC / USER-MANAGED)
 // =========================================================================
@@ -1934,6 +2043,174 @@ router.patch('/product-config-types/sizes/:sizeId/toggle', authenticateToken, re
     await auditLog(req.user!.id, newActive ? 'ACTIVATE_CONFIG_SIZE' : 'DEACTIVATE_CONFIG_SIZE', 'product_configuration_sizes', sizeId, { active: newActive });
 
     return res.json({ id: sizeId, active: Boolean(newActive), message: `Size ${newActive ? 'activated' : 'deactivated'}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/scans/po-line-history — Live inspection & completed QRs history for specific PO & Line
+router.get('/scans/po-line-history', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const poId = (req.query.poId as string || '').trim();
+    const line = (req.query.line as string || '').trim();
+    const operation = (req.query.operation as string || 'QC').toUpperCase().trim();
+
+    if (!poId) {
+      return res.status(400).json({ error: 'BAD_REQUEST', message: 'Production order ID (poId) is required' });
+    }
+
+    const po = await db.queryOne<any>(`
+      SELECT id, po_number, po_name, line_number, total_quantity
+      FROM production_orders
+      WHERE id = ? OR po_number = ?
+    `, [poId, poId]);
+
+    if (!po) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Production order not found' });
+    }
+
+    const effectiveLine = line || po.line_number || 'Line 1';
+
+    if (operation === 'PRE_QC' || operation === 'PRE-QC') {
+      const rows = await db.prepare(`
+        SELECT pq.id, iu.qr_code, pq.pre_qc_result as result, pq.failure_reason, pq.scanned_at,
+               u.full_name as operator_name, iu.size
+        FROM pre_qc_results pq
+        JOIN item_units iu ON iu.id = pq.item_id
+        LEFT JOIN users u ON u.id = pq.operator_id
+        WHERE (pq.production_order_id = ? OR iu.production_order_id = ?)
+        ORDER BY pq.scanned_at DESC
+        LIMIT 500
+      `).all(po.id, po.id) as any[];
+
+      const passCount = rows.filter(r => r.result === 'PASS').length;
+      const failCount = rows.filter(r => r.result === 'FAIL').length;
+
+      return res.json({
+        poId: po.id,
+        poNumber: po.po_number,
+        selectedLine: effectiveLine,
+        operation: 'PRE_QC',
+        summary: {
+          total: rows.length,
+          passCount,
+          failCount,
+          targetQuantity: po.total_quantity || 0
+        },
+        records: rows
+      });
+    }
+
+    if (operation === 'QC' || operation === 'QC_TEST' || operation === 'QC TEST') {
+      const rows = await db.prepare(`
+        SELECT qr.id, iu.qr_code, qr.qc_result, qr.test_result, qr.failure_reason, qr.scanned_at,
+               u.full_name as operator_name, iu.size
+        FROM qc_results qr
+        JOIN item_units iu ON iu.id = qr.item_id
+        LEFT JOIN users u ON u.id = qr.operator_id
+        WHERE iu.production_order_id = ?
+        ORDER BY qr.scanned_at DESC
+        LIMIT 500
+      `).all(po.id) as any[];
+
+      const passCount = rows.filter(r => r.qc_result === 'PASS' && r.test_result === 'PASS').length;
+      const failCount = rows.filter(r => r.qc_result === 'FAIL' || r.test_result === 'FAIL').length;
+
+      return res.json({
+        poId: po.id,
+        poNumber: po.po_number,
+        selectedLine: effectiveLine,
+        operation: 'QC',
+        summary: {
+          total: rows.length,
+          passCount,
+          failCount,
+          targetQuantity: po.total_quantity || 0
+        },
+        records: rows
+      });
+    }
+
+    if (operation === 'PACKING') {
+      const boxRows = await db.prepare(`
+        SELECT b.id, b.box_code, b.box_number, b.capacity, b.status, b.created_at, b.completed_at,
+               (SELECT COUNT(*) FROM box_items bi WHERE bi.box_id = b.id) as item_count
+        FROM boxes b
+        WHERE b.production_order_id = ?
+        ORDER BY b.created_at DESC
+        LIMIT 200
+      `).all(po.id) as any[];
+
+      const boxIds = boxRows.map(b => b.id);
+      let itemsByBox: Record<string, string[]> = {};
+      if (boxIds.length > 0) {
+        const placeholders = boxIds.map(() => '?').join(',');
+        const itemRows = await db.prepare(`
+          SELECT bi.box_id, iu.qr_code
+          FROM box_items bi
+          JOIN item_units iu ON iu.id = bi.item_id
+          WHERE bi.box_id IN (${placeholders})
+          ORDER BY bi.scanned_at ASC
+        `).all(...boxIds) as any[];
+
+        for (const ir of itemRows) {
+          if (!itemsByBox[ir.box_id]) itemsByBox[ir.box_id] = [];
+          itemsByBox[ir.box_id].push(ir.qr_code);
+        }
+      }
+
+      const totalPackedUnits = boxRows.reduce((acc, b) => acc + Number(b.item_count || 0), 0);
+      const records = boxRows.map(b => ({
+        ...b,
+        qrs: itemsByBox[b.id] || []
+      }));
+
+      return res.json({
+        poId: po.id,
+        poNumber: po.po_number,
+        selectedLine: effectiveLine,
+        operation: 'PACKING',
+        summary: {
+          totalBoxes: boxRows.length,
+          totalPackedUnits,
+          targetQuantity: po.total_quantity || 0
+        },
+        records
+      });
+    }
+
+    if (operation === 'AQL' || operation === 'FINAL_AQL' || operation === 'FINAL AQL') {
+      const rows = await db.prepare(`
+        SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason,
+               ai.required_samples, ai.started_at, ai.completed_at,
+               u.full_name as inspector_name,
+               (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
+        FROM aql_inspections ai
+        JOIN boxes b ON b.id = ai.box_id
+        LEFT JOIN users u ON u.id = ai.inspector_id
+        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+        ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+        LIMIT 200
+      `).all(po.id, po.id) as any[];
+
+      const passCount = rows.filter(r => r.result === 'PASS').length;
+      const failCount = rows.filter(r => r.result === 'FAIL').length;
+
+      return res.json({
+        poId: po.id,
+        poNumber: po.po_number,
+        selectedLine: effectiveLine,
+        operation: 'AQL',
+        summary: {
+          total: rows.length,
+          passCount,
+          failCount
+        },
+        records: rows
+      });
+    }
+
+    return res.status(400).json({ error: 'INVALID_OPERATION', message: `Unsupported operation: ${operation}` });
   } catch (err) {
     next(err);
   }

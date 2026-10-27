@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ArrowRight, BoxSelect, ScanLine, Package, Search, ArrowLeftRight } from 'lucide-react';
+import { ArrowRight, BoxSelect, ScanLine, Package, Search, ArrowLeftRight, Layers } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
@@ -9,6 +9,7 @@ import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
 interface ScannedBoxInfo {
@@ -33,6 +34,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
   const stageCode = isFinalAql ? 'FINAL_AQL' : 'AQL';
 
   const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
+  const [activeViewTab, setActiveViewTab] = useState<'scan' | 'history'>('scan');
 
   const initialTarget = po?.totalQuantity || 500;
   const initialAqlPassed = po?.progress?.aqlPassed || 0;
@@ -301,8 +303,68 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
         </div>
       </div>
 
-      {/* Main Workflow Panel */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
+      {/* View Switcher: Live Scanning vs Line History */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        backgroundColor: 'var(--bg-surface-2)',
+        padding: '4px',
+        borderRadius: '10px',
+        width: 'fit-content'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('scan')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <ScanLine size={14} /> Live Scan Station
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('history')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
+            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
+            border: 'none',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Layers size={14} /> Line Records & Completed Audits
+        </button>
+      </div>
+
+      {activeViewTab === 'history' ? (
+        <LineOperationHistoryView
+          poId={po?.id || po?.dbId || ''}
+          poNumber={po?.poNumber || (po as any)?.po_number || ''}
+          selectedLine={activeJob?.selectedLine || 'Line 1'}
+          operation="AQL"
+        />
+      ) : (
+        /* Main Workflow Panel */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
         {/* PO Progress Card - Operator Work Primary */}
         <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
           {/* PRIMARY / LARGE: Operator Work */}
@@ -439,6 +501,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

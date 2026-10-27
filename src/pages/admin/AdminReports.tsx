@@ -16,7 +16,11 @@ import {
   Trash2,
   Activity,
   Search,
-  X
+  X,
+  Palette,
+  ShieldCheck,
+  ClipboardCheck,
+  Calendar
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { StatusPill } from '../../components/StatusPill';
@@ -31,13 +35,25 @@ export const AdminReports: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('');
   const [selectedPoFilter, setSelectedPoFilter] = useState<string>('');
+  const [selectedLineFilter, setSelectedLineFilter] = useState<string>('');
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
 
-  // Operational inspection tabs state (moved from dashboard)
-  const [activeLogTab, setActiveLogTab] = useState<'orders' | 'boxes' | 'quality' | 'scrapped' | 'audit'>('orders');
+  // Operational inspection tabs state: styles, orders, qc, boxes, aql, preqc, scrapped
+  const [activeLogTab, setActiveLogTab] = useState<'styles' | 'orders' | 'qc' | 'boxes' | 'aql' | 'preqc' | 'scrapped'>('styles');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedBoxModal, setSelectedBoxModal] = useState<any>(null);
   const [boxToDelete, setBoxToDelete] = useState<any | null>(null);
   const [deletingBox, setDeletingBox] = useState<boolean>(false);
+
+  // Generic Row Delete Confirmation Modal
+  const [genericDeleteModal, setGenericDeleteModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    details?: { label: string; value: string }[];
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  const [isDeletingGeneric, setIsDeletingGeneric] = useState<boolean>(false);
 
   // Pagination / Row limit state (initial 10 rows with See More)
   const [showAllOrders, setShowAllOrders] = useState<boolean>(false);
@@ -63,6 +79,198 @@ export const AdminReports: React.FC = () => {
     } finally {
       setDeletingBox(false);
     }
+  };
+
+  // Item-wise delete from Box Content Detail modal
+  const handleRemoveBoxItem = async (boxId: string, qrCode: string) => {
+    if (!window.confirm(`Are you sure you want to remove item '${qrCode}' from this box?`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/api/boxes/${encodeURIComponent(boxId)}/items/${encodeURIComponent(qrCode)}`, { method: 'DELETE' });
+      showToast(`Item '${qrCode}' removed from box.`, 'success');
+
+      setSelectedBoxModal((prev: any) => {
+        if (!prev) return prev;
+        const updatedQrs = (prev.productQrs || []).filter((q: string) => q !== qrCode);
+        const updatedItems = (prev.items || []).filter((i: any) => (i.qr_code || i.qr) !== qrCode);
+        return {
+          ...prev,
+          productQrs: updatedQrs,
+          items: updatedItems,
+          activeFilledCount: Math.max(0, (prev.activeFilledCount || 1) - 1),
+          remainingCapacity: Math.min(prev.capacity, (prev.remainingCapacity || 0) + 1)
+        };
+      });
+
+      setAdminData((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          adminBoxes: (prev.adminBoxes || []).map((b: any) => {
+            if (b.id !== boxId) return b;
+            const updatedQrs = (b.productQrs || []).filter((q: string) => q !== qrCode);
+            const updatedItems = (b.items || []).filter((i: any) => (i.qr_code || i.qr) !== qrCode);
+            return {
+              ...b,
+              productQrs: updatedQrs,
+              items: updatedItems,
+              activeFilledCount: Math.max(0, (b.activeFilledCount || 1) - 1),
+              remainingCapacity: Math.min(b.capacity, (b.remainingCapacity || 0) + 1)
+            };
+          })
+        };
+      });
+    } catch (err: any) {
+      showToast(err.message || 'Failed to remove item from box.', 'error');
+    }
+  };
+
+  // Row Delete Actions for Tabs
+  const handleDeleteStyle = (style: any) => {
+    setGenericDeleteModal({
+      isOpen: true,
+      title: 'Delete Style?',
+      description: `Are you sure you want to delete style '${style.name} (${style.code})'? Any linked production orders will be unlinked.`,
+      details: [
+        { label: 'Style Name', value: style.name },
+        { label: 'Style Code', value: style.code || 'N/A' },
+        { label: 'Linked POs', value: `${style.po_count || 0} orders` }
+      ],
+      onConfirm: async () => {
+        await apiFetch(`/api/admin/styles/${encodeURIComponent(style.id)}?force=true`, { method: 'DELETE' });
+        setAdminData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            adminStyles: (prev.adminStyles || []).filter((s: any) => s.id !== style.id)
+          };
+        });
+        showToast(`Style '${style.name}' deleted successfully.`, 'success');
+        await fetchReports();
+      }
+    });
+  };
+
+  const handleDeleteOrder = (order: any) => {
+    setGenericDeleteModal({
+      isOpen: true,
+      title: 'Delete Production Order?',
+      description: `Are you sure you want to permanently delete Production Order '${order.po_number}'?`,
+      details: [
+        { label: 'PO Number', value: order.po_number },
+        { label: 'Style', value: order.style_name || 'Standard' },
+        { label: 'Target Qty', value: `${order.total_quantity || 0} pcs` }
+      ],
+      onConfirm: async () => {
+        await apiFetch(`/api/admin/orders/${encodeURIComponent(order.id)}`, { method: 'DELETE' });
+        setAdminData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            activeProductionOrders: (prev.activeProductionOrders || []).filter((o: any) => o.id !== order.id)
+          };
+        });
+        showToast(`Production Order '${order.po_number}' deleted.`, 'success');
+        await fetchReports();
+      }
+    });
+  };
+
+  const handleDeleteQcLog = (qc: any) => {
+    setGenericDeleteModal({
+      isOpen: true,
+      title: 'Delete QC Inspection Record?',
+      description: `Are you sure you want to remove this QC record for garment '${qc.item_qr}'?`,
+      details: [
+        { label: 'Item Barcode', value: qc.item_qr },
+        { label: 'PO Number', value: qc.po_number || 'N/A' },
+        { label: 'QC Result', value: `${qc.qc_result || 'N/A'} / ${qc.test_result || 'N/A'}` }
+      ],
+      onConfirm: async () => {
+        await apiFetch(`/api/admin/qc-logs/${encodeURIComponent(qc.id)}`, { method: 'DELETE' });
+        setAdminData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            qcLogs: (prev.qcLogs || []).filter((q: any) => q.id !== qc.id)
+          };
+        });
+        showToast(`QC record for '${qc.item_qr}' deleted.`, 'success');
+      }
+    });
+  };
+
+  const handleDeletePreQcLog = (pq: any) => {
+    setGenericDeleteModal({
+      isOpen: true,
+      title: 'Delete Pre-QC Validation Record?',
+      description: `Are you sure you want to remove this Pre-QC record for garment '${pq.item_qr}'?`,
+      details: [
+        { label: 'Item Barcode', value: pq.item_qr },
+        { label: 'PO Number', value: pq.po_number || 'N/A' },
+        { label: 'Pre-QC Result', value: pq.pre_qc_result || 'PASS' }
+      ],
+      onConfirm: async () => {
+        await apiFetch(`/api/admin/pre-qc-logs/${encodeURIComponent(pq.id)}`, { method: 'DELETE' });
+        setAdminData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            preQcLogs: (prev.preQcLogs || []).filter((p: any) => p.id !== pq.id)
+          };
+        });
+        showToast(`Pre-QC record for '${pq.item_qr}' deleted.`, 'success');
+      }
+    });
+  };
+
+  const handleDeleteAqlLog = (aql: any) => {
+    setGenericDeleteModal({
+      isOpen: true,
+      title: 'Delete AQL Inspection Record?',
+      description: `Are you sure you want to delete this AQL inspection for Box '${aql.box_code || aql.box_number || aql.id}'?`,
+      details: [
+        { label: 'Box Identifier', value: aql.box_code || aql.box_number || 'N/A' },
+        { label: 'PO Number', value: aql.po_number || 'N/A' },
+        { label: 'AQL Result', value: aql.result || 'PENDING' }
+      ],
+      onConfirm: async () => {
+        await apiFetch(`/api/admin/aql-logs/${encodeURIComponent(aql.id)}`, { method: 'DELETE' });
+        setAdminData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            aqlLogs: (prev.aqlLogs || []).filter((a: any) => a.id !== aql.id)
+          };
+        });
+        showToast('AQL inspection record deleted.', 'success');
+      }
+    });
+  };
+
+  const handleDeleteScrapped = (scrapped: any) => {
+    setGenericDeleteModal({
+      isOpen: true,
+      title: 'Delete Scrapped Item Record?',
+      description: `Are you sure you want to remove item '${scrapped.item_qr}' from the scrap registry?`,
+      details: [
+        { label: 'Item Barcode', value: scrapped.item_qr },
+        { label: 'Reason', value: scrapped.reason || 'Damaged' },
+        { label: 'PO / Box', value: scrapped.po_number || scrapped.box_id || 'N/A' }
+      ],
+      onConfirm: async () => {
+        await apiFetch(`/api/admin/scrapped/${encodeURIComponent(scrapped.id)}`, { method: 'DELETE' });
+        setAdminData((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            recentScrapped: (prev.recentScrapped || []).filter((s: any) => s.id !== scrapped.id)
+          };
+        });
+        showToast(`Scrapped item record '${scrapped.item_qr}' deleted.`, 'success');
+      }
+    });
   };
 
   const fetchReports = async () => {
@@ -134,17 +342,41 @@ export const AdminReports: React.FC = () => {
     pendingPack: Math.max(0, kpis.qcPassed - kpis.packedQuantity)
   };
 
-  const filteredActiveOrders = activeOrders.filter(po =>
-    (po.po_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (po.style_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (po.po_name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const rawAdminStyles: any[] = adminData?.adminStyles || [];
+  const rawQcLogs: any[] = adminData?.qcLogs || [];
+  const rawAqlLogs: any[] = adminData?.aqlLogs || [];
+  const rawPreQcLogs: any[] = adminData?.preQcLogs || [];
+  const availableLines: string[] = adminData?.filter?.availableLines || ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5'];
 
-  const filteredBoxes = adminBoxes.filter(bx =>
-    (bx.boxCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (bx.poNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (bx.styleName || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Inspection section multi-attribute filter helper
+  const matchesInspectionFilters = (item: any) => {
+    const itemStyle = (item.style_name || item.styleName || item.name || '').toLowerCase();
+    const itemPo = (item.po_number || item.poNumber || item.po_name || '').toLowerCase();
+    const itemLine = (item.line_name || item.lineName || item.line || '').toLowerCase();
+    const rawDate = item.scanned_at || item.created_at || item.started_at || item.completed_at || item.removed_at || item.date || '';
+    const itemDate = rawDate ? new Date(rawDate).toISOString().slice(0, 10) : '';
+
+    if (selectedStyleFilter && itemStyle && !itemStyle.includes(selectedStyleFilter.toLowerCase())) return false;
+    if (selectedPoFilter && itemPo && !itemPo.includes(selectedPoFilter.toLowerCase())) return false;
+    if (selectedLineFilter && itemLine && !itemLine.includes(selectedLineFilter.toLowerCase())) return false;
+    if (selectedDateFilter && itemDate && itemDate !== selectedDateFilter) return false;
+
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      const str = JSON.stringify(item).toLowerCase();
+      if (!str.includes(term)) return false;
+    }
+
+    return true;
+  };
+
+  const filteredStyles = rawAdminStyles.filter(matchesInspectionFilters);
+  const filteredActiveOrders = activeOrders.filter(matchesInspectionFilters);
+  const filteredQcLogs = rawQcLogs.filter(matchesInspectionFilters);
+  const filteredBoxes = adminBoxes.filter(matchesInspectionFilters);
+  const filteredAqlLogs = rawAqlLogs.filter(matchesInspectionFilters);
+  const filteredPreQcLogs = rawPreQcLogs.filter(matchesInspectionFilters);
+  const filteredScrapped = recentScrapped.filter(matchesInspectionFilters);
 
   // Summary Metrics Calculation
   const totalPlanned = filteredOrders.reduce((sum, p) => sum + (p.targetQuantity || 0), 0);
@@ -506,55 +738,93 @@ export const AdminReports: React.FC = () => {
           </p>
         </div>
 
-        {/* Tab Switcher */}
+        {/* Multi-Attribute Filter Bar */}
         <div style={{
+          backgroundColor: 'var(--bg-surface-2)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '12px',
+          padding: '12px 16px',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '10px',
-          borderBottom: '1px solid var(--border-color)',
-          paddingBottom: '10px'
+          gap: '12px',
+          alignItems: 'center'
         }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <button
-              onClick={() => setActiveLogTab('orders')}
-              style={styles.logTabBtn(activeLogTab === 'orders')}
-            >
-              <Package size={14} /> Production Orders ({activeOrders.length})
-            </button>
-            <button
-              onClick={() => setActiveLogTab('boxes')}
-              style={styles.logTabBtn(activeLogTab === 'boxes')}
-            >
-              <Box size={14} /> Box Overview ({adminBoxes.length})
-            </button>
-            <button
-              onClick={() => setActiveLogTab('quality')}
-              style={styles.logTabBtn(activeLogTab === 'quality')}
-            >
-              <CheckCircle2 size={14} /> Quality & Pass Rates
-            </button>
-            <button
-              onClick={() => setActiveLogTab('scrapped')}
-              style={styles.logTabBtn(activeLogTab === 'scrapped')}
-            >
-              <Trash2 size={14} /> Scrapped Items ({recentScrapped.length})
-            </button>
-            <button
-              onClick={() => setActiveLogTab('audit')}
-              style={styles.logTabBtn(activeLogTab === 'audit')}
-            >
-              <Activity size={14} /> Real-Time Audit Feed
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary-teal)', fontSize: '12px', fontWeight: 700 }}>
+            <Filter size={15} />
+            <span>Filters:</span>
           </div>
 
-          {(activeLogTab === 'orders' || activeLogTab === 'boxes') && (
-            <div style={{ position: 'relative', width: '240px' }}>
+          {/* Style Filter */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Style</label>
+            <select
+              value={selectedStyleFilter}
+              onChange={e => setSelectedStyleFilter(e.target.value)}
+              style={styles.selectFilter}
+            >
+              <option value="">All Styles</option>
+              {availableStyles.map(st => (
+                <option key={st} value={st}>{st}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* PO Number Filter */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>PO Number</label>
+            <select
+              value={selectedPoFilter}
+              onChange={e => setSelectedPoFilter(e.target.value)}
+              style={styles.selectFilter}
+            >
+              <option value="">All POs</option>
+              {availablePos.map(po => (
+                <option key={po} value={po}>{po}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Production Line Filter */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Line</label>
+            <select
+              value={selectedLineFilter}
+              onChange={e => setSelectedLineFilter(e.target.value)}
+              style={styles.selectFilter}
+            >
+              <option value="">All Lines</option>
+              {availableLines.map((ln: string) => (
+                <option key={ln} value={ln}>{ln}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date Filter */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Date</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="date"
+                value={selectedDateFilter}
+                onChange={e => setSelectedDateFilter(e.target.value)}
+                style={{
+                  ...styles.selectFilter,
+                  colorScheme: 'dark',
+                  paddingLeft: '28px'
+                }}
+              />
+              <Calendar size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            </div>
+          </div>
+
+          {/* Search Term Filter */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1', minWidth: '180px' }}>
+            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Search</label>
+            <div style={{ position: 'relative', width: '100%' }}>
               <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
-                placeholder={activeLogTab === 'orders' ? 'Search PO / style...' : 'Search box / PO / style...'}
+                placeholder="Search barcode, PO, box, style, inspector..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 style={{
@@ -562,25 +832,178 @@ export const AdminReports: React.FC = () => {
                   padding: '6px 10px 6px 30px',
                   borderRadius: '8px',
                   fontSize: '12px',
-                  backgroundColor: 'var(--bg-surface-2)',
+                  backgroundColor: 'var(--bg-surface-1)',
                   border: '1px solid var(--border-color)',
                   color: 'var(--text-primary)'
                 }}
               />
             </div>
+          </div>
+
+          {/* Reset Filters Button */}
+          {(selectedStyleFilter || selectedPoFilter || selectedLineFilter || selectedDateFilter || searchTerm) && (
+            <button
+              onClick={() => {
+                setSelectedStyleFilter('');
+                setSelectedPoFilter('');
+                setSelectedLineFilter('');
+                setSelectedDateFilter('');
+                setSearchTerm('');
+              }}
+              style={{
+                alignSelf: 'flex-end',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#EF4444',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                height: '32px'
+              }}
+            >
+              <X size={13} />
+              Reset Filters
+            </button>
           )}
         </div>
 
-        {/* TAB 1: PRODUCTION ORDERS */}
+        {/* Tab Switcher - 7 Tabs in requested order */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '8px',
+          borderBottom: '1px solid var(--border-color)',
+          paddingBottom: '10px'
+        }}>
+          <button
+            onClick={() => setActiveLogTab('styles')}
+            style={styles.logTabBtn(activeLogTab === 'styles')}
+          >
+            <Palette size={14} /> Styles ({filteredStyles.length})
+          </button>
+          <button
+            onClick={() => setActiveLogTab('orders')}
+            style={styles.logTabBtn(activeLogTab === 'orders')}
+          >
+            <Package size={14} /> Production Orders ({filteredActiveOrders.length})
+          </button>
+          <button
+            onClick={() => setActiveLogTab('qc')}
+            style={styles.logTabBtn(activeLogTab === 'qc')}
+          >
+            <ShieldCheck size={14} /> QC Details ({filteredQcLogs.length})
+          </button>
+          <button
+            onClick={() => setActiveLogTab('boxes')}
+            style={styles.logTabBtn(activeLogTab === 'boxes')}
+          >
+            <Box size={14} /> Box Overview ({filteredBoxes.length})
+          </button>
+          <button
+            onClick={() => setActiveLogTab('aql')}
+            style={styles.logTabBtn(activeLogTab === 'aql')}
+          >
+            <ClipboardCheck size={14} /> AQL & Final AQL ({filteredAqlLogs.length})
+          </button>
+          <button
+            onClick={() => setActiveLogTab('preqc')}
+            style={styles.logTabBtn(activeLogTab === 'preqc')}
+          >
+            <CheckCircle2 size={14} /> Pre QC ({filteredPreQcLogs.length})
+          </button>
+          <button
+            onClick={() => setActiveLogTab('scrapped')}
+            style={styles.logTabBtn(activeLogTab === 'scrapped')}
+          >
+            <Trash2 size={14} /> Scrapped Items ({filteredScrapped.length})
+          </button>
+        </div>
+
+        {/* TAB 1: STYLES */}
+        {activeLogTab === 'styles' && (
+          <div>
+            {filteredStyles.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No styles found matching current filters.
+              </div>
+            ) : (
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '750px' }}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>STYLE NAME</th>
+                      <th style={styles.th}>STYLE CODE</th>
+                      <th style={styles.th}>LINKED ORDERS</th>
+                      <th style={styles.th}>CREATED AT</th>
+                      <th style={styles.th}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStyles.map((st: any) => (
+                      <tr key={st.id} style={styles.tr}>
+                        <td data-label="STYLE NAME" style={styles.td}>
+                          <strong style={{ color: 'var(--primary-teal)' }}>{st.name}</strong>
+                        </td>
+                        <td data-label="STYLE CODE" style={styles.td}>
+                          <code style={{ backgroundColor: 'var(--bg-surface-2)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                            {st.code || 'N/A'}
+                          </code>
+                        </td>
+                        <td data-label="LINKED ORDERS" style={styles.td}>
+                          <StatusPill label={`${st.po_count || 0} Orders`} variant={st.po_count > 0 ? 'green' : 'muted'} />
+                        </td>
+                        <td data-label="CREATED AT" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {st.created_at ? new Date(st.created_at).toLocaleDateString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td data-label="ACTION" style={styles.td}>
+                          <button
+                            onClick={() => handleDeleteStyle(st)}
+                            title="Delete this style"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #EF4444',
+                              color: '#EF4444',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Trash2 size={12} />
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: PRODUCTION ORDERS */}
         {activeLogTab === 'orders' && (
           <div>
             {filteredActiveOrders.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No active production orders found.
+                No active production orders found matching current filters.
               </div>
             ) : (
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
-                <table className="responsive-table" style={{ ...styles.table, minWidth: '850px' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
                       <th style={styles.th}>PO NUMBER</th>
@@ -591,6 +1014,7 @@ export const AdminReports: React.FC = () => {
                       <th style={styles.th}>AQL PASSED BOXES</th>
                       <th style={styles.th}>SCRAPPED</th>
                       <th style={styles.th}>STATUS</th>
+                      <th style={styles.th}>ACTION</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -630,6 +1054,28 @@ export const AdminReports: React.FC = () => {
                           <td data-label="STATUS" style={styles.td}>
                             <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />
                           </td>
+                          <td data-label="ACTION" style={styles.td}>
+                            <button
+                              onClick={() => handleDeleteOrder(po)}
+                              title="Delete this production order"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid #EF4444',
+                                color: '#EF4444',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -640,12 +1086,97 @@ export const AdminReports: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: BOX OVERVIEW */}
+        {/* TAB 3: QC DETAILS */}
+        {activeLogTab === 'qc' && (
+          <div>
+            {filteredQcLogs.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No QC inspection records found matching current filters.
+              </div>
+            ) : (
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>ITEM QR</th>
+                      <th style={styles.th}>PO NUMBER</th>
+                      <th style={styles.th}>STYLE</th>
+                      <th style={styles.th}>LINE</th>
+                      <th style={styles.th}>QC RESULT</th>
+                      <th style={styles.th}>TEST RESULT</th>
+                      <th style={styles.th}>DEFECT / REASON</th>
+                      <th style={styles.th}>INSPECTOR</th>
+                      <th style={styles.th}>DATE & TIME</th>
+                      <th style={styles.th}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredQcLogs.map((qc: any) => (
+                      <tr key={qc.id} style={styles.tr}>
+                        <td data-label="ITEM QR" style={styles.td}>
+                          <strong style={{ color: 'var(--primary-teal)', fontFamily: 'monospace' }}>{qc.item_qr}</strong>
+                        </td>
+                        <td data-label="PO NUMBER" style={styles.td}>{qc.po_number || 'N/A'}</td>
+                        <td data-label="STYLE" style={styles.td}>{qc.style_name || 'Standard'}</td>
+                        <td data-label="LINE" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{qc.line_name || 'Line 1'}</span>
+                        </td>
+                        <td data-label="QC RESULT" style={styles.td}>
+                          <StatusPill label={qc.qc_result || 'PASS'} variant={qc.qc_result === 'PASS' ? 'green' : 'red'} />
+                        </td>
+                        <td data-label="TEST RESULT" style={styles.td}>
+                          <StatusPill label={qc.test_result || 'PASS'} variant={qc.test_result === 'PASS' ? 'green' : 'amber'} />
+                        </td>
+                        <td data-label="DEFECT / REASON" style={styles.td}>
+                          <span style={{ color: qc.defect_reason ? '#EF4444' : 'var(--text-muted)', fontSize: '11px' }}>
+                            {qc.defect_reason || qc.reason || 'None (Passed)'}
+                          </span>
+                        </td>
+                        <td data-label="INSPECTOR" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{qc.inspector_name || qc.user_id || 'QC Staff'}</span>
+                        </td>
+                        <td data-label="DATE & TIME" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {qc.scanned_at ? new Date(qc.scanned_at).toLocaleString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td data-label="ACTION" style={styles.td}>
+                          <button
+                            onClick={() => handleDeleteQcLog(qc)}
+                            title="Delete this QC record"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #EF4444',
+                              color: '#EF4444',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Trash2 size={12} />
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: BOX OVERVIEW */}
         {activeLogTab === 'boxes' && (
           <div>
             {filteredBoxes.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No boxes registered for this filter.
+                No boxes registered matching current filters.
               </div>
             ) : (
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
@@ -755,142 +1286,85 @@ export const AdminReports: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 3: QUALITY & PASS RATES */}
-        {activeLogTab === 'quality' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-            <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <h4 style={{ fontSize: '15px', fontWeight: 800, margin: 0 }}>Stage Quality Pass Rates</h4>
-                <StatusPill label="Inspection Analytics" variant="green" />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                {/* QC Inspection */}
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 14px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 700 }}>1. QC Inspection Pass Rate</span>
-                    <span style={{ fontWeight: 800, color: '#10B981' }}>{qualityRates.qcPassRate}%</span>
-                  </div>
-                  <ProgressBar current={Math.round(qualityRates.qcPassRate * 10)} total={1000} height={8} color="#10B981" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    <span>Total Scanned: {qualityRates.totalQc}</span>
-                    <span>Passed: {qualityRates.passQc}</span>
-                  </div>
-                </div>
-
-                {/* Function Test */}
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 14px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 700 }}>2. Function Test Pass Rate</span>
-                    <span style={{ fontWeight: 800, color: '#3B82F6' }}>{qualityRates.testPassRate}%</span>
-                  </div>
-                  <ProgressBar current={Math.round(qualityRates.testPassRate * 10)} total={1000} height={8} color="#3B82F6" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    <span>Functional Validation Stage</span>
-                    <span>Pass: {qualityRates.testPassRate}%</span>
-                  </div>
-                </div>
-
-                {/* AQL Audit */}
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 14px', borderRadius: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: 700 }}>3. AQL Audit Box Approval</span>
-                    <span style={{ fontWeight: 800, color: '#8B5CF6' }}>{qualityRates.aqlPassRate}%</span>
-                  </div>
-                  <ProgressBar current={Math.round(qualityRates.aqlPassRate * 10)} total={1000} height={8} color="#8B5CF6" />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    <span>Total Audits: {qualityRates.totalAql}</span>
-                    <span>Passed: {qualityRates.passAql}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Exceptions & Defect Log Summary */}
-            <div style={{ backgroundColor: 'var(--bg-surface-2)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                <AlertTriangle size={18} color="#EF4444" />
-                <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#EF4444', margin: 0 }}>Defect & Exception Counts</h4>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                  <span style={{ fontSize: '22px', fontWeight: 800, color: '#EF4444', display: 'block' }}>{exceptions.qcFailed}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>QC Failed Items</span>
-                </div>
-
-                <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                  <span style={{ fontSize: '22px', fontWeight: 800, color: '#F59E0B', display: 'block' }}>{exceptions.testFailed}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Test Failures</span>
-                </div>
-
-                <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
-                  <span style={{ fontSize: '22px', fontWeight: 800, color: '#8B5CF6', display: 'block' }}>{exceptions.aqlFailed}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>AQL Failed Boxes</span>
-                </div>
-
-                <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-                  <span style={{ fontSize: '22px', fontWeight: 800, color: '#3B82F6', display: 'block' }}>{exceptions.pendingPack}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Pending Packing</span>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '14px', padding: '10px 12px', backgroundColor: 'var(--bg-surface-1)', borderRadius: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>💡 Quality Control Note</span>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
-                  Failed units flagged for <strong>Rework</strong> return to operator station queues; units flagged <strong>Permanently Removed</strong> are archived in the scrap registry.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: SCRAPPED ITEMS */}
-        {activeLogTab === 'scrapped' && (
+        {/* TAB 5: AQL & FINAL AQL */}
+        {activeLogTab === 'aql' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <div>
-                <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#EF4444', margin: 0 }}>Permanently Removed Garments (Scrap Archive)</h4>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
-                  Audit log of damaged garments scrapped during AQL or QC inspections.
-                </p>
-              </div>
-              <StatusPill label={`${recentScrapped.length} Items Logged`} variant="red" />
-            </div>
-
-            {recentScrapped.length === 0 ? (
+            {filteredAqlLogs.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No permanently removed garments logged for this filter.
+                No AQL inspection records found matching current filters.
               </div>
             ) : (
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
-                <table className="responsive-table" style={{ ...styles.table, minWidth: '780px' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
-                      <th style={styles.th}>ITEM QR BARCODE</th>
-                      <th style={styles.th}>BOX NUMBER</th>
-                      <th style={styles.th}>ACTION TYPE</th>
-                      <th style={styles.th}>REASON FOR SCRAP</th>
-                      <th style={styles.th}>REMOVED BY</th>
-                      <th style={styles.th}>TIMESTAMP</th>
+                      <th style={styles.th}>BOX IDENTIFIER</th>
+                      <th style={styles.th}>PO NUMBER</th>
+                      <th style={styles.th}>STYLE</th>
+                      <th style={styles.th}>LINE</th>
+                      <th style={styles.th}>STAGE</th>
+                      <th style={styles.th}>SAMPLES</th>
+                      <th style={styles.th}>RESULT</th>
+                      <th style={styles.th}>DEFECT / REASON</th>
+                      <th style={styles.th}>INSPECTOR</th>
+                      <th style={styles.th}>DATE & TIME</th>
+                      <th style={styles.th}>ACTION</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recentScrapped.map((item: any) => (
-                      <tr key={item.id} style={styles.tr}>
-                        <td data-label="ITEM QR BARCODE" style={styles.td}>
-                          <strong style={{ color: '#EF4444' }}>{item.item_qr}</strong>
+                    {filteredAqlLogs.map((aql: any) => (
+                      <tr key={aql.id} style={styles.tr}>
+                        <td data-label="BOX IDENTIFIER" style={styles.td}>
+                          <strong style={{ color: 'var(--color-purple)' }}>{aql.box_code || aql.box_number || aql.box_id}</strong>
                         </td>
-                        <td data-label="BOX NUMBER" style={styles.td}>{item.box_id || 'N/A'}</td>
-                        <td data-label="ACTION TYPE" style={styles.td}>
-                          <StatusPill label={item.action_type || 'PERMANENTLY_REMOVE'} variant="red" />
+                        <td data-label="PO NUMBER" style={styles.td}>{aql.po_number || 'N/A'}</td>
+                        <td data-label="STYLE" style={styles.td}>{aql.style_name || 'Standard'}</td>
+                        <td data-label="LINE" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{aql.line_name || 'Line 1'}</span>
                         </td>
-                        <td data-label="REASON FOR SCRAP" style={styles.td}>{item.reason || 'Irreparable Damaged Garment'}</td>
-                        <td data-label="REMOVED BY" style={styles.td}>{item.operator_name || item.removed_by || 'Operator'}</td>
-                        <td data-label="TIMESTAMP" style={styles.td}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {item.removed_at ? new Date(item.removed_at).toLocaleString() : 'Recent'}
+                        <td data-label="STAGE" style={styles.td}>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>{aql.stage || 'Final AQL'}</span>
+                        </td>
+                        <td data-label="SAMPLES" style={styles.td}>
+                          <span>{aql.sample_size || aql.samples_checked || 5} checked</span>
+                        </td>
+                        <td data-label="RESULT" style={styles.td}>
+                          <StatusPill label={aql.result || 'PASS'} variant={aql.result === 'PASS' ? 'green' : aql.result === 'FAIL' ? 'red' : 'amber'} />
+                        </td>
+                        <td data-label="DEFECT / REASON" style={styles.td}>
+                          <span style={{ color: aql.defect_notes ? '#EF4444' : 'var(--text-muted)', fontSize: '11px' }}>
+                            {aql.defect_notes || aql.reason || 'None (Approved)'}
                           </span>
+                        </td>
+                        <td data-label="INSPECTOR" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{aql.inspector_name || aql.user_id || 'AQL Auditor'}</span>
+                        </td>
+                        <td data-label="DATE & TIME" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {aql.created_at ? new Date(aql.created_at).toLocaleString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td data-label="ACTION" style={styles.td}>
+                          <button
+                            onClick={() => handleDeleteAqlLog(aql)}
+                            title="Delete this AQL inspection log"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #EF4444',
+                              color: '#EF4444',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Trash2 size={12} />
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -901,61 +1375,161 @@ export const AdminReports: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 5: REAL-TIME AUDIT FEED */}
-        {activeLogTab === 'audit' && (
+        {/* TAB 6: PRE QC */}
+        {activeLogTab === 'preqc' && (
+          <div>
+            {filteredPreQcLogs.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No Pre-QC records found matching current filters.
+              </div>
+            ) : (
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '900px' }}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>ITEM QR</th>
+                      <th style={styles.th}>PO NUMBER</th>
+                      <th style={styles.th}>STYLE</th>
+                      <th style={styles.th}>LINE</th>
+                      <th style={styles.th}>PRE-QC RESULT</th>
+                      <th style={styles.th}>DEFECT / REASON</th>
+                      <th style={styles.th}>OPERATOR</th>
+                      <th style={styles.th}>DATE & TIME</th>
+                      <th style={styles.th}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPreQcLogs.map((pq: any) => (
+                      <tr key={pq.id} style={styles.tr}>
+                        <td data-label="ITEM QR" style={styles.td}>
+                          <strong style={{ color: 'var(--primary-teal)', fontFamily: 'monospace' }}>{pq.item_qr}</strong>
+                        </td>
+                        <td data-label="PO NUMBER" style={styles.td}>{pq.po_number || 'N/A'}</td>
+                        <td data-label="STYLE" style={styles.td}>{pq.style_name || 'Standard'}</td>
+                        <td data-label="LINE" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{pq.line_name || 'Line 1'}</span>
+                        </td>
+                        <td data-label="PRE-QC RESULT" style={styles.td}>
+                          <StatusPill label={pq.pre_qc_result || 'PASS'} variant={pq.pre_qc_result === 'PASS' ? 'green' : 'red'} />
+                        </td>
+                        <td data-label="DEFECT / REASON" style={styles.td}>
+                          <span style={{ color: pq.defect_reason ? '#EF4444' : 'var(--text-muted)', fontSize: '11px' }}>
+                            {pq.defect_reason || pq.reason || 'None (Passed)'}
+                          </span>
+                        </td>
+                        <td data-label="OPERATOR" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{pq.operator_name || pq.user_id || 'Line Operator'}</span>
+                        </td>
+                        <td data-label="DATE & TIME" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {pq.scanned_at ? new Date(pq.scanned_at).toLocaleString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td data-label="ACTION" style={styles.td}>
+                          <button
+                            onClick={() => handleDeletePreQcLog(pq)}
+                            title="Delete this Pre-QC record"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #EF4444',
+                              color: '#EF4444',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Trash2 size={12} />
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 7: SCRAPPED ITEMS */}
+        {activeLogTab === 'scrapped' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <div>
-                <h4 style={{ fontSize: '15px', fontWeight: 800, margin: 0 }}>Real-Time System Audit Stream</h4>
+                <h4 style={{ fontSize: '15px', fontWeight: 800, color: '#EF4444', margin: 0 }}>Permanently Removed Garments (Scrap Archive)</h4>
                 <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
-                  Live security & operations event stream recorded in database audit log.
+                  Audit log of damaged garments scrapped during AQL or QC inspections.
                 </p>
               </div>
-              <StatusPill label={`${recentAuditLogs.length} Events Live`} variant="teal" />
+              <StatusPill label={`${filteredScrapped.length} Items Logged`} variant="red" />
             </div>
 
-            {recentAuditLogs.length === 0 ? (
+            {filteredScrapped.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No audit events logged yet.
+                No permanently removed garments logged matching current filters.
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {recentAuditLogs.map((log: any) => (
-                  <div
-                    key={log.id}
-                    style={{
-                      backgroundColor: 'var(--bg-surface-2)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '10px',
-                      padding: '10px 14px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        padding: '6px',
-                        borderRadius: '8px',
-                        backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                        color: 'var(--primary-teal)'
-                      }}>
-                        <Activity size={15} />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>
-                          {log.action}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Target: {log.target_table} • User: <strong>{log.user_name || log.user_id || 'System'}</strong> ({log.user_role || 'ADMIN'})
-                        </span>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Just now'}
-                    </span>
-                  </div>
-                ))}
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                <table className="responsive-table" style={{ ...styles.table, minWidth: '850px' }}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>ITEM QR BARCODE</th>
+                      <th style={styles.th}>BOX / PO</th>
+                      <th style={styles.th}>ACTION TYPE</th>
+                      <th style={styles.th}>REASON FOR SCRAP</th>
+                      <th style={styles.th}>REMOVED BY</th>
+                      <th style={styles.th}>TIMESTAMP</th>
+                      <th style={styles.th}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredScrapped.map((item: any) => (
+                      <tr key={item.id} style={styles.tr}>
+                        <td data-label="ITEM QR BARCODE" style={styles.td}>
+                          <strong style={{ color: '#EF4444' }}>{item.item_qr}</strong>
+                        </td>
+                        <td data-label="BOX / PO" style={styles.td}>{item.box_id || item.po_number || 'N/A'}</td>
+                        <td data-label="ACTION TYPE" style={styles.td}>
+                          <StatusPill label={item.action_type || 'PERMANENTLY_REMOVE'} variant="red" />
+                        </td>
+                        <td data-label="REASON FOR SCRAP" style={styles.td}>{item.reason || 'Irreparable Damaged Garment'}</td>
+                        <td data-label="REMOVED BY" style={styles.td}>{item.operator_name || item.removed_by || 'Operator'}</td>
+                        <td data-label="TIMESTAMP" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {item.removed_at ? new Date(item.removed_at).toLocaleString() : 'Recent'}
+                          </span>
+                        </td>
+                        <td data-label="ACTION" style={styles.td}>
+                          <button
+                            onClick={() => handleDeleteScrapped(item)}
+                            title="Delete this scrapped item record"
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #EF4444',
+                              color: '#EF4444',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Trash2 size={12} />
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -1163,10 +1737,32 @@ export const AdminReports: React.FC = () => {
                         color: 'var(--primary-teal)',
                         border: '1px solid rgba(20, 184, 166, 0.3)',
                         padding: '4px 8px',
-                        borderRadius: '6px'
+                        borderRadius: '6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
                       }}
                     >
-                      {qr}
+                      <span>{qr}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBoxItem(selectedBoxModal.id, qr)}
+                        title={`Delete ${qr} from this box`}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.18)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: '#EF4444',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'background 0.15s ease'
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
                     </span>
                   ))
                 ) : (
@@ -1182,6 +1778,125 @@ export const AdminReports: React.FC = () => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Generic Row Delete Confirmation Modal ──────────────── */}
+      {genericDeleteModal?.isOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '20px',
+            width: '94%',
+            maxWidth: '460px',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#EF4444'
+              }}>
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                  {genericDeleteModal.title}
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {genericDeleteModal.description}
+                </span>
+              </div>
+            </div>
+
+            {genericDeleteModal.details && genericDeleteModal.details.length > 0 && (
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: '10px',
+                backgroundColor: 'var(--bg-surface-2)',
+                fontSize: '13px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                {genericDeleteModal.details.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>{d.label}:</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{d.value}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p style={{ fontSize: '12px', color: '#f87171', margin: 0, lineHeight: 1.5 }}>
+              ⚠️ This action is permanent and cannot be undone. Are you sure you wish to proceed?
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setGenericDeleteModal(null)}
+                disabled={isDeletingGeneric}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '10px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!genericDeleteModal?.onConfirm) return;
+                  setIsDeletingGeneric(true);
+                  try {
+                    await genericDeleteModal.onConfirm();
+                    setGenericDeleteModal(null);
+                  } catch (err: any) {
+                    showToast(err.message || 'Deletion failed', 'error');
+                  } finally {
+                    setIsDeletingGeneric(false);
+                  }
+                }}
+                disabled={isDeletingGeneric}
+                style={{
+                  padding: '8px 18px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  borderRadius: '10px',
+                  backgroundColor: '#EF4444',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  cursor: isDeletingGeneric ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                }}
+              >
+                {isDeletingGeneric ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}
+                {isDeletingGeneric ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}
