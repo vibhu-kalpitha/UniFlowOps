@@ -200,7 +200,8 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
         poName: po.po_name || null,
         styleName: po.style_name || po.style_code || 'Standard Style',
         styleCode: po.style_code || null,
-        targetQuantity
+        targetQuantity,
+        dueDate: po.due_date || null
       } : null,
       qcPassedToday: qcPassedCount,
       packedToday: packedCount,

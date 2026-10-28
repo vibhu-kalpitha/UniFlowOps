@@ -9,6 +9,7 @@ import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { DueDateBadge } from '../../components/DueDateBadge';
 import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
@@ -264,6 +265,7 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
                   {activeJob.selectedLine}
                 </span>
               )}
+              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
             </h3>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
               Scan packing box barcode to load items for inspection

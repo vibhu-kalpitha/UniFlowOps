@@ -19,6 +19,13 @@ interface PoConfigItem {
   quantity: number;
 }
 
+interface PoBoxConfigItem {
+  id?: string;
+  prefix: string;
+  size: string;
+  capacity: number;
+}
+
 interface FullPoFormData {
   poNumber: string;
   poName: string;
@@ -38,6 +45,7 @@ interface FullPoFormData {
   allowNoBoxPrefix: boolean;
   totalQuantity: number;
   configs: PoConfigItem[];
+  boxConfigs: PoBoxConfigItem[];
 }
 
 export const AdminOrders: React.FC = () => {
@@ -80,7 +88,8 @@ export const AdminOrders: React.FC = () => {
     allowNoProductPrefix: false,
     allowNoBoxPrefix: false,
     totalQuantity: 500,
-    configs: []
+    configs: [],
+    boxConfigs: []
   });
   const [savingFull, setSavingFull] = useState<boolean>(false);
   const [isFullDirty, setIsFullDirty] = useState<boolean>(false);
@@ -314,9 +323,66 @@ export const AdminOrders: React.FC = () => {
         size: c.size,
         productType: c.productType || c.product_type,
         quantity: Number(c.quantity) || 0
+      })),
+      boxConfigs: (po.boxConfigurations || po.boxConfigs || []).map((b: any) => ({
+        id: b.id,
+        prefix: b.prefix || 'BX',
+        size: b.size || 'M',
+        capacity: Number(b.capacity) || 12
       }))
     });
     setIsFullDirty(false);
+  };
+
+  const handleAddProductConfig = () => {
+    const newCfg: PoConfigItem = {
+      configCode: '',
+      size: '',
+      productType: 'GARMENT',
+      quantity: 100
+    };
+    setFullForm(prev => ({
+      ...prev,
+      configs: [...prev.configs, newCfg]
+    }));
+    setIsFullDirty(true);
+  };
+
+  const handleRemoveProductConfig = (index: number) => {
+    setFullForm(prev => {
+      const updated = [...prev.configs];
+      updated.splice(index, 1);
+      return {
+        ...prev,
+        configs: updated
+      };
+    });
+    setIsFullDirty(true);
+  };
+
+  const handleAddBoxConfig = () => {
+    const newBox: PoBoxConfigItem = {
+      prefix: 'BX',
+      size: 'M',
+      capacity: 12
+    };
+    setFullForm(prev => ({
+      ...prev,
+      boxConfigs: [...prev.boxConfigs, newBox]
+    }));
+    setIsFullDirty(true);
+  };
+
+  const handleRemoveBoxConfig = (index: number) => {
+    setFullForm(prev => {
+      const updated = [...prev.boxConfigs];
+      updated.splice(index, 1);
+      return {
+        ...prev,
+        boxConfigs: updated
+      };
+    });
+    setIsFullDirty(true);
   };
 
   const handleCloseFullModal = () => {
@@ -364,14 +430,23 @@ export const AdminOrders: React.FC = () => {
       if (fullForm.configs.length > 0) {
         payload.configs = fullForm.configs.map(c => ({
           id: c.id,
-          configCode: c.configCode || c.config_code,
-          size: c.size,
-          productType: c.productType || c.product_type,
+          configCode: (c.configCode || c.config_code || '').trim().toUpperCase(),
+          size: (c.size || '').trim().toUpperCase(),
+          productType: (c.productType || c.product_type || 'GARMENT').trim(),
           quantity: Number(c.quantity)
         }));
         payload.totalQuantity = fullForm.configs.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
       } else {
         payload.totalQuantity = Number(fullForm.totalQuantity);
+      }
+
+      if (Array.isArray(fullForm.boxConfigs)) {
+        payload.boxConfigs = fullForm.boxConfigs.map(b => ({
+          id: b.id,
+          prefix: (b.prefix || '').trim().toUpperCase(),
+          size: (b.size || '').trim().toUpperCase(),
+          capacity: Number(b.capacity) || 12
+        }));
       }
 
       const res = await apiFetch<{ message: string; order: any }>(`/api/admin/orders/${fullOrder.id}`, {
@@ -1204,25 +1279,27 @@ export const AdminOrders: React.FC = () => {
         <div style={{
           position: 'fixed',
           inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.78)',
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
           backdropFilter: 'blur(8px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 9999,
-          padding: '12px 8px'
+          zIndex: 10000,
+          padding: '12px 8px',
+          overflowY: 'auto'
         }}>
           <div style={{
             backgroundColor: 'var(--bg-surface-1)',
             border: '1px solid var(--border-color)',
             borderRadius: '16px',
             width: '100%',
-            maxWidth: '680px',
+            maxWidth: '740px',
             maxHeight: '94vh',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.8)',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            margin: 'auto'
           }}>
             {/* Modal Header */}
             <div style={{
@@ -1231,7 +1308,8 @@ export const AdminOrders: React.FC = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              backgroundColor: 'var(--bg-surface-1)'
+              backgroundColor: 'var(--bg-surface-1)',
+              flexShrink: 0
             }}>
               <div>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -1251,7 +1329,7 @@ export const AdminOrders: React.FC = () => {
             </div>
 
             {/* Scrollable Form Content */}
-            <form onSubmit={handleSaveFullOrder} style={{ overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <form onSubmit={handleSaveFullOrder} style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
               {/* Safety banner */}
               <div style={{
                 backgroundColor: 'rgba(168, 85, 247, 0.1)',
@@ -1292,11 +1370,11 @@ export const AdminOrders: React.FC = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                      PO Display Name / Tag
+                      Customer PO
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Summer Batch 2026"
+                      placeholder="e.g. CUST-PO-90210"
                       value={fullForm.poName}
                       onChange={e => {
                         setFullForm({ ...fullForm, poName: e.target.value });
@@ -1322,10 +1400,11 @@ export const AdminOrders: React.FC = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                      Map PO / External Ref
+                      SO (Sales Order)
                     </label>
                     <input
                       type="text"
+                      placeholder="e.g. SO-44821"
                       value={fullForm.mapPo}
                       onChange={e => {
                         setFullForm({ ...fullForm, mapPo: e.target.value });
@@ -1605,44 +1684,134 @@ export const AdminOrders: React.FC = () => {
                 </div>
               </div>
 
-              {/* 5. Planned Quantities & Configurations */}
+              {/* 5. Planned Quantities & Product Size Configurations */}
               <div>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  5. Target Quantities & Size Breakdown
-                </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    5. Product Configurations & Size Breakdown
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddProductConfig}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 10px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                      border: '1px solid var(--primary-teal)',
+                      color: 'var(--primary-teal)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Plus size={13} /> Add Size / Configuration
+                  </button>
+                </div>
+
                 {fullForm.configs.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {fullForm.configs.map((cfg, index) => (
-                      <div key={cfg.id || index} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', backgroundColor: 'var(--bg-surface-2)', padding: '8px 12px', borderRadius: '8px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: 600 }}>
-                          Size {cfg.size || 'STD'} ({cfg.configCode || cfg.config_code})
-                        </span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div key={cfg.id || index} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: 'var(--bg-surface-2)',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        flexWrap: 'wrap'
+                      }}>
+                        <div style={{ flex: '1 1 120px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Prefix / Code</label>
                           <input
-                            type="number"
-                            min={1}
-                            value={cfg.quantity}
+                            type="text"
+                            placeholder="e.g. PNFLSS"
+                            value={cfg.configCode || cfg.config_code || ''}
                             onChange={e => {
-                              const val = Number(e.target.value);
                               const updated = [...fullForm.configs];
-                              updated[index].quantity = val;
+                              updated[index].configCode = e.target.value;
                               setFullForm({ ...fullForm, configs: updated });
                               setIsFullDirty(true);
                             }}
-                            style={{
-                              width: '90px',
-                              padding: '6px 10px',
-                              borderRadius: '6px',
-                              backgroundColor: 'var(--bg-surface-1)',
-                              border: '1px solid var(--border-color)',
-                              color: 'var(--text-primary)',
-                              fontWeight: 700,
-                              textAlign: 'right'
+                            style={{ ...styles.input, padding: '4px 8px', fontSize: '12px', textTransform: 'uppercase' }}
+                            required={!fullForm.allowNoProductPrefix}
+                          />
+                        </div>
+
+                        <div style={{ flex: '1 1 80px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Size</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. M, L, XL"
+                            value={cfg.size || ''}
+                            onChange={e => {
+                              const updated = [...fullForm.configs];
+                              updated[index].size = e.target.value;
+                              setFullForm({ ...fullForm, configs: updated });
+                              setIsFullDirty(true);
                             }}
+                            style={{ ...styles.input, padding: '4px 8px', fontSize: '12px', textTransform: 'uppercase' }}
                             required
                           />
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>pcs</span>
                         </div>
+
+                        <div style={{ flex: '1 1 100px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Type</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. GARMENT"
+                            value={cfg.productType || cfg.product_type || 'GARMENT'}
+                            onChange={e => {
+                              const updated = [...fullForm.configs];
+                              updated[index].productType = e.target.value;
+                              setFullForm({ ...fullForm, configs: updated });
+                              setIsFullDirty(true);
+                            }}
+                            style={{ ...styles.input, padding: '4px 8px', fontSize: '12px' }}
+                          />
+                        </div>
+
+                        <div style={{ flex: '1 1 100px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Planned Qty</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                              type="number"
+                              min={1}
+                              value={cfg.quantity}
+                              onChange={e => {
+                                const val = Number(e.target.value);
+                                const updated = [...fullForm.configs];
+                                updated[index].quantity = val;
+                                setFullForm({ ...fullForm, configs: updated });
+                                setIsFullDirty(true);
+                              }}
+                              style={{ ...styles.input, padding: '4px 8px', fontSize: '12px' }}
+                              required
+                            />
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>pcs</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProductConfig(index)}
+                          title="Remove this configuration"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            padding: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginTop: '14px'
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     ))}
                     <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-teal)', textAlign: 'right', marginTop: '4px' }}>
@@ -1650,26 +1819,152 @@ export const AdminOrders: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ marginTop: '8px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                      Total Planned Quantity (pcs) *
-                    </label>
-                    <input
-                      type="number"
-                      min={Number(fullOrder.packedCount || fullOrder.packed_count || 0)}
-                      value={fullForm.totalQuantity}
-                      onChange={e => {
-                        setFullForm({ ...fullForm, totalQuantity: Number(e.target.value) });
-                        setIsFullDirty(true);
-                      }}
-                      required
-                      style={styles.input}
-                    />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ padding: '10px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      No individual size breakdown defined. Single total PO planned quantity will be used. Click "+ Add Size / Configuration" above to define sizes and prefixes.
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+                        Total Planned Quantity (pcs) *
+                      </label>
+                      <input
+                        type="number"
+                        min={Number(fullOrder.packedCount || fullOrder.packed_count || 0)}
+                        value={fullForm.totalQuantity}
+                        onChange={e => {
+                          setFullForm({ ...fullForm, totalQuantity: Number(e.target.value) });
+                          setIsFullDirty(true);
+                        }}
+                        required
+                        style={styles.input}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* 6. Remarks / Notes */}
+              {/* 6. Box Configurations (Carton Boxes) */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    6. Box Configurations (Cartons)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddBoxConfig}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 10px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                      border: '1px solid var(--primary-teal)',
+                      color: 'var(--primary-teal)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Plus size={13} /> Add Box Config
+                  </button>
+                </div>
+
+                {fullForm.boxConfigs.length === 0 ? (
+                  <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '8px' }}>
+                    No carton box configurations defined. Click "+ Add Box Config" above to set box prefixes, sizes, and carton capacities.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {fullForm.boxConfigs.map((bCfg, bIdx) => (
+                      <div key={bCfg.id || bIdx} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: 'var(--bg-surface-2)',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        flexWrap: 'wrap'
+                      }}>
+                        <div style={{ flex: '1 1 120px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Box Prefix</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. BX"
+                            value={bCfg.prefix}
+                            onChange={e => {
+                              const updated = [...fullForm.boxConfigs];
+                              updated[bIdx].prefix = e.target.value;
+                              setFullForm({ ...fullForm, boxConfigs: updated });
+                              setIsFullDirty(true);
+                            }}
+                            style={{ ...styles.input, padding: '4px 8px', fontSize: '12px', textTransform: 'uppercase' }}
+                            required={!fullForm.allowNoBoxPrefix}
+                          />
+                        </div>
+
+                        <div style={{ flex: '1 1 100px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Size</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. M, L, XL"
+                            value={bCfg.size}
+                            onChange={e => {
+                              const updated = [...fullForm.boxConfigs];
+                              updated[bIdx].size = e.target.value;
+                              setFullForm({ ...fullForm, boxConfigs: updated });
+                              setIsFullDirty(true);
+                            }}
+                            style={{ ...styles.input, padding: '4px 8px', fontSize: '12px', textTransform: 'uppercase' }}
+                            required
+                          />
+                        </div>
+
+                        <div style={{ flex: '1 1 100px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Capacity / Qty</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                              type="number"
+                              min={1}
+                              value={bCfg.capacity}
+                              onChange={e => {
+                                const updated = [...fullForm.boxConfigs];
+                                updated[bIdx].capacity = Number(e.target.value);
+                                setFullForm({ ...fullForm, boxConfigs: updated });
+                                setIsFullDirty(true);
+                              }}
+                              style={{ ...styles.input, padding: '4px 8px', fontSize: '12px' }}
+                              required
+                            />
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>pcs</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBoxConfig(bIdx)}
+                          title="Remove this box configuration"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            padding: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginTop: '14px'
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 7. Remarks / Notes */}
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
                   Remarks / Special Instructions
@@ -1694,9 +1989,13 @@ export const AdminOrders: React.FC = () => {
               <div style={{
                 display: 'flex',
                 gap: '12px',
-                marginTop: '10px',
+                marginTop: 'auto',
                 paddingTop: '16px',
-                borderTop: '1px solid var(--border-color)'
+                borderTop: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-surface-1)',
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 10
               }}>
                 <button
                   type="button"
@@ -1873,7 +2172,7 @@ export const AdminOrders: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Premium BioTab Jersey"
+                  placeholder="e.g. Classic Cotton T-Shirt"
                   style={styles.input}
                   value={newStyleForm.name}
                   onChange={e => setNewStyleForm({ ...newStyleForm, name: e.target.value })}

@@ -8,6 +8,7 @@ import { ProductionOrder, SalesOrder, OperationType } from '../../types';
 import { CheckCircle2, Package, Search, ArrowLeftRight, X, ChevronRight, ScanLine, BoxSelect, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { DueDateBadge } from '../../components/DueDateBadge';
 import { CodeLifecycleModal } from '../../components/CodeLifecycleModal';
 import '../../styles/tokens.css';
 
@@ -311,6 +312,7 @@ export const OperatorHome: React.FC = () => {
                       {activeJob.selectedLine}
                     </span>
                   )}
+                  <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date || fetchedPoDetails?.dueDate} />
                 </div>
               </div>
             )}

@@ -8,6 +8,7 @@ import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { DueDateBadge } from '../../components/DueDateBadge';
 import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
@@ -375,6 +376,7 @@ export const PreQCPage: React.FC = () => {
                   {activeJob.selectedLine}
                 </span>
               )}
+              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
               Customer: {po.customer} • Map PO: {po.mapPo}

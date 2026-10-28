@@ -10,6 +10,7 @@ import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftR
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { DueDateBadge } from '../../components/DueDateBadge';
 import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
@@ -387,6 +388,7 @@ export const PackingPage: React.FC = () => {
                     {activeJob.selectedLine}
                   </span>
                 )}
+                <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
               </h3>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                 Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}

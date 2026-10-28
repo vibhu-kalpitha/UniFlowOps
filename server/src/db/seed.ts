@@ -9,25 +9,7 @@ export async function seedDatabase() {
   const passwordHash = bcrypt.hashSync('demo123', 10);
 
   // Preserve all POs, assignments, scans and user data across restarts
-
-  // Seed Default Styles: BioTab 2 Style & Beacon Style
-  const styles = [
-    { id: 'style-biotab-2', code: 'ST-BIOTAB-2', name: 'BioTab 2 Style', customer: 'BioTab Healthcare', season: '2026' },
-    { id: 'style-beacon', code: 'ST-BEACON', name: 'Beacon Style', customer: 'Beacon Medical', season: '2026' }
-  ];
-
-  for (const st of styles) {
-    await db.execute(`
-      INSERT INTO styles (id, code, name, customer, season, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        code = VALUES(code),
-        name = VALUES(name),
-        customer = VALUES(customer),
-        season = VALUES(season),
-        updated_at = VALUES(updated_at)
-    `, [st.id, st.code, st.name, st.customer, st.season, now, now]);
-  }
+  // Styles are managed dynamically via database/UI
 
   // 1. Users
   const users = [

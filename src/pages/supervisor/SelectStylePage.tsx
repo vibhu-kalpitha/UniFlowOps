@@ -26,8 +26,8 @@ export const SelectStylePage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [newCode, setNewCode] = useState<string>('');
   const [newName, setNewName] = useState<string>('');
-  const [newCustomer, setNewCustomer] = useState<string>('Nike');
-  const [newSeason, setNewSeason] = useState<string>('Q4 2026');
+  const [newCustomer, setNewCustomer] = useState<string>('');
+  const [newSeason, setNewSeason] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const fetchStyles = async () => {
@@ -234,6 +234,7 @@ export const SelectStylePage: React.FC = () => {
                 <input
                   type="text"
                   className="input-field"
+                  placeholder="e.g. Buyer Name"
                   value={newCustomer}
                   onChange={e => setNewCustomer(e.target.value)}
                 />
@@ -244,6 +245,7 @@ export const SelectStylePage: React.FC = () => {
                 <input
                   type="text"
                   className="input-field"
+                  placeholder="e.g. 2026 / Summer"
                   value={newSeason}
                   onChange={e => setNewSeason(e.target.value)}
                 />

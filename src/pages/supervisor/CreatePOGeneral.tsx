@@ -73,7 +73,7 @@ const CreatePOGeneralInner: React.FC = () => {
   const [selectedStyleId, setSelectedStyleId] = useState('');
 
   const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
-  const [poName, setPoName] = useState(() => 'BioTab Morning Batch');
+  const [poName, setPoName] = useState(() => '');
   const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
   const [startDate, setStartDate] = useState('2026-09-15');
   const [dueDate, setDueDate] = useState('2026-10-10');
@@ -812,16 +812,16 @@ const CreatePOGeneralInner: React.FC = () => {
             <input
               type="text"
               className="input-field"
-              placeholder="e.g. BioTab Morning Batch"
+              placeholder="e.g. Export Batch 01"
               value={poName}
               onChange={e => setPoName(e.target.value)}
             />
           </div>
 
-          {/* Map PO */}
+          {/* SO */}
           <div>
-            <label style={styles.label}>Map PO (Free Text Code)</label>
-            <input type="text" className="input-field" placeholder="e.g. MAP-PO-44821" value={mapPo} onChange={e => setMapPo(e.target.value)} required />
+            <label style={styles.label}>SO (Sales Order / External Ref)</label>
+            <input type="text" className="input-field" placeholder="e.g. SO-44821" value={mapPo} onChange={e => setMapPo(e.target.value)} required />
           </div>
 
           {/* Dates */}

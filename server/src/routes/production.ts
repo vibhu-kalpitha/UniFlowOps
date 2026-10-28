@@ -9,17 +9,7 @@ const router = ExpressRouter();
 // GET /api/production/styles (or /api/styles)
 router.get('/styles', authenticateToken, async (req, res, next) => {
   try {
-    let styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
-    if (styles.length === 0) {
-      const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
-      await db.execute(`
-        INSERT INTO styles (id, code, name, customer, season, created_at, updated_at)
-        VALUES 
-          ('style-biotab-2', 'ST-BIOTAB-2', 'BioTab 2 Style', 'BioTab Healthcare', '2026', ?, ?),
-          ('style-beacon', 'ST-BEACON', 'Beacon Style', 'Beacon Medical', '2026', ?, ?)
-      `, [now, now, now, now]);
-      styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
-    }
+    const styles = await db.prepare(`SELECT * FROM styles ORDER BY name ASC`).all();
     return res.json(styles);
   } catch (err) {
     next(err);
@@ -1105,8 +1095,28 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
       });
     }
 
+    const allBoxConfigs = await db.prepare(`
+      SELECT id, production_order_id, prefix, size, capacity
+      FROM production_order_box_configs
+      ORDER BY prefix ASC, size ASC
+    `).all() as any[];
+
+    const boxConfigsByPoId: Record<string, any[]> = {};
+    for (const b of allBoxConfigs) {
+      if (!boxConfigsByPoId[b.production_order_id]) {
+        boxConfigsByPoId[b.production_order_id] = [];
+      }
+      boxConfigsByPoId[b.production_order_id].push({
+        id: b.id,
+        prefix: b.prefix,
+        size: b.size,
+        capacity: Number(b.capacity) || 12
+      });
+    }
+
     const formatted = orders.map((p: any) => {
       const orderConfigs = configsByPoId[p.id] || [];
+      const orderBoxConfigs = boxConfigsByPoId[p.id] || [];
       const sumConfigQty = orderConfigs.reduce((sum, c) => sum + c.quantity, 0);
       const targetQty = Number(p.cfg_qty || (sumConfigQty > 0 ? sumConfigQty : (p.total_quantity || 500)));
       const packed = Number(p.packed_count || 0);
@@ -1155,6 +1165,8 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
         packed_count: packed,
         completionPct,
         configs: orderConfigs,
+        boxConfigurations: orderBoxConfigs,
+        boxConfigs: orderBoxConfigs,
         displayName: p.style_name 
           ? (p.po_name ? `${p.style_name} - ${p.po_name} - ${p.po_number}` : `${p.style_name} - ${p.po_number}`)
           : (p.po_name ? `${p.po_name} - ${p.po_number}` : p.po_number)
@@ -1281,7 +1293,7 @@ router.patch('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), async
     const {
       poNumber, poName, mapPo, customer, styleId, startDate, dueDate,
       supervisorId, shiftId, qcTestMode, remarks, status,
-      allowNoProductPrefix, allowNoBoxPrefix, configs, totalQuantity
+      allowNoProductPrefix, allowNoBoxPrefix, configs, boxConfigs, totalQuantity
     } = req.body;
 
     // Check duplicate po_number if changed
@@ -1343,6 +1355,56 @@ router.patch('/admin/orders/:id', authenticateToken, requireRole('ADMIN'), async
               WHERE id = ? AND production_order_id = ?
             `).run(qty, cfg.size || null, cfg.productType || cfg.product_type || null, cfg.configCode || cfg.config_code || null, cfg.id, po.id);
           }
+        } else {
+          // Newly added configuration in edit form
+          const newCfgId = `poc-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+          const cfgCode = (cfg.configCode || cfg.config_code || '').trim().toUpperCase() || 'STD';
+          const pType = (cfg.productType || cfg.product_type || 'GARMENT').trim();
+          const sz = (cfg.size || 'STD').trim();
+          const qty = Number(cfg.quantity) || 100;
+          await db.prepare(`
+            INSERT INTO production_order_configs (id, production_order_id, config_code, product_type, size, quantity, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+          `).run(newCfgId, po.id, cfgCode, pType, sz, qty);
+        }
+      }
+    }
+
+    // Process box configurations if provided
+    if (Array.isArray(boxConfigs)) {
+      const existingBoxConfigs = await db.prepare(`SELECT * FROM production_order_box_configs WHERE production_order_id = ?`).all(po.id) as any[];
+      const sentIds = new Set(boxConfigs.filter(b => b.id).map(b => b.id));
+
+      // Remove deleted box configs that are not in the update payload
+      for (const eb of existingBoxConfigs) {
+        if (!sentIds.has(eb.id)) {
+          try {
+            await db.prepare(`DELETE FROM production_order_box_configs WHERE id = ?`).run(eb.id);
+          } catch (e) {
+            // Ignore if in use
+          }
+        }
+      }
+
+      // Update or insert box configs
+      for (const bCfg of boxConfigs) {
+        const pfx = (bCfg.prefix || '').trim().toUpperCase();
+        const sz = (bCfg.size || 'STANDARD').trim().toUpperCase();
+        const cap = Number(bCfg.capacity) || 12;
+
+        if (bCfg.id) {
+          await db.prepare(`
+            UPDATE production_order_box_configs
+            SET prefix = ?, size = ?, capacity = ?, updated_at = NOW(3)
+            WHERE id = ? AND production_order_id = ?
+          `).run(pfx, sz, cap, bCfg.id, po.id);
+        } else {
+          const newBoxCfgId = `pbc-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+          await db.prepare(`
+            INSERT INTO production_order_box_configs (id, production_order_id, prefix, size, capacity, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NOW(3), NOW(3))
+            ON DUPLICATE KEY UPDATE capacity = VALUES(capacity), updated_at = NOW(3)
+          `).run(newBoxCfgId, po.id, pfx, sz, cap);
         }
       }
     } else if (totalQuantity != null && !isNaN(Number(totalQuantity))) {

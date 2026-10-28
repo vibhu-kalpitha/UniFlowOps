@@ -8,6 +8,7 @@ import { SelectPOForOperation } from '../../components/SelectPOForOperation';
 import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
+import { DueDateBadge } from '../../components/DueDateBadge';
 import { LineOperationHistoryView } from '../../components/LineOperationHistoryView';
 import '../../styles/tokens.css';
 
@@ -785,6 +786,7 @@ export const QCTestPage: React.FC = () => {
                     {activeJob.selectedLine}
                   </span>
                 )}
+                <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
               </h3>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                 Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
