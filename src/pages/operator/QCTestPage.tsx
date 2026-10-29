@@ -352,7 +352,7 @@ export const QCTestPage: React.FC = () => {
           // Pre-QC is enabled and no saved assignment exists -> Step 1 Assignment required
           setUnsavedPreQcItems([]);
           setQcStep('STEP_1_ASSIGN');
-          showToast(`ℹ️ Step 1: Assign Pre-QC items for ${scannedQr}`, 'info');
+          showToast(`ℹ️ Step 1: Assign Inline items for ${scannedQr}`, 'info');
         }
       } else {
         // Pre-QC NOT enabled for this PO -> Normal QC workflow
@@ -750,7 +750,7 @@ export const QCTestPage: React.FC = () => {
     return (
       <div className="workflow-container">
         <SelectPOForOperation
-          operationName="QC Test"
+          operationName="Endline"
           isModal={true}
           selectedPoId={po?.id || po?.dbId}
           onClose={po ? () => setShowPoSelector(false) : undefined}
@@ -772,7 +772,7 @@ export const QCTestPage: React.FC = () => {
             <FileText size={16} color="var(--primary-teal)" />
             <div>
               <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <span>QC Inspection • {formatPoDisplayName(po)}</span>
+                <span>Endline Inspection • {formatPoDisplayName(po)}</span>
                 {activeJob?.selectedLine && (
                   <span style={{
                     fontSize: '11px',

@@ -38,6 +38,7 @@ import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminOrders } from './pages/admin/AdminOrders';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminReports } from './pages/admin/AdminReports';
+import { OrderConfigurePage } from './pages/admin/OrderConfigurePage';
 import { AdminMore } from './pages/admin/AdminMore';
 import { AdminSessions } from './pages/admin/AdminSessions';
 
@@ -63,7 +64,7 @@ const RoleRouteGuard: React.FC<{ allowedRoles: ('operator' | 'supervisor' | 'adm
 
   const roleList = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
   if (!currentRole || !roleList.includes(currentRole)) {
-    const fallbackPath = currentRole === 'operator' ? '/operator/home' : currentRole === 'supervisor' ? '/supervisor/home' : '/admin/dashboard';
+    const fallbackPath = currentRole === 'operator' ? '/operator/home' : '/admin/orders';
     return <Navigate to={fallbackPath} replace />;
   }
 
@@ -79,8 +80,7 @@ const AppRoutes: React.FC = () => {
 
   const getDashboardPath = () => {
     if (currentRole === 'operator') return '/operator/home';
-    if (currentRole === 'supervisor') return '/supervisor/home';
-    return '/admin/dashboard';
+    return '/admin/orders';
   };
 
   if (authLoading) {
@@ -256,7 +256,7 @@ const AppRoutes: React.FC = () => {
           path="/supervisor/home"
           element={
             <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
-              <SupervisorHome />
+              <AdminOrders />
             </RoleRouteGuard>
           }
         />
@@ -293,6 +293,30 @@ const AppRoutes: React.FC = () => {
           }
         />
         <Route
+          path="/admin/orders/configure"
+          element={
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
+              <OrderConfigurePage />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/supervisor/production-orders/new/operations"
+          element={
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
+              <OrderConfigurePage />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/supervisor/production-orders/new/configure"
+          element={
+            <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
+              <OrderConfigurePage />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
           path="/supervisor/shifts"
           element={
             <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
@@ -304,7 +328,7 @@ const AppRoutes: React.FC = () => {
           path="/supervisor/orders"
           element={
             <RoleRouteGuard allowedRoles={['supervisor', 'admin']}>
-              <SupervisorOrders />
+              <AdminOrders />
             </RoleRouteGuard>
           }
         />
@@ -339,6 +363,14 @@ const AppRoutes: React.FC = () => {
         />
         <Route
           path="/admin/orders"
+          element={
+            <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
+              <AdminOrders />
+            </RoleRouteGuard>
+          }
+        />
+        <Route
+          path="/admin/home"
           element={
             <RoleRouteGuard allowedRoles={['admin', 'supervisor']}>
               <AdminOrders />
@@ -394,10 +426,8 @@ const AppRoutes: React.FC = () => {
               <Navigate to="/login" replace />
             ) : currentRole === 'operator' ? (
               <Navigate to="/operator/home" replace />
-            ) : currentRole === 'supervisor' ? (
-              <Navigate to="/supervisor/home" replace />
             ) : (
-              <Navigate to="/admin/dashboard" replace />
+              <Navigate to="/admin/orders" replace />
             )
           }
         />

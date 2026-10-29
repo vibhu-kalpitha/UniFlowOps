@@ -42,10 +42,8 @@ export const LoginPage: React.FC = () => {
 
       if (roleFromBackend === 'operator') {
         navigate('/operator/home');
-      } else if (roleFromBackend === 'supervisor') {
-        navigate('/supervisor/home');
       } else {
-        navigate('/admin/dashboard');
+        navigate('/admin/orders');
       }
     } catch (err: any) {
       showToast('Invalid username or password.', 'error');

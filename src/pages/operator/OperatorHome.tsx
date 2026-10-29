@@ -92,10 +92,6 @@ export const OperatorHome: React.FC = () => {
   const selectedOps = po?.selectedOperations || ['Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'FINAL AQL', 'Box Transfer'];
 
   const handleOpClick = (opName: OperationType | string, route: string) => {
-    if (opName === 'Box Transfer' || opName === 'BOX_TRANSFER') {
-      navigate(route);
-      return;
-    }
     setPendingOperation({ name: opName, route });
   };
 
@@ -389,18 +385,18 @@ export const OperatorHome: React.FC = () => {
           <div>
             <h4 style={styles.sectionHeader}>Operations</h4>
             <div className="op-ops-grid-2x2" style={styles.opsGrid}>
-              {/* Pre QC */}
-              {selectedOps.includes('Pre QC') && (
+              {/* Inline (Pre QC) */}
+              {(selectedOps.includes('Pre QC') || selectedOps.includes('Inline')) && (
                 <button
                   className="op-card-interactive"
                   style={styles.opTileTeal}
-                  onClick={() => handleOpClick('Pre QC', '/operator/pre-qc')}
+                  onClick={() => handleOpClick('Inline', '/operator/pre-qc')}
                 >
                   <div style={styles.opIconTeal}>
                     <ScanLine size={26} color="var(--primary-teal)" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                    <span style={styles.opTitle}>Pre QC</span>
+                    <span style={styles.opTitle}>Inline</span>
                     <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                       Validate product barcode against PO configuration
                     </span>
@@ -408,18 +404,18 @@ export const OperatorHome: React.FC = () => {
                 </button>
               )}
 
-              {/* QC Test */}
-              {selectedOps.includes('QC Test') && (
+              {/* Endline (QC Test) */}
+              {(selectedOps.includes('QC Test') || selectedOps.includes('Endline') || selectedOps.includes('QC')) && (
                 <button
                   className="op-card-interactive"
                   style={styles.opTileGreen}
-                  onClick={() => handleOpClick('QC Test', '/operator/qc')}
+                  onClick={() => handleOpClick('Endline', '/operator/qc')}
                 >
                   <div style={styles.opIconGreen}>
                     <CheckCircle2 size={26} color="var(--color-green)" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                    <span style={styles.opTitle}>QC Test</span>
+                    <span style={styles.opTitle}>Endline</span>
                     <span className="op-card-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                       Inspect product quality & validate barcode ranges
                     </span>

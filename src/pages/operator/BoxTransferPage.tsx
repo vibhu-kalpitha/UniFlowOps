@@ -1,7 +1,20 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ArrowLeftRight, CheckSquare, Square, QrCode, AlertTriangle } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  FileText,
+  CheckCircle2,
+  Package,
+  Search
+} from 'lucide-react';
 import { ScannerStatus } from '../../components/ScannerStatus';
+import { SelectPOForOperation } from '../../components/SelectPOForOperation';
+import { formatPoDisplayName } from '../../utils/formatters';
+import { DueDateBadge } from '../../components/DueDateBadge';
+import { StatusPill } from '../../components/StatusPill';
 import '../../styles/tokens.css';
 
 interface BoxData {
@@ -23,12 +36,16 @@ interface BoxData {
     qr_code: string;
     size: string;
     status: string;
+    config_code?: string;
+    product_type?: string;
     packed_at?: string;
   }>;
 }
 
 export const BoxTransferPage: React.FC = () => {
-  const { showToast } = useApp();
+  const { activeJob, setActiveJob, showToast } = useApp();
+  const po = activeJob?.productionOrder;
+  const [showPoSelector, setShowPoSelector] = useState<boolean>(!po);
 
   const [sourceInput, setSourceInput] = useState('');
   const [destInput, setDestInput] = useState('');
@@ -42,6 +59,7 @@ export const BoxTransferPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedItemQrs, setSelectedItemQrs] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [itemSearchFilter, setItemSearchFilter] = useState('');
 
   const resolveBox = async (val: string, options?: { isDestination?: boolean; sourceBoxCode?: string }): Promise<BoxData> => {
     const { apiFetch } = await import('../../services/api');
@@ -50,7 +68,8 @@ export const BoxTransferPage: React.FC = () => {
       body: JSON.stringify({
         value: val.trim(),
         isDestination: options?.isDestination,
-        sourceBoxCode: options?.sourceBoxCode
+        sourceBoxCode: options?.sourceBoxCode,
+        productionOrderId: po?.dbId || po?.id
       }),
     });
     return res.box;
@@ -120,6 +139,32 @@ export const BoxTransferPage: React.FC = () => {
     }
   };
 
+  const filteredSourceItems = (sourceBox?.items || []).filter(item => {
+    if (!itemSearchFilter.trim()) return true;
+    const q = itemSearchFilter.toLowerCase();
+    return (item.qr_code || '').toLowerCase().includes(q) ||
+      (item.size || '').toLowerCase().includes(q) ||
+      (item.config_code || '').toLowerCase().includes(q) ||
+      (item.product_type || '').toLowerCase().includes(q);
+  });
+
+  const handleSelectAll = () => {
+    if (!destBox) {
+      showToast('Please resolve a destination box first.', 'warning');
+      return;
+    }
+    const maxAvailable = destBox.availableSpace;
+    const eligibleQrs = filteredSourceItems.map(i => i.qr_code).slice(0, maxAvailable);
+    setSelectedItemQrs(eligibleQrs);
+    if (filteredSourceItems.length > maxAvailable) {
+      showToast(`Selected first ${maxAvailable} item(s) up to destination capacity.`, 'info');
+    }
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedItemQrs([]);
+  };
+
   const handleTransfer = async () => {
     if (!sourceBox || !destBox) {
       const msg = 'Both source and destination boxes must be loaded.';
@@ -173,18 +218,82 @@ export const BoxTransferPage: React.FC = () => {
     }
   };
 
+  // PO Selection Dialog
+  if (!po || showPoSelector) {
+    return (
+      <div className="workflow-container">
+        <SelectPOForOperation
+          operationName="Box Transfer"
+          isModal={true}
+          selectedPoId={po?.id || po?.dbId}
+          onClose={po ? () => setShowPoSelector(false) : undefined}
+          onSelectPo={(selectedPo, selectedLine) => {
+            setSourceBox(null);
+            setDestBox(null);
+            setSourceInput('');
+            setDestInput('');
+            setSelectedItemQrs([]);
+            setActiveJob({ productionOrder: selectedPo, selectedLine });
+            setShowPoSelector(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Header Info */}
-      <div className="op-top-banner">
-        <div>
-          <span style={styles.cardHeaderTitle}>STATION OPERATOR</span>
-          <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>Box Item Transfer</h2>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Move packed product items between boxes safely inside atomic transactions.
-          </span>
+    <div className="workflow-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Active PO Banner */}
+      <div style={styles.banner}>
+        <div className="op-top-banner" style={{ gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={18} color="var(--primary-teal)" />
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span>Box Transfer Station • {formatPoDisplayName(po)}</span>
+                {activeJob?.selectedLine && (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                    color: 'var(--primary-teal)',
+                    border: '1px solid rgba(20, 184, 166, 0.3)'
+                  }}>
+                    {activeJob.selectedLine}
+                  </span>
+                )}
+                <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
+              </h3>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={() => setShowPoSelector(true)}
+              className="btn btn-secondary"
+              style={{
+                padding: '5px 12px',
+                fontSize: '12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeftRight size={13} /> Switch PO
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <CheckCircle2 size={14} color="var(--color-green)" />
+              <span style={{ fontSize: '11px', color: 'var(--color-green)', fontWeight: 700 }}>
+                Scanner Active
+              </span>
+            </div>
+          </div>
         </div>
-        <ScannerStatus compact={true} />
       </div>
 
       {/* Error Alert Box if any */}
@@ -198,18 +307,25 @@ export const BoxTransferPage: React.FC = () => {
       {/* Grid: Source Box & Destination Box Cards */}
       <div style={styles.boxesGrid}>
         {/* Source Box */}
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '12px' }}>
-          <span style={styles.cardHeaderTitle}>SOURCE BOX</span>
-          <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-            Source Box QR or Box Number
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '14px', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={styles.cardHeaderTitle}>SOURCE BOX</span>
+            {sourceBox && (
+              <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-orange)', backgroundColor: 'rgba(245, 158, 66, 0.15)', padding: '2px 8px', borderRadius: '6px' }}>
+                {sourceBox.activeCount} Items
+              </span>
+            )}
+          </div>
+          <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '6px' }}>
+            Scan or enter Source Box QR / Number
           </label>
           <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
             <input
               className="input"
               value={sourceInput}
               onChange={e => setSourceInput(e.target.value)}
-              placeholder="Scan or type box number..."
-              style={{ fontSize: '13px', padding: '6px 10px' }}
+              placeholder="Scan source box barcode..."
+              style={{ fontSize: '13px', padding: '7px 10px', flex: 1 }}
               onKeyDown={e => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -221,16 +337,16 @@ export const BoxTransferPage: React.FC = () => {
               className="btn-secondary"
               onClick={handleLoadSource}
               disabled={loadingSource || !sourceInput.trim()}
-              style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+              style={{ padding: '7px 14px', fontSize: '12px', whiteSpace: 'nowrap' }}
             >
-              {loadingSource ? '...' : 'Load Source Box'}
+              {loadingSource ? 'Loading...' : 'Load Box'}
             </button>
           </div>
 
           {sourceBox && (
-            <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+            <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-orange)', margin: 0 }}>
+                <h4 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--color-orange)', margin: 0 }}>
                   {sourceBox.boxCode}
                 </h4>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -238,10 +354,10 @@ export const BoxTransferPage: React.FC = () => {
                 </span>
               </div>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                PO: {sourceBox.poNumber || 'N/A'} | SO: {sourceBox.soNumber || 'N/A'}
+                PO: {sourceBox.poNumber || 'N/A'} {sourceBox.soNumber ? `| SO: ${sourceBox.soNumber}` : ''}
               </span>
               <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginTop: '4px' }}>
-                Active Items: {sourceBox.activeCount} / {sourceBox.capacity} capacity
+                Capacity: {sourceBox.activeCount} / {sourceBox.capacity} items packed
               </span>
             </div>
           )}
@@ -249,22 +365,36 @@ export const BoxTransferPage: React.FC = () => {
 
         {/* Transfer Arrow Icon */}
         <div style={styles.arrowWrap}>
-          <ArrowLeftRight size={20} color="var(--primary-teal)" />
+          <ArrowLeftRight size={22} color="var(--primary-teal)" />
         </div>
 
         {/* Destination Box */}
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '12px' }}>
-          <span style={styles.cardHeaderTitle}>DESTINATION BOX</span>
-          <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-            Destination Box QR or Box Number
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '14px', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={styles.cardHeaderTitle}>DESTINATION BOX</span>
+            {destBox && (
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                color: destBox.availableSpace > 0 ? '#10B981' : '#EF4444',
+                backgroundColor: destBox.availableSpace > 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                padding: '2px 8px',
+                borderRadius: '6px'
+              }}>
+                {destBox.availableSpace} Slots Available
+              </span>
+            )}
+          </div>
+          <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '6px' }}>
+            Scan or enter Destination Box QR / Number
           </label>
           <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
             <input
               className="input"
               value={destInput}
               onChange={e => setDestInput(e.target.value)}
-              placeholder="Scan or type box number..."
-              style={{ fontSize: '13px', padding: '6px 10px' }}
+              placeholder="Scan destination box barcode..."
+              style={{ fontSize: '13px', padding: '7px 10px', flex: 1 }}
               onKeyDown={e => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -276,20 +406,20 @@ export const BoxTransferPage: React.FC = () => {
               className="btn-secondary"
               onClick={handleLoadDest}
               disabled={loadingDest || !destInput.trim()}
-              style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+              style={{ padding: '7px 14px', fontSize: '12px', whiteSpace: 'nowrap' }}
             >
-              {loadingDest ? '...' : 'Load Dest Box'}
+              {loadingDest ? 'Loading...' : 'Load Box'}
             </button>
           </div>
 
           {destBox && (
-            <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+            <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0 }}>
+                <h4 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--primary-teal)', margin: 0 }}>
                   {destBox.boxCode}
                 </h4>
                 {destBox.isNew ? (
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', backgroundColor: 'rgba(16,185,129,0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#10B981', backgroundColor: 'rgba(16,185,129,0.15)', padding: '2px 8px', borderRadius: '4px' }}>
                     NEW EMPTY BOX
                   </span>
                 ) : (
@@ -298,110 +428,293 @@ export const BoxTransferPage: React.FC = () => {
                   </span>
                 )}
               </div>
-              {destBox.isNew && (
-                <div style={{ backgroundColor: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '8px', padding: '8px', marginTop: '6px' }}>
-                  <span style={{ fontSize: '11px', color: '#10B981', fontWeight: 700, display: 'block' }}>
-                    ✨ New Empty Box: {destBox.boxCode}
-                  </span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                    This box will be created for the same PO ({destBox.poNumber}) and SO ({destBox.soNumber}) as the source box.
-                  </span>
-                </div>
-              )}
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                PO: {destBox.poNumber || 'N/A'} | SO: {destBox.soNumber || 'N/A'}
+                PO: {destBox.poNumber || 'N/A'} {destBox.soNumber ? `| SO: ${destBox.soNumber}` : ''}
               </span>
               <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginTop: '4px' }}>
-                Occupied: {destBox.activeCount} / {destBox.capacity} | Available: {destBox.availableSpace} slots
+                Current: {destBox.activeCount} / {destBox.capacity} | Remaining Space: {destBox.availableSpace} slots
               </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Items Selection & Preview Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: destBox ? '1fr 1fr' : '1fr', gap: '12px' }}>
-        {/* Active Source Items Selection List */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-              Source Products ({sourceBox?.items.length || 0})
-            </span>
-            <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 700 }}>
-              {selectedItemQrs.length} of {destBox?.availableSpace ?? 0} slots selected
-            </span>
+      {/* Items Tables Grid (Source Box & Destination Box) */}
+      <div style={{ display: 'grid', gridTemplateColumns: destBox ? 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' : '1fr', gap: '14px' }}>
+        {/* Source Items Table */}
+        <div style={{
+          backgroundColor: 'var(--bg-surface-1)',
+          borderRadius: '14px',
+          border: '1px solid var(--border-color)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          {/* Table Header Controls */}
+          <div style={{
+            padding: '12px 14px',
+            borderBottom: '1px solid var(--border-color)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
+            backgroundColor: 'var(--bg-surface-2)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Package size={17} color="var(--color-orange)" />
+              <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'uppercase' }}>
+                Source Box Items ({sourceBox?.items.length || 0})
+              </span>
+              {destBox && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: selectedItemQrs.length > 0 ? 'rgba(245, 158, 66, 0.2)' : 'var(--bg-surface-3)',
+                  color: selectedItemQrs.length > 0 ? 'var(--color-orange)' : 'var(--text-muted)'
+                }}>
+                  {selectedItemQrs.length} of {destBox.availableSpace} slots selected
+                </span>
+              )}
+            </div>
+
+            {sourceBox && sourceBox.items.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={13} color="var(--text-muted)" style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }} />
+                  <input
+                    type="text"
+                    placeholder="Filter QR or size..."
+                    value={itemSearchFilter}
+                    onChange={e => setItemSearchFilter(e.target.value)}
+                    style={{
+                      padding: '4px 8px 4px 26px',
+                      fontSize: '11px',
+                      borderRadius: '6px',
+                      backgroundColor: 'var(--bg-surface-1)',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-primary)',
+                      width: '130px'
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  disabled={!destBox || destBox.availableSpace <= 0}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    borderRadius: '6px',
+                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                    border: '1px solid var(--primary-teal)',
+                    color: 'var(--primary-teal)',
+                    cursor: 'pointer'
+                  }}
+                  title="Select all eligible items up to destination capacity"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeselectAll}
+                  disabled={selectedItemQrs.length === 0}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-surface-3)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+          {/* Scrollable Table View */}
+          <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
             {!sourceBox ? (
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>
-                Please scan or enter a valid source box.
-              </p>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                Please scan or enter a source box barcode above.
+              </div>
             ) : sourceBox.items.length === 0 ? (
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>
-                Source box is empty. No active items available.
-              </p>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                Source box is empty. No active packed items available for transfer.
+              </div>
+            ) : filteredSourceItems.length === 0 ? (
+              <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                No items match "{itemSearchFilter}"
+              </div>
             ) : (
-              sourceBox.items.map(item => {
-                const isChecked = selectedItemQrs.includes(item.qr_code);
-                return (
-                  <div
-                    key={item.qr_code}
-                    style={{
-                      ...styles.itemCheckCard,
-                      borderColor: isChecked ? 'var(--color-orange)' : 'var(--border-color)',
-                      backgroundColor: isChecked ? 'rgba(245, 158, 66, 0.08)' : 'var(--bg-surface-1)'
-                    }}
-                    onClick={() => toggleSelect(item.qr_code)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {isChecked ? (
-                        <CheckSquare size={18} color="var(--color-orange)" />
-                      ) : (
-                        <Square size={18} color="var(--text-muted)" />
-                      )}
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {item.qr_code}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', background: 'var(--bg-surface-2)', padding: '2px 6px', borderRadius: '4px' }}>
-                      Size {item.size}
-                    </span>
-                  </div>
-                );
-              })
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--bg-surface-2)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '8px 10px', width: '38px', textAlign: 'center' }}>SEL</th>
+                    <th style={{ padding: '8px 10px', width: '32px' }}>#</th>
+                    <th style={{ padding: '8px 10px' }}>Product QR / Serial</th>
+                    <th style={{ padding: '8px 10px' }}>Size</th>
+                    <th style={{ padding: '8px 10px' }}>Config</th>
+                    <th style={{ padding: '8px 10px' }}>Status</th>
+                    <th style={{ padding: '8px 10px' }}>Packed At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSourceItems.map((item, idx) => {
+                    const isChecked = selectedItemQrs.includes(item.qr_code);
+                    return (
+                      <tr
+                        key={item.qr_code}
+                        onClick={() => toggleSelect(item.qr_code)}
+                        style={{
+                          borderBottom: '1px solid var(--border-color)',
+                          backgroundColor: isChecked ? 'rgba(245, 158, 66, 0.12)' : 'transparent',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.15s ease'
+                        }}
+                      >
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                          {isChecked ? (
+                            <CheckSquare size={17} color="var(--color-orange)" />
+                          ) : (
+                            <Square size={17} color="var(--text-muted)" />
+                          )}
+                        </td>
+                        <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                          {idx + 1}
+                        </td>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                          {item.qr_code}
+                        </td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <span style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                            color: 'var(--primary-teal)',
+                            fontWeight: 700,
+                            fontSize: '11px'
+                          }}>
+                            {item.size || 'STD'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 10px', color: 'var(--text-secondary)' }}>
+                          {item.config_code || item.product_type || 'GARMENT'}
+                        </td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <StatusPill label={item.status || 'PACKED'} variant="green" />
+                        </td>
+                        <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                          {item.packed_at ? new Date(item.packed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
         </div>
 
-        {/* Destination Active Items List Preview */}
+        {/* Destination Items Table */}
         {destBox && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                Destination Active Items ({destBox.items.length})
-              </span>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Space: {destBox.availableSpace} left
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            borderRadius: '14px',
+            border: '1px solid var(--border-color)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            {/* Table Header Controls */}
+            <div style={{
+              padding: '12px 14px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: 'var(--bg-surface-2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Package size={17} color="var(--primary-teal)" />
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'uppercase' }}>
+                  Destination Box Items ({destBox.items.length})
+                </span>
+              </div>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '6px',
+                backgroundColor: destBox.availableSpace > 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                color: destBox.availableSpace > 0 ? '#10B981' : '#EF4444'
+              }}>
+                {destBox.availableSpace} slot(s) free
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+            {/* Scrollable Table View */}
+            <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
               {destBox.items.length === 0 ? (
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px' }}>
-                  Destination box currently has no items.
-                </p>
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                  Destination box is empty. Ready to receive items.
+                </div>
               ) : (
-                destBox.items.map(item => (
-                  <div key={item.qr_code} style={{ ...styles.itemCheckCard, cursor: 'default', backgroundColor: 'var(--bg-surface-1)' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {item.qr_code}
-                    </span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', background: 'var(--bg-surface-2)', padding: '2px 6px', borderRadius: '4px' }}>
-                      Size {item.size}
-                    </span>
-                  </div>
-                ))
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: 'var(--bg-surface-2)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 10px', width: '32px' }}>#</th>
+                      <th style={{ padding: '8px 10px' }}>Product QR / Serial</th>
+                      <th style={{ padding: '8px 10px' }}>Size</th>
+                      <th style={{ padding: '8px 10px' }}>Config</th>
+                      <th style={{ padding: '8px 10px' }}>Status</th>
+                      <th style={{ padding: '8px 10px' }}>Packed At</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {destBox.items.map((item, idx) => (
+                      <tr
+                        key={item.qr_code}
+                        style={{ borderBottom: '1px solid var(--border-color)' }}
+                      >
+                        <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                          {idx + 1}
+                        </td>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                          {item.qr_code}
+                        </td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <span style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                            color: 'var(--primary-teal)',
+                            fontWeight: 700,
+                            fontSize: '11px'
+                          }}>
+                            {item.size || 'STD'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 10px', color: 'var(--text-secondary)' }}>
+                          {item.config_code || item.product_type || 'GARMENT'}
+                        </td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <StatusPill label={item.status || 'PACKED'} variant="green" />
+                        </td>
+                        <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                          {item.packed_at ? new Date(item.packed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
           </div>
@@ -417,9 +730,11 @@ export const BoxTransferPage: React.FC = () => {
           marginTop: 'auto',
           background: 'linear-gradient(135deg, var(--color-orange) 0%, #FBBF24 100%)',
           color: '#041820',
-          padding: '12px',
+          padding: '14px',
           fontWeight: 800,
-          fontSize: '15px'
+          fontSize: '15px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 14px rgba(245, 158, 66, 0.35)'
         }}
       >
         {isSubmitting ? 'Processing Transfer...' : `Transfer ${selectedItemQrs.length} Selected Item(s)`}
@@ -444,35 +759,27 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '10px'
   },
-  boxTransferGrid: {
+  boxesGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr auto 1fr',
     alignItems: 'center',
-    gap: '8px'
+    gap: '12px'
   },
   cardHeaderTitle: {
-    fontSize: '10px',
-    fontWeight: 700,
+    fontSize: '11px',
+    fontWeight: 800,
     color: 'var(--text-muted)',
     letterSpacing: '0.08em'
   },
   arrowWrap: {
-    width: '32px',
-    height: '32px',
+    width: '38px',
+    height: '38px',
     borderRadius: '50%',
     backgroundColor: 'var(--bg-surface-2)',
-    border: '1px solid var(--border-color)',
+    border: '1.5px solid var(--primary-teal)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
-  },
-  itemCheckCard: {
-    padding: '10px 12px',
-    borderRadius: '10px',
-    border: '1px solid var(--border-color)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    cursor: 'pointer'
+    justifyContent: 'center',
+    boxShadow: '0 0 12px rgba(20, 184, 166, 0.2)'
   }
 };

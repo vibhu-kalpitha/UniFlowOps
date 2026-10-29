@@ -160,13 +160,13 @@ const CreatePOReviewInner: React.FC = () => {
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', marginTop: '24px' }}>
-          <button className="btn-primary" onClick={() => navigate(`/supervisor/orders?poId=${encodeURIComponent(poIdForNav)}`)}>
+          <button className="btn-primary" onClick={() => navigate(`/supervisor/home?tab=current&poId=${encodeURIComponent(poIdForNav)}`)}>
             View Production Order
           </button>
           <button className="btn-secondary" onClick={() => navigate('/supervisor/home')}>
             Return to Supervisor Home
           </button>
-          <button className="btn-secondary" onClick={() => navigate('/supervisor/orders')}>
+          <button className="btn-secondary" onClick={() => navigate('/supervisor/home?tab=current')}>
             View All Production Orders
           </button>
         </div>

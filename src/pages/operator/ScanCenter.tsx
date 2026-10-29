@@ -17,21 +17,21 @@ export const ScanCenter: React.FC = () => {
 
       {/* Operations Grid */}
       <div style={styles.grid}>
-        {/* Pre QC */}
+        {/* Inline (Pre QC) */}
         <button style={styles.tile} onClick={() => navigate('/operator/pre-qc')}>
           <div style={{ ...styles.iconWrap, backgroundColor: 'rgba(22, 184, 174, 0.15)' }}>
             <ScanLine size={28} color="var(--primary-teal)" />
           </div>
-          <span style={styles.tileTitle}>Pre QC</span>
+          <span style={styles.tileTitle}>Inline</span>
           <span style={styles.tileDesc}>Validate product barcode against PO configuration</span>
         </button>
 
-        {/* QC Test */}
+        {/* Endline (QC Test) */}
         <button style={styles.tile} onClick={() => navigate('/operator/qc')}>
           <div style={{ ...styles.iconWrap, backgroundColor: 'rgba(24, 184, 121, 0.15)' }}>
             <CheckCircle2 size={28} color="var(--color-green)" />
           </div>
-          <span style={styles.tileTitle}>QC Test</span>
+          <span style={styles.tileTitle}>Endline</span>
           <span style={styles.tileDesc}>Scan item and record QC & Test result</span>
         </button>
 

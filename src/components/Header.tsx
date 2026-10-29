@@ -19,6 +19,8 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
   const isRootPage = [
     '/operator/home',
     '/supervisor/home',
+    '/admin/orders',
+    '/admin/home',
     '/admin/dashboard',
     '/login'
   ].includes(location.pathname);
@@ -33,23 +35,16 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
         { label: 'Scan', path: '/operator/scan', icon: ScanLine },
         { label: 'Profile', path: '/operator/profile', icon: User }
       ];
-    } else if (currentRole === 'supervisor') {
+    } else if (currentRole === 'supervisor' || currentRole === 'admin') {
       return [
-        { label: 'Home', path: '/supervisor/home', icon: Home },
+        { label: 'Home', path: '/admin/orders', icon: Home },
         { label: 'Dashboard', path: '/admin/dashboard', icon: BarChart },
-        { label: 'Orders', path: '/supervisor/orders', icon: ClipboardList },
-        { label: 'Users', path: '/admin/users', icon: User },
-        { label: 'Reports', path: '/admin/reports', icon: Package },
-        { label: 'Profile', path: '/supervisor/profile', icon: User }
-      ];
-    } else {
-      return [
-        { label: 'Dashboard', path: '/admin/dashboard', icon: BarChart },
-        { label: 'Orders', path: '/admin/orders', icon: ClipboardList },
         { label: 'Users', path: '/admin/users', icon: User },
         { label: 'Reports', path: '/admin/reports', icon: Package },
         { label: 'More', path: '/admin/more', icon: Menu }
       ];
+    } else {
+      return [];
     }
   };
 
@@ -57,7 +52,6 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
 
   const handleProfileClick = () => {
     if (currentRole === 'operator') navigate('/operator/profile');
-    else if (currentRole === 'supervisor') navigate('/supervisor/profile');
     else navigate('/admin/more');
   };
 
@@ -87,7 +81,10 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
 
         <nav className="desktop-top-nav" style={styles.topNav}>
           {navItems.map(item => {
-            const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+            const hasQuery = item.path.includes('?');
+            const active = hasQuery
+              ? (location.pathname + location.search) === item.path
+              : (location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path + '/')));
             const Icon = item.icon;
             return (
               <button

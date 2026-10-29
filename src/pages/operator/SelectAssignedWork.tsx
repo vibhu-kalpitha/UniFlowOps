@@ -155,7 +155,7 @@ export const SelectAssignedWork: React.FC = () => {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                     <Tag size={14} color="var(--color-purple)" />
-                    <span>Operations: {po.selectedOperations?.join(', ') || 'QC, Packing'}</span>
+                    <span>Operations: {po.selectedOperations?.map((op: string) => op === 'Pre QC' ? 'Inline' : (op === 'QC Test' || op === 'QC') ? 'Endline' : op).join(', ') || 'Inline, Endline, Packing'}</span>
                   </div>
                 </div>
               </div>

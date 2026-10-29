@@ -1092,7 +1092,7 @@ const CreatePOGeneralInner: React.FC = () => {
                     {isChecked
                       ? <CheckSquare size={20} color="var(--primary-teal)" />
                       : <Square size={20} color="var(--text-muted)" />}
-                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{op}</span>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{op === 'Pre QC' ? 'Inline' : op === 'QC Test' ? 'Endline' : op}</span>
                   </div>
 
                   {op === 'Pre QC' && isChecked && (
@@ -1100,7 +1100,7 @@ const CreatePOGeneralInner: React.FC = () => {
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                           <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
-                            Pre-QC Tests Configuration (Multi-Select)
+                            Inline Tests Configuration (Multi-Select)
                           </label>
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                             {preQcTests.length} test{preQcTests.length !== 1 ? 's' : ''} selected
@@ -1192,7 +1192,7 @@ const CreatePOGeneralInner: React.FC = () => {
                       <div style={{ paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                           <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
-                            PRE-QC STATION COUNT (Max: {Math.max(1, preQcTests.length)} Station{preQcTests.length > 1 ? 's' : ''})
+                            INLINE STATION COUNT (Max: {Math.max(1, preQcTests.length)} Station{preQcTests.length > 1 ? 's' : ''})
                           </label>
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                             Selected: {preQcStationCount} Station{preQcStationCount > 1 ? 's' : ''}
@@ -1240,7 +1240,7 @@ const CreatePOGeneralInner: React.FC = () => {
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                           <label style={{ ...styles.label, color: 'var(--primary-teal)', fontWeight: 800, margin: 0 }}>
-                            QC Tests Configuration (Multi-Select)
+                            Endline Tests Configuration (Multi-Select)
                           </label>
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                             {qcTests.length} test{qcTests.length !== 1 ? 's' : ''} selected

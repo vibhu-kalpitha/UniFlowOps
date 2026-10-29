@@ -11,7 +11,7 @@ export interface User {
   plant?: string;
 }
 
-export type OperationType = 'Pre QC' | 'QC Test' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
+export type OperationType = 'Inline' | 'Endline' | 'Pre QC' | 'QC Test' | 'QC' | 'Packing' | 'AQL Checker' | 'FINAL AQL' | 'AQL' | 'FINAL_AQL' | 'Final AQL' | 'Box Transfer';
 
 export type QcTestMode = 'QC & Test' | 'QC Only' | 'Test Only' | 'Functional Test Only' | 'QC & Functional Test';
 

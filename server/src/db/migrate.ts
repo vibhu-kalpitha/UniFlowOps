@@ -265,6 +265,12 @@ async function runSchemaAlignment005(): Promise<void> {
       `);
     }
   }
+
+  if (await tableExists('production_orders')) {
+    if (!(await columnExists('production_orders', 'order_pathway'))) {
+      await db.exec(`ALTER TABLE production_orders ADD COLUMN order_pathway VARCHAR(50) NULL DEFAULT 'PO_DIRECT' AFTER status;`);
+    }
+  }
 }
 
 export async function runSchemaAlignment008(): Promise<void> {
@@ -359,6 +365,129 @@ export async function runSchemaAlignment010(): Promise<void> {
   }
 }
 
+export async function runSchemaAlignment011Customers(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (011 Customers Hierarchy & Relations)...');
+  try {
+    if (!(await tableExists('customers'))) {
+      await db.exec(`
+        CREATE TABLE customers (
+          id VARCHAR(191) PRIMARY KEY,
+          name VARCHAR(191) NOT NULL,
+          code VARCHAR(191) UNIQUE NOT NULL,
+          contact_person VARCHAR(191) NULL,
+          email VARCHAR(191) NULL,
+          phone VARCHAR(191) NULL,
+          address TEXT NULL,
+          notes TEXT NULL,
+          created_at DATETIME(3) NOT NULL,
+          updated_at DATETIME(3) NOT NULL,
+          INDEX idx_customer_code (code),
+          INDEX idx_customer_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `);
+      console.log('  ✅ Created customers table');
+    }
+
+    // Add customer_id to styles
+    if (await tableExists('styles')) {
+      if (!(await columnExists('styles', 'customer_id'))) {
+        try {
+          await db.exec(`ALTER TABLE styles ADD COLUMN customer_id VARCHAR(191) NULL AFTER customer`);
+          console.log('  ✅ Added styles.customer_id');
+        } catch (e: any) { console.warn('  ⚠️ styles.customer_id:', e.message); }
+      }
+      if (!(await indexExists('styles', 'idx_styles_customer_id'))) {
+        try {
+          await db.exec(`CREATE INDEX idx_styles_customer_id ON styles(customer_id)`);
+        } catch (_) {}
+      }
+    }
+
+    // Add customer_id to production_orders
+    if (await tableExists('production_orders')) {
+      if (!(await columnExists('production_orders', 'customer_id'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN customer_id VARCHAR(191) NULL AFTER customer`);
+          console.log('  ✅ Added production_orders.customer_id');
+        } catch (e: any) { console.warn('  ⚠️ production_orders.customer_id:', e.message); }
+      }
+      if (!(await indexExists('production_orders', 'idx_po_customer_id'))) {
+        try {
+          await db.exec(`CREATE INDEX idx_po_customer_id ON production_orders(customer_id)`);
+        } catch (_) {}
+      }
+    }
+
+    // Migrate existing customer strings from styles & production_orders into customers table
+    const existingCustRows = await db.query<{ name: string }>(`
+      SELECT DISTINCT customer as name FROM styles WHERE customer IS NOT NULL AND customer != ''
+      UNION
+      SELECT DISTINCT customer as name FROM production_orders WHERE customer IS NOT NULL AND customer != ''
+    `);
+
+    for (const row of existingCustRows) {
+      const name = (row.name || '').trim();
+      if (!name) continue;
+      const cleanAlpha = name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const code = `CUST-${cleanAlpha || 'GENERAL'}`;
+      const custId = `cust-${name.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'general'}`;
+      try {
+        const found = await db.prepare(`SELECT id FROM customers WHERE name = ? OR code = ?`).get(name, code) as any;
+        if (!found) {
+          await db.prepare(`
+            INSERT INTO customers (id, name, code, contact_person, notes, created_at, updated_at)
+            VALUES (?, ?, ?, 'Account Manager', 'Auto-migrated customer record', NOW(3), NOW(3))
+          `).run(custId, name, code);
+          console.log(`  ✅ Migrated customer "${name}" to customers table`);
+        }
+      } catch (e: any) {
+        console.warn(`  ⚠️ Customer migration warning for ${name}:`, e.message);
+      }
+    }
+
+    // Link customer_id in styles
+    try {
+      await db.exec(`
+        UPDATE styles s
+        JOIN customers c ON LOWER(TRIM(s.customer)) = LOWER(TRIM(c.name))
+        SET s.customer_id = c.id
+        WHERE s.customer_id IS NULL;
+      `);
+    } catch (_) {}
+
+    // Link customer_id in production_orders
+    try {
+      await db.exec(`
+        UPDATE production_orders po
+        JOIN customers c ON LOWER(TRIM(po.customer)) = LOWER(TRIM(c.name))
+        SET po.customer_id = c.id
+        WHERE po.customer_id IS NULL;
+      `);
+    } catch (_) {}
+
+    // If still empty, seed sample customers
+    const countRes = await db.query<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM customers`);
+    if ((countRes[0]?.cnt || 0) === 0) {
+      const defaultCusts = [
+        { id: 'cust-nike', name: 'Nike', code: 'CUST-NIKE', email: 'orders@nike.com', contact: 'John Doe' },
+        { id: 'cust-adidas', name: 'Adidas', code: 'CUST-ADI', email: 'supply@adidas.com', contact: 'Sarah Smith' },
+        { id: 'cust-beacon', name: 'Beacon', code: 'CUST-BEACON', email: 'factory@beacon.com', contact: 'Michael Ross' }
+      ];
+      for (const c of defaultCusts) {
+        try {
+          await db.prepare(`
+            INSERT INTO customers (id, name, code, email, contact_person, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'Default Customer Profile', NOW(3), NOW(3))
+          `).run(c.id, c.name, c.code, c.email, c.contact);
+        } catch (_) {}
+      }
+      console.log('  ✅ Seeded initial customers (Nike, Adidas, Beacon)');
+    }
+  } catch (err: any) {
+    console.warn('  ⚠️ runSchemaAlignment011Customers error (non-fatal):', err.message);
+  }
+}
+
 /**
  * runStartupColumnChecks — Runs on EVERY server startup.
  * Adds any missing critical columns that may not exist on servers where
@@ -434,6 +563,14 @@ async function runStartupColumnChecks(): Promise<void> {
           await db.exec(`ALTER TABLE production_orders ADD COLUMN line_number VARCHAR(255) NULL AFTER plant`);
           console.log('  ✅ Added production_orders.line_number');
         } catch (e: any) { console.warn('  ⚠️ line_number:', e.message); }
+      }
+
+      // order_pathway (STYLE_DIRECT, PO_DIRECT, MULTI_TIER)
+      if (!(await columnExists('production_orders', 'order_pathway'))) {
+        try {
+          await db.exec(`ALTER TABLE production_orders ADD COLUMN order_pathway VARCHAR(50) NULL DEFAULT 'PO_DIRECT' AFTER status`);
+          console.log('  ✅ Added production_orders.order_pathway');
+        } catch (e: any) { console.warn('  ⚠️ order_pathway:', e.message); }
       }
 
       // shifts columns (time_frame_id for 1st, 2nd, 3rd time frame allocations)
@@ -706,6 +843,7 @@ async function runStartupColumnChecks(): Promise<void> {
 
     await runSchemaAlignment008();
     await runSchemaAlignment009();
+    await runSchemaAlignment011Customers();
 
     console.log('✅ Startup column checks complete.');
   } catch (outerErr: any) {

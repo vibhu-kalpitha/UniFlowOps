@@ -689,28 +689,36 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       WHERE (production_order_id = ? OR production_order_id = ?) AND UPPER(TRIM(qr_code)) = ?
     `).get(po.id, po.po_number, code) as any;
 
-    const newStatus = result === 'PASS' ? 'PRE_QC_PASSED' : 'PRE_QC_FAILED';
-
-    if (!item) {
-      const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-      await db.prepare(`
-        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, NULL, 'L', ?, NOW(3), NOW(3))
-      `).run(itemId, code, po.id, newStatus);
-
-      item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
-    } else {
-      await db.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
-    }
-
     const preQcLine = (req.body.lineNumber || req.body.selectedLine || po.line_number || '').trim();
     const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     const testDetails = req.body.testDetails || req.body.test_details;
     const testDetailsJson = testDetails ? JSON.stringify(testDetails) : null;
+
+    if (!item) {
+      const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
+      const initialStatus = result === 'PASS' ? 'PRE_QC_PASSED' : 'PRE_QC_FAILED';
+      await db.prepare(`
+        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
+        VALUES (?, ?, ?, NULL, 'L', ?, NOW(3), NOW(3))
+      `).run(itemId, code, po.id, initialStatus);
+
+      item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
+    }
+
     await db.prepare(`
       INSERT INTO pre_qc_results (id, item_id, operator_id, production_order_id, pre_qc_result, test_details, failure_reason, scanned_at, line_number)
       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), ?)
     `).run(preQcId, item.id, req.user!.id, po.id, result, testDetailsJson, failureReason, preQcLine || null);
+
+    // Strict multi-test evaluation: If THIS test is FAIL or ANY past test for this item has FAIL, status MUST be PRE_QC_FAILED
+    const hasAnyFail = await db.prepare(`
+      SELECT 1 FROM pre_qc_results
+      WHERE item_id = ? AND UPPER(TRIM(pre_qc_result)) = 'FAIL'
+      LIMIT 1
+    `).get(item.id) as any;
+
+    const finalStatus = (result === 'FAIL' || hasAnyFail) ? 'PRE_QC_FAILED' : 'PRE_QC_PASSED';
+    await db.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalStatus, item.id);
 
     const progress = await calculatePreQCProgress(po.id, req.user);
     return res.json({
@@ -750,6 +758,30 @@ router.post('/pre-qc/assign', authenticateToken, async (req: AuthRequest, res, n
 
     const assigned: string[] = [];
     for (const preQcQr of itemsToAssign) {
+      // Validate that this item exists and hasn't failed Pre-QC
+      const itemCheck = await db.prepare(`
+        SELECT iu.*, 
+          (SELECT 1 FROM pre_qc_results pqr WHERE pqr.item_id = iu.id AND UPPER(TRIM(pqr.pre_qc_result)) = 'FAIL' LIMIT 1) as has_fail
+        FROM item_units iu
+        WHERE (iu.production_order_id = ? OR iu.production_order_id = ?)
+          AND UPPER(TRIM(iu.qr_code)) = ?
+        LIMIT 1
+      `).get(po.id, po.po_number || po.id, preQcQr) as any;
+
+      if (!itemCheck) {
+        return res.status(400).json({
+          error: 'INVALID_PRE_QC_QR',
+          message: `Pre-QC item ${preQcQr} has not been captured for Production Order ${po.po_number || po.id}.`
+        });
+      }
+
+      if (itemCheck.status === 'PRE_QC_FAILED' || itemCheck.has_fail) {
+        return res.status(400).json({
+          error: 'PRE_QC_FAILED',
+          message: `Pre-QC item ${preQcQr} FAILED Pre-QC inspection and cannot be assigned to QC.`
+        });
+      }
+
       const pqaId = `pqa-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
       await db.prepare(`
         INSERT INTO pre_qc_assignments (id, production_order_id, product_qr, pre_qc_qr, operator_id, assigned_at, created_at)
@@ -814,6 +846,10 @@ router.get('/pre-qc/captured-items', authenticateToken, async (req: AuthRequest,
       JOIN item_units iu ON iu.id = pqr.item_id
       WHERE (pqr.production_order_id = ? OR iu.production_order_id = ?)
         AND pqr.pre_qc_result = 'PASS'
+        AND (iu.status IS NULL OR iu.status != 'PRE_QC_FAILED')
+        AND iu.id NOT IN (
+          SELECT item_id FROM pre_qc_results WHERE UPPER(TRIM(pre_qc_result)) = 'FAIL' AND item_id IS NOT NULL
+        )
       GROUP BY iu.qr_code
       ORDER BY MAX(pqr.scanned_at) DESC
     `).all(targetPoId, targetPoId) as any[];
@@ -852,27 +888,25 @@ router.post('/pre-qc/validate-item', authenticateToken, async (req: AuthRequest,
 
     // Pre-QC QR MUST NOT be passed through product configuration/prefix validator.
     // Validate only as a previously captured/eligible Pre-QC item for the same PO.
-    const record = await db.prepare(`
-      SELECT pqr.*, iu.qr_code as pre_qc_qr
-      FROM pre_qc_results pqr
-      JOIN item_units iu ON iu.id = pqr.item_id
-      WHERE (pqr.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
+    const item = await db.prepare(`
+      SELECT iu.*
+      FROM item_units iu
+      WHERE (iu.production_order_id = ? OR iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
         AND UPPER(TRIM(iu.qr_code)) = ?
-        AND pqr.pre_qc_result = 'PASS'
       LIMIT 1
     `).get(po.id, po.id, po.id, cleanPreQcQr) as any;
 
-    if (!record) {
+    if (!item) {
       // Edge case check: Did this Pre-QC QR belong to another PO?
-      const otherPoRecord = await db.prepare(`
-        SELECT pqr.*, iu.qr_code as pre_qc_qr
-        FROM pre_qc_results pqr
-        JOIN item_units iu ON iu.id = pqr.item_id
-        WHERE UPPER(TRIM(iu.qr_code)) = ? AND pqr.pre_qc_result = 'PASS'
+      const otherItem = await db.prepare(`
+        SELECT iu.*, po.po_number
+        FROM item_units iu
+        LEFT JOIN production_orders po ON po.id = iu.production_order_id
+        WHERE UPPER(TRIM(iu.qr_code)) = ?
         LIMIT 1
       `).get(cleanPreQcQr) as any;
 
-      if (otherPoRecord) {
+      if (otherItem && otherItem.production_order_id && otherItem.production_order_id !== po.id) {
         return res.status(400).json({
           valid: false,
           error: 'PRE_QC_PO_MISMATCH',
@@ -885,6 +919,72 @@ router.post('/pre-qc/validate-item', authenticateToken, async (req: AuthRequest,
         error: 'INVALID_PRE_QC_QR',
         message: `Pre-QC QR ${cleanPreQcQr} is not valid or has not been captured for Production Order ${po.po_number || po.id}.`
       });
+    }
+
+    // Inspect all Pre-QC inspection logs for this item
+    const qcLogs = await db.prepare(`
+      SELECT * FROM pre_qc_results
+      WHERE item_id = ?
+      ORDER BY scanned_at ASC
+    `).all(item.id) as any[];
+
+    if (!qcLogs || qcLogs.length === 0) {
+      return res.status(400).json({
+        valid: false,
+        error: 'PRE_QC_NOT_INSPECTED',
+        message: `Pre-QC QR ${cleanPreQcQr} has not been inspected in Pre-QC.`
+      });
+    }
+
+    // 1. Strict Failure Check: If ANY test or station failed for this item, BLOCK it completely
+    const failedLog = qcLogs.find(l => (l.pre_qc_result || '').toUpperCase() === 'FAIL');
+    if (failedLog || item.status === 'PRE_QC_FAILED') {
+      const failureReason = failedLog?.failure_reason || 'Defect recorded in station test';
+      return res.status(400).json({
+        valid: false,
+        error: 'PRE_QC_FAILED',
+        message: `Pre-QC QR ${cleanPreQcQr} FAILED Pre-QC inspection (${failureReason}). Cannot be assigned to QC.`
+      });
+    }
+
+    // 2. Multi-station completeness check if multiple tests are configured
+    let configuredTests: string[] = [];
+    try {
+      if (Array.isArray(po.pre_qc_tests)) configuredTests = po.pre_qc_tests;
+      else if (typeof po.pre_qc_tests === 'string') configuredTests = JSON.parse(po.pre_qc_tests);
+    } catch {}
+    if (!Array.isArray(configuredTests)) configuredTests = [];
+
+    const stationCount = Math.max(1, Number(po.pre_qc_station_count) || 1);
+    if (stationCount > 1 && configuredTests.length > 1) {
+      const passedTests = new Set<string>();
+      for (const log of qcLogs) {
+        if (log.test_details) {
+          try {
+            const d = typeof log.test_details === 'string' ? JSON.parse(log.test_details) : log.test_details;
+            if (d && typeof d === 'object') {
+              for (const [tName, tVal] of Object.entries(d)) {
+                const res = typeof tVal === 'string' ? tVal : (tVal as any)?.result;
+                if (res && String(res).toUpperCase() === 'PASS') {
+                  passedTests.add(tName);
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // If individual station tests were recorded, ensure every test passed
+      if (passedTests.size > 0) {
+        const missingTests = configuredTests.filter(t => !passedTests.has(t));
+        if (missingTests.length > 0) {
+          return res.status(400).json({
+            valid: false,
+            error: 'PRE_QC_INCOMPLETE',
+            message: `Pre-QC QR ${cleanPreQcQr} has pending Pre-QC station tests (${missingTests.join(', ')}). All stations must PASS before QC.`
+          });
+        }
+      }
     }
 
     if (cleanProductQr) {
@@ -979,6 +1079,10 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
         JOIN item_units iu ON iu.id = pqr.item_id
         WHERE (pqr.production_order_id = ? OR iu.production_order_id = ?)
           AND pqr.pre_qc_result = 'PASS'
+          AND (iu.status IS NULL OR iu.status != 'PRE_QC_FAILED')
+          AND iu.id NOT IN (
+            SELECT item_id FROM pre_qc_results WHERE UPPER(TRIM(pre_qc_result)) = 'FAIL' AND item_id IS NOT NULL
+          )
         GROUP BY iu.qr_code
         ORDER BY MAX(pqr.scanned_at) DESC
       `).all(po.id, po.id) as any[];

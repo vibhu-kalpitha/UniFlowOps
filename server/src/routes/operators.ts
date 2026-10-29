@@ -59,14 +59,16 @@ router.get('/assignments', authenticateToken, requireRole('OPERATOR'), async (re
       const a = singleAssigned.toUpperCase().replace(/[^A-Z]/g, '');
       const t = targetOp.toUpperCase().replace(/[^A-Z]/g, '');
       if (a === t) return true;
-      if (a.includes('PRE') || t.includes('PRE')) return a.includes('PRE') && t.includes('PRE');
+      if (a.includes('PRE') || t.includes('PRE') || a.includes('INLINE') || t.includes('INLINE')) {
+        return (a.includes('PRE') || a.includes('INLINE')) && (t.includes('PRE') || t.includes('INLINE'));
+      }
       if (t.includes('FINAL') || a.includes('FINAL')) {
         return t.includes('FINAL') && a.includes('FINAL');
       }
       if (a.includes('AQL') && t.includes('AQL')) {
         return !a.includes('FINAL') && !t.includes('FINAL');
       }
-      if (a.includes('QC') && t.includes('QC')) return true;
+      if ((a.includes('QC') || a.includes('ENDLINE')) && (t.includes('QC') || t.includes('ENDLINE'))) return true;
       if (a.includes('PACK') && t.includes('PACK')) return true;
       if (a.includes('TRANSFER') && t.includes('TRANSFER')) return true;
       return false;

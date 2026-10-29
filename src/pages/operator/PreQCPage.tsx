@@ -309,10 +309,15 @@ export const PreQCPage: React.FC = () => {
         const next = { ...prev, [testName]: true };
         const allCompleted = configuredPreQcTests.every(t => next[t]);
         if (allCompleted) {
-          showToast(`🎉 All Pre-QC tests recorded for ${scannedItem.qr}!`, 'success');
+          const hasAnyFail = configuredPreQcTests.some(t => (testResults[t] || 'PASS') === 'FAIL');
+          if (hasAnyFail) {
+            showToast(`⚠️ Pre-QC completed with FAIL for ${scannedItem.qr}! (Defects recorded)`, 'warning');
+          } else {
+            showToast(`🎉 All Pre-QC tests PASSED for ${scannedItem.qr}!`, 'success');
+          }
           const savedRecord: ScannedItem = {
             ...scannedItem,
-            status: 'VALID',
+            status: hasAnyFail ? 'INVALID' : 'VALID',
             scannedAt: new Date().toLocaleTimeString()
           };
           setRecentScans(p => [savedRecord, ...p.slice(0, 9)]);
@@ -320,7 +325,11 @@ export const PreQCPage: React.FC = () => {
             setScannedItem(null);
           }, 1000);
         } else {
-          showToast(`✅ ${testName} recorded for ${scannedItem.qr}!`, 'success');
+          if (resultVal === 'FAIL') {
+            showToast(`❌ ${testName} recorded as FAIL for ${scannedItem.qr}!`, 'warning');
+          } else {
+            showToast(`✅ ${testName} recorded for ${scannedItem.qr}!`, 'success');
+          }
         }
         return next;
       });
@@ -334,7 +343,7 @@ export const PreQCPage: React.FC = () => {
   if (showPoSelector || !po) {
     return (
       <SelectPOForOperation
-        operationName="Pre QC"
+        operationName="Inline"
         selectedPoId={po?.id}
         onSelectPo={(selectedPo, selectedLine) => {
           setActiveJob({
@@ -354,7 +363,7 @@ export const PreQCPage: React.FC = () => {
       <div className="card" style={styles.poCard}>
         <div className="op-top-banner">
           <div>
-            <span style={styles.cardSubTitle}>PRE QC OPERATION</span>
+            <span style={styles.cardSubTitle}>INLINE OPERATION</span>
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span>
                 {formatPoDisplayName({
@@ -507,7 +516,7 @@ export const PreQCPage: React.FC = () => {
         <ScannerStatus showConnectButton={true} style={{ marginBottom: '10px' }} />
         <ScannerInput
           onScan={handleScanCode}
-          placeholder="Scan barcode for Pre QC (e.g. PNFLSS0926001)..."
+          placeholder="Scan barcode for Inline (e.g. PNFLSS0926001)..."
         />
       </div>
 
@@ -711,7 +720,7 @@ export const PreQCPage: React.FC = () => {
       {recentScans.length > 0 && (
         <div className="card" style={{ margin: 0 }}>
           <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
-            Recent Pre QC Scans
+            Recent Inline Scans
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {recentScans.map((item, idx) => (

@@ -53,69 +53,25 @@ export const BottomNav: React.FC = () => {
     );
   }
 
-  if (currentRole === 'supervisor') {
-    return (
-      <nav className="bottom-nav-bar" style={styles.navBar}>
-        <button
-          style={isActive('/supervisor/home') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/supervisor/home')}
-        >
-          <Home size={20} />
-          <span>Home</span>
-        </button>
-
-        <button
-          style={isActive('/supervisor/orders') || isActive('/admin/orders') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/supervisor/orders')}
-        >
-          <ClipboardList size={20} />
-          <span>Orders</span>
-        </button>
-
-        <button
-          style={isActive('/admin/users') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/admin/users')}
-        >
-          <User size={20} />
-          <span>Users</span>
-        </button>
-
-        <button
-          style={isActive('/admin/reports') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/admin/reports')}
-        >
-          <Package size={20} />
-          <span>Reports</span>
-        </button>
-
-        <button
-          style={isActive('/admin/more') ? styles.navItemActive : styles.navItem}
-          onClick={() => navigate('/admin/more')}
-        >
-          <Menu size={20} />
-          <span>More</span>
-        </button>
-      </nav>
-    );
-  }
+  // Supervisor & Admin Navigation (5 items: Home, Dashboard, Users, Reports, More)
 
   // Admin Navigation (5 items)
   return (
     <nav className="bottom-nav-bar" style={styles.navBar}>
+      <button
+        style={isActive('/admin/orders') || isActive('/admin/home') ? styles.navItemActive : styles.navItem}
+        onClick={() => navigate('/admin/orders')}
+      >
+        <Home size={20} />
+        <span>Home</span>
+      </button>
+
       <button
         style={isActive('/admin/dashboard') ? styles.navItemActive : styles.navItem}
         onClick={() => navigate('/admin/dashboard')}
       >
         <BarChart size={20} />
         <span>Dashboard</span>
-      </button>
-
-      <button
-        style={isActive('/admin/orders') ? styles.navItemActive : styles.navItem}
-        onClick={() => navigate('/admin/orders')}
-      >
-        <ClipboardList size={20} />
-        <span>Orders</span>
       </button>
 
       <button
