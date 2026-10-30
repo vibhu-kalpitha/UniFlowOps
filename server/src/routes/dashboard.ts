@@ -966,11 +966,12 @@ router.get('/reports/production', authenticateToken, async (req: AuthRequest, re
 
     const pos = await db.prepare(`
       SELECT 
-        po.id, po.po_number, po.po_name, po.customer, po.customer_id, po.status, po.created_at, po.plant, po.total_quantity,
+        po.id, po.po_number, po.po_name, po.customer, po.customer_id, po.status, po.created_at, po.plant,
         po.style_id,
         s.name as style_name, s.code as style_code, s.customer as style_customer,
         c.name as customer_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
+        (SELECT SUM(order_quantity) FROM sales_orders WHERE production_order_id = po.id) as so_qty,
         (SELECT COUNT(*) FROM sales_orders WHERE production_order_id = po.id) as so_count
       FROM production_orders po
       LEFT JOIN styles s ON s.id = po.style_id
@@ -1120,7 +1121,7 @@ router.get('/reports/production', authenticateToken, async (req: AuthRequest, re
         if (filterDateFrom && poDate < filterDateFrom) continue;
         if (filterDateTo && poDate > filterDateTo) continue;
 
-        const targetQty = Number(p.cfg_qty || p.total_quantity || 500);
+        const targetQty = Number(p.cfg_qty || p.so_qty || 500);
 
         const preQcRow = await db.prepare(`
           SELECT COUNT(DISTINCT pqr.item_id) as cnt FROM pre_qc_results pqr
