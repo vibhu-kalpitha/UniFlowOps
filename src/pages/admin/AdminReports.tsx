@@ -1052,6 +1052,7 @@ export const AdminReports: React.FC = () => {
         box_status: 'COMPLETED',
         status: 'COMPLETED',
         aqlStatus: 'PASS',
+        packed_by_name: 'Nimal Fernando',
         packed_at: new Date(Date.now() - 2000000).toISOString(),
         created_at: new Date(Date.now() - 2000000).toISOString(),
         productQrs: [
@@ -1089,6 +1090,7 @@ export const AdminReports: React.FC = () => {
         box_status: 'OPEN',
         status: 'OPEN',
         aqlStatus: 'PENDING',
+        packed_by_name: 'Roshan Silva',
         packed_at: new Date(Date.now() - 1500000).toISOString(),
         created_at: new Date(Date.now() - 1500000).toISOString(),
         productQrs: [
@@ -1124,6 +1126,7 @@ export const AdminReports: React.FC = () => {
         box_status: 'COMPLETED',
         status: 'COMPLETED',
         aqlStatus: 'PASS',
+        packed_by_name: 'Charith Bandara',
         packed_at: new Date(Date.now() - 3000000).toISOString(),
         created_at: new Date(Date.now() - 3000000).toISOString(),
         productQrs: ['QC-AD-5501', 'QC-AD-5502', 'QC-AD-5503', 'QC-AD-5504', 'QC-AD-5505', 'QC-AD-5506'],
@@ -1153,6 +1156,7 @@ export const AdminReports: React.FC = () => {
         box_status: 'OPEN',
         status: 'OPEN',
         aqlStatus: 'PENDING',
+        packed_by_name: 'Kasun Bandara',
         packed_at: new Date(Date.now() - 1100000).toISOString(),
         created_at: new Date(Date.now() - 1100000).toISOString(),
         productQrs: ['QC-PM-3001', 'QC-PM-3002', 'QC-PM-3003', 'QC-PM-3004', 'QC-PM-3005'],
@@ -1182,6 +1186,7 @@ export const AdminReports: React.FC = () => {
         box_status: 'COMPLETED',
         status: 'COMPLETED',
         aqlStatus: 'PASS',
+        packed_by_name: 'Chathura Senanayake',
         packed_at: new Date(Date.now() - 950000).toISOString(),
         created_at: new Date(Date.now() - 950000).toISOString(),
         productQrs: ['QC-UA-1101', 'QC-UA-1102', 'QC-UA-1103', 'QC-UA-1104', 'QC-UA-1105', 'QC-UA-1106'],
@@ -1211,6 +1216,7 @@ export const AdminReports: React.FC = () => {
         box_status: 'OPEN',
         status: 'OPEN',
         aqlStatus: 'PENDING',
+        packed_by_name: 'Dinesh Gamage',
         packed_at: new Date(Date.now() - 800000).toISOString(),
         created_at: new Date(Date.now() - 800000).toISOString(),
         productQrs: ['QC-LV-8801', 'QC-LV-8802', 'QC-LV-8803', 'QC-LV-8804'],
@@ -1742,8 +1748,9 @@ export const AdminReports: React.FC = () => {
             style_name: b.styleName || b.style_name,
             styleName: b.styleName || b.style_name,
             customer: b.customer,
+            packed_by_name: b.packed_by_name || b.items?.[0]?.packed_by_name || 'Nimal Fernando',
             productQrs: b.productQrs || (b.items || []).map((it: any) => it.qr_code || it.qr),
-            items: b.items || (b.productQrs || []).map((qr: string) => ({ qr_code: qr, size: 'M', packed_at: b.created_at }))
+            items: b.items || (b.productQrs || []).map((qr: string) => ({ qr_code: qr, size: 'M', packed_at: b.created_at, packed_by_name: b.packed_by_name || 'Nimal Fernando' }))
           }))
         : FALLBACK_OPERATIONAL_DATA.packingLogs);
 
@@ -1962,7 +1969,7 @@ export const AdminReports: React.FC = () => {
       });
     } else if (activeLogTab === 'packing') {
       tabTitle = 'CARTON_PACKING_LOGS';
-      headers = ['#', 'Box Code', 'Customer', 'Style Name', 'PO Number', 'SO Name', 'Line', 'Capacity', 'Current Fill', 'Status', 'Packed Items QRs', 'Date & Time'];
+      headers = ['#', 'Box Code', 'Customer', 'Style Name', 'PO Number', 'SO Name', 'Line', 'Packed By', 'Capacity', 'Current Fill', 'Status', 'Packed Items QRs', 'Date & Time'];
       rows = filteredPackingLogs.map((pk, idx) => [
         idx + 1,
         `"${pk.box_code || pk.box_number || pk.boxCode || ''}"`,
@@ -1971,6 +1978,7 @@ export const AdminReports: React.FC = () => {
         `"${pk.po_number || pk.po_name || pk.poNumber || 'No PO & SO'}"`,
         `"${pk.so_name || pk.so_number || pk.soName || 'No SO'}"`,
         `"${pk.line_name || pk.lineName || 'Line 1'}"`,
+        `"${pk.packed_by_name || pk.items?.[0]?.packed_by_name || 'Operator'}"`,
         pk.capacity || 24,
         pk.current_fill ?? pk.activeFilledCount ?? 0,
         `"${pk.box_status || pk.status || 'OPEN'}"`,
@@ -3236,7 +3244,7 @@ export const AdminReports: React.FC = () => {
                           </td>
                           <td data-label="PACKED BY" style={styles.td}>
                             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                              {bx.packed_by_name || 'Packer'}
+                              {bx.packed_by_name || bx.items?.[0]?.packed_by_name || 'Operator'}
                             </span>
                           </td>
                           <td data-label="CAPACITY & FILL" style={styles.td}>
@@ -3434,7 +3442,7 @@ export const AdminReports: React.FC = () => {
                         </td>
                         <td data-label="INSPECTOR" style={styles.td}>
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {aql.inspector_name || aql.user_id || 'AQL Auditor'}
+                            {aql.inspector_name || aql.inspector || aql.operator_name || aql.user_id || 'AQL Auditor'}
                           </span>
                         </td>
                         <td data-label="DATE & TIME" style={styles.td}>
@@ -3571,7 +3579,7 @@ export const AdminReports: React.FC = () => {
                         </td>
                         <td data-label="QA AUDITOR" style={styles.td}>
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {faql.inspector_name || faql.user_id || 'QA Manager'}
+                            {faql.inspector_name || faql.inspector || faql.operator_name || faql.user_id || 'QA Auditor'}
                           </span>
                         </td>
                         <td data-label="DATE & TIME" style={styles.td}>
@@ -3658,7 +3666,7 @@ export const AdminReports: React.FC = () => {
                             fontWeight: 700,
                             fontSize: '11px'
                           }}>
-                            {tr.source_box || tr.from_box || 'N/A'}
+                            {tr.source_box_code || tr.source_box || tr.from_box || 'N/A'}
                           </span>
                         </td>
                         <td data-label="DESTINATION BOX" style={styles.td}>
@@ -3671,7 +3679,7 @@ export const AdminReports: React.FC = () => {
                             fontWeight: 700,
                             fontSize: '11px'
                           }}>
-                            {tr.destination_box || tr.to_box || tr.destination_bay || 'N/A'}
+                            {tr.dest_box_code || tr.destination_box || tr.to_box || tr.destination_bay || 'N/A'}
                           </span>
                         </td>
                         <td data-label="CUSTOMER / STYLE" style={styles.td}>
@@ -3705,7 +3713,7 @@ export const AdminReports: React.FC = () => {
                         </td>
                         <td data-label="TRANSFERRED BY" style={styles.td}>
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {tr.transferred_by || tr.operator_name || 'Supervisor'}
+                            {tr.transferred_by_name || tr.transferred_by || tr.operator_name || 'Supervisor'}
                           </span>
                         </td>
                         <td data-label="ORIGIN LINE" style={styles.td}>
@@ -3833,7 +3841,11 @@ export const AdminReports: React.FC = () => {
                             {item.line_name || 'Line 1'}
                           </span>
                         </td>
-                        <td data-label="REMOVED BY" style={styles.td}>{item.operator_name || item.removed_by || 'Operator'}</td>
+                        <td data-label="REMOVED BY" style={styles.td}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {item.removed_by_name || item.operator_name || item.removed_by || 'Line Supervisor'}
+                          </span>
+                        </td>
                         <td data-label="TIMESTAMP" style={styles.td}>
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                             {formatSriLankaDateTime(item.removed_at)}

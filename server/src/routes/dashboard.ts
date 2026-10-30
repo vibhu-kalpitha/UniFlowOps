@@ -672,6 +672,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         aqlStatus: aqlRow?.result || 'PENDING',
         transferStatus: transferRow ? `Transferred (${transferRow.item_count} items)` : 'NONE',
         productQrs: items.map(i => i.qr_code),
+        packed_by_name: items[0]?.packed_by_name || null,
         items
       };
     }));
@@ -1462,6 +1463,14 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
              (SELECT COUNT(*) FROM box_items bi2 WHERE bi2.box_id = b.id AND bi2.active = 1) as current_fill,
              (SELECT COUNT(*) FROM box_items bi2 WHERE bi2.box_id = b.id AND bi2.active = 1) as activeFilledCount,
              (
+               SELECT COALESCE(NULLIF(TRIM(u_pk.full_name), ''), NULLIF(TRIM(u_pk.username), ''))
+               FROM box_items bi_user
+               JOIN users u_pk ON (u_pk.id = bi_user.packed_by OR u_pk.username = bi_user.packed_by)
+               WHERE bi_user.box_id = b.id
+               ORDER BY bi_user.packed_at DESC
+               LIMIT 1
+             ) as packed_by_name,
+             (
                SELECT GROUP_CONCAT(DISTINCT iu2.qr_code SEPARATOR ',')
                FROM box_items bi3
                JOIN item_units iu2 ON iu2.id = bi3.item_id
@@ -1509,8 +1518,9 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
         activeFilledCount: Number(b.activeFilledCount || qrs.length || 0),
         capacity: Number(b.capacity || 24),
         remainingCapacity: Math.max(0, Number(b.capacity || 24) - Number(b.activeFilledCount || qrs.length || 0)),
+        packed_by_name: b.packed_by_name || 'Operator',
         productQrs: qrs,
-        items: qrs.map((qr: string) => ({ qr_code: qr, packed_at: b.created_at }))
+        items: qrs.map((qr: string) => ({ qr_code: qr, packed_at: b.created_at, packed_by_name: b.packed_by_name || 'Operator' }))
       };
     });
 
@@ -1520,14 +1530,14 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
              ai.started_at, ai.completed_at, ai.stage,
              po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
              COALESCE(NULLIF(TRIM(ai.line_number), ''), NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
-             u.full_name as inspector_name,
+             COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'AQL Auditor') as inspector_name,
              (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
       FROM aql_inspections ai
       LEFT JOIN boxes b ON b.id = ai.box_id
       LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
       LEFT JOIN sales_orders so ON (so.id = ai.sales_order_id OR so.id = b.sales_order_id)
       LEFT JOIN styles s ON s.id = po.style_id
-      LEFT JOIN users u ON u.id = ai.inspector_id
+      LEFT JOIN users u ON (u.id = ai.inspector_id OR u.username = ai.inspector_id)
       WHERE 1=1 ${buildDateFilter('ai.started_at')}
     `;
     const aqlParams: any[] = [];
@@ -1561,7 +1571,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       SELECT bt.id, bt.id as transfer_id, bt.source_box_id, bt.destination_box_id, bt.item_count, bt.transferred_at, bt.remarks,
              COALESCE(sb.box_code, sb.box_number) as source_box_code,
              COALESCE(db.box_code, db.box_number) as dest_box_code,
-             u.full_name as transferred_by_name,
+             COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'Supervisor') as transferred_by_name,
              po.po_number, po.po_name, so.so_number as so_name, s.name as style_name, po.customer,
              COALESCE(NULLIF(TRIM(sb.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name
       FROM box_transfers bt
@@ -1570,7 +1580,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       LEFT JOIN production_orders po ON (po.id = bt.production_order_id OR po.id = sb.production_order_id)
       LEFT JOIN sales_orders so ON (so.id = sb.sales_order_id OR so.id = db.sales_order_id)
       LEFT JOIN styles s ON s.id = po.style_id
-      LEFT JOIN users u ON u.id = bt.transferred_by
+      LEFT JOIN users u ON (u.id = bt.transferred_by OR u.username = bt.transferred_by)
       WHERE 1=1 ${buildDateFilter('bt.transferred_at')}
     `;
     const trfParams: any[] = [];
@@ -1600,7 +1610,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     // 7. Scrapped Logs with SO
     let scrapQuery = `
       SELECT p.id, p.item_qr, p.action_type, p.reason, p.removed_at,
-             u.full_name as removed_by_name,
+             COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'Line Supervisor') as removed_by_name,
              COALESCE(po.line_number, 'Line 1') as line_number,
              po.po_number, po.po_name, so.so_number as so_name, s.name as style_name, po.customer
       FROM permanently_removed_items p
@@ -1608,7 +1618,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       LEFT JOIN item_units iu ON iu.qr_code = p.item_qr
       LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
       LEFT JOIN styles s ON s.id = po.style_id
-      LEFT JOIN users u ON u.id = p.removed_by
+      LEFT JOIN users u ON (u.id = p.removed_by OR u.username = p.removed_by)
       WHERE 1=1 ${buildDateFilter('p.removed_at')}
     `;
     const scrapParams: any[] = [];
