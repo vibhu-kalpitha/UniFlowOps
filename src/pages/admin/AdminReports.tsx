@@ -1824,13 +1824,21 @@ export const AdminReports: React.FC = () => {
     return true;
   };
 
-  const filteredPreQcLogs = rawPreQcLogs.filter(matchesInspectionFilters);
-  const filteredQcLogs = rawQcLogs.filter(matchesInspectionFilters);
-  const filteredPackingLogs = rawPackingLogs.filter(matchesInspectionFilters);
-  const filteredAqlLogs = rawAqlLogs.filter(matchesInspectionFilters);
-  const filteredFinalAqlLogs = rawFinalAqlLogs.filter(matchesInspectionFilters);
-  const filteredTransferLogs = rawTransferLogs.filter(matchesInspectionFilters);
-  const filteredScrapped = rawScrapped.filter(matchesInspectionFilters);
+  const sortByLatest = (list: any[]) => [...list].sort((a, b) => {
+    const rawA = a.scanned_at || a.created_at || a.started_at || a.completed_at || a.removed_at || a.packed_at || a.transferred_at || a.audited_at || 0;
+    const rawB = b.scanned_at || b.created_at || b.started_at || b.completed_at || b.removed_at || b.packed_at || b.transferred_at || b.audited_at || 0;
+    const timeA = rawA ? new Date(rawA).getTime() : 0;
+    const timeB = rawB ? new Date(rawB).getTime() : 0;
+    return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+  });
+
+  const filteredPreQcLogs = sortByLatest(rawPreQcLogs.filter(matchesInspectionFilters));
+  const filteredQcLogs = sortByLatest(rawQcLogs.filter(matchesInspectionFilters));
+  const filteredPackingLogs = sortByLatest(rawPackingLogs.filter(matchesInspectionFilters));
+  const filteredAqlLogs = sortByLatest(rawAqlLogs.filter(matchesInspectionFilters));
+  const filteredFinalAqlLogs = sortByLatest(rawFinalAqlLogs.filter(matchesInspectionFilters));
+  const filteredTransferLogs = sortByLatest(rawTransferLogs.filter(matchesInspectionFilters));
+  const filteredScrapped = sortByLatest(rawScrapped.filter(matchesInspectionFilters));
 
   // Summary Metrics Calculation
   const totalPlanned = filteredOrders.reduce((sum, p) => sum + (p.targetQuantity || 0), 0);
@@ -2814,7 +2822,7 @@ export const AdminReports: React.FC = () => {
                 No Pre-QC records found matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -2983,7 +2991,7 @@ export const AdminReports: React.FC = () => {
                 No QC inspection records found matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -3165,7 +3173,7 @@ export const AdminReports: React.FC = () => {
                 No carton packing records found matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -3344,7 +3352,7 @@ export const AdminReports: React.FC = () => {
                 No AQL inspection records found matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -3473,7 +3481,7 @@ export const AdminReports: React.FC = () => {
                 No Final AQL records found matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -3610,7 +3618,7 @@ export const AdminReports: React.FC = () => {
                 No box transfer records found matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -3764,7 +3772,7 @@ export const AdminReports: React.FC = () => {
                 No permanently removed garments logged matching current filters.
               </div>
             ) : (
-              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+              <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
                     <tr>
@@ -4348,7 +4356,11 @@ const styles: Record<string, any> = {
     fontSize: '11px',
     fontWeight: 700,
     letterSpacing: '0.05em',
-    whiteSpace: 'nowrap'
+    whiteSpace: 'nowrap',
+    position: 'sticky',
+    top: 0,
+    zIndex: 5,
+    backgroundColor: 'var(--bg-surface-2, #182235)'
   },
   tr: {
     borderBottom: '1px solid var(--border-color)'

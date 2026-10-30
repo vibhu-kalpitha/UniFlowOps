@@ -1401,7 +1401,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       const term = `%${search.trim()}%`;
       preQcParams.push(term, term, term, term);
     }
-    preQcQuery += ` ORDER BY pq.scanned_at DESC LIMIT 300`;
+    preQcQuery += ` ORDER BY pq.scanned_at DESC`;
     let preQcLogs: any[] = [];
     try {
       preQcLogs = await db.prepare(preQcQuery).all(...preQcParams) as any[];
@@ -1446,7 +1446,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       const term = `%${search.trim()}%`;
       qcParams.push(term, term, term, term, term);
     }
-    qcQuery += ` ORDER BY qr.scanned_at DESC LIMIT 300`;
+    qcQuery += ` ORDER BY qr.scanned_at DESC`;
     let qcLogs: any[] = [];
     try {
       qcLogs = await db.prepare(qcQuery).all(...qcParams) as any[];
@@ -1491,7 +1491,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       const term = `%${search.trim()}%`;
       packingParams.push(term, term, term);
     }
-    packingQuery += ` ORDER BY b.created_at DESC LIMIT 200`;
+    packingQuery += ` ORDER BY b.created_at DESC`;
     let rawPackingBoxes: any[] = [];
     try {
       rawPackingBoxes = await db.prepare(packingQuery).all(...packingParams) as any[];
@@ -1548,7 +1548,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       const term = `%${search.trim()}%`;
       aqlParams.push(term, term, term, term);
     }
-    aqlQuery += ` ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC LIMIT 200`;
+    aqlQuery += ` ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC`;
     let rawAqlLogs: any[] = [];
     try {
       rawAqlLogs = await db.prepare(aqlQuery).all(...aqlParams) as any[];
@@ -1591,7 +1591,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       const term = `%${search.trim()}%`;
       trfParams.push(term, term, term, term);
     }
-    transferQuery += ` ORDER BY bt.transferred_at DESC LIMIT 100`;
+    transferQuery += ` ORDER BY bt.transferred_at DESC`;
     let transferLogs: any[] = [];
     try {
       transferLogs = await db.prepare(transferQuery).all(...trfParams) as any[];
@@ -1629,7 +1629,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
       const term = `%${search.trim()}%`;
       scrapParams.push(term, term, term);
     }
-    scrapQuery += ` ORDER BY p.removed_at DESC LIMIT 100`;
+    scrapQuery += ` ORDER BY p.removed_at DESC`;
     let scrappedLogs: any[] = [];
     try {
       scrappedLogs = await db.prepare(scrapQuery).all(...scrapParams) as any[];
