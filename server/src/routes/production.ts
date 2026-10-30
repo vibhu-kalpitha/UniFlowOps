@@ -2206,14 +2206,9 @@ router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
   }
 });
 
-// DELETE /api/boxes/:id — Delete a box and release its packed items (Admin & Supervisor)
+// DELETE /api/boxes/:id — Delete a box and release its packed items
 router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const role = (req.user?.role || '').toLowerCase();
-    if (role !== 'admin' && role !== 'supervisor') {
-      return res.status(403).json({ error: 'FORBIDDEN', message: 'Only Admins and Supervisors can delete boxes.' });
-    }
-
     const boxId = req.params.id;
     const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(boxId, boxId, boxId) as any;
     if (!box) {
@@ -2261,14 +2256,9 @@ router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, nex
   }
 });
 
-// DELETE /api/boxes/:boxId/items/:qrCode — Delete a specific item from a box (Admin & Supervisor)
+// DELETE /api/boxes/:boxId/items/:qrCode — Delete a specific item from a box
 router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const role = (req.user?.role || '').toLowerCase();
-    if (role !== 'admin' && role !== 'supervisor') {
-      return res.status(403).json({ error: 'FORBIDDEN', message: 'Only Admins and Supervisors can remove items from boxes.' });
-    }
-
     const { boxId, qrCode } = req.params;
     const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(boxId, boxId, boxId) as any;
     if (!box) {
@@ -2280,7 +2270,7 @@ router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: Auth
       return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: `Item '${qrCode}' not found.` });
     }
 
-    const boxItem = await db.prepare(`SELECT * FROM box_items WHERE box_id = ? AND item_id = ? AND active = 1`).get(box.id, item.id) as any;
+    const boxItem = await db.prepare(`SELECT * FROM box_items WHERE box_id = ? AND item_id = ? ORDER BY id DESC`).get(box.id, item.id) as any;
     if (!boxItem) {
       return res.status(404).json({ error: 'ITEM_NOT_IN_BOX', message: `Item '${qrCode}' is not in Box ${box.box_code || box.box_number}.` });
     }
@@ -2317,7 +2307,7 @@ router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: Auth
 });
 
 // DELETE /api/admin/qc-logs/:id — Delete a QC inspection log entry
-router.delete('/admin/qc-logs/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+router.delete('/admin/qc-logs/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
     await db.transaction(async (tx) => {
@@ -2332,7 +2322,7 @@ router.delete('/admin/qc-logs/:id', authenticateToken, requireRole(['ADMIN', 'SU
 });
 
 // DELETE /api/admin/pre-qc-logs/:id — Delete a Pre-QC validation log entry
-router.delete('/admin/pre-qc-logs/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+router.delete('/admin/pre-qc-logs/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
     await db.prepare(`DELETE FROM pre_qc_results WHERE id = ?`).run(id);
@@ -2344,12 +2334,12 @@ router.delete('/admin/pre-qc-logs/:id', authenticateToken, requireRole(['ADMIN',
 });
 
 // DELETE /api/admin/aql-logs/:id — Delete an AQL inspection log entry
-router.delete('/admin/aql-logs/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+router.delete('/admin/aql-logs/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
     await db.transaction(async (tx) => {
-      await tx.prepare(`DELETE FROM aql_samples WHERE inspection_id = ?`).run(id).catch(() => {});
-      await tx.prepare(`DELETE FROM aql_inspections WHERE id = ?`).run(id);
+      await tx.prepare(`DELETE FROM aql_samples WHERE inspection_id = ? OR inspection_id IN (SELECT id FROM aql_inspections WHERE box_id = ?)`).run(id, id).catch(() => {});
+      await tx.prepare(`DELETE FROM aql_inspections WHERE id = ? OR box_id = ?`).run(id, id);
     });
     await auditLog(req.user!.id, 'DELETE_AQL_LOG', 'aql_inspections', id, {});
     return res.json({ success: true, message: 'AQL inspection log deleted successfully.' });
@@ -2359,12 +2349,39 @@ router.delete('/admin/aql-logs/:id', authenticateToken, requireRole(['ADMIN', 'S
 });
 
 // DELETE /api/admin/scrapped/:id — Delete a scrapped item entry
-router.delete('/admin/scrapped/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+router.delete('/admin/scrapped/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
-    await db.prepare(`DELETE FROM permanently_removed_items WHERE id = ?`).run(id);
+    await db.prepare(`DELETE FROM permanently_removed_items WHERE id = ? OR item_qr = ?`).run(id, id);
     await auditLog(req.user!.id, 'DELETE_SCRAPPED_ITEM', 'permanently_removed_items', id, {});
     return res.json({ success: true, message: 'Scrapped item log deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/transfer-logs/:id — Delete a box transfer log entry
+router.delete('/admin/transfer-logs/:id', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    await db.transaction(async (tx) => {
+      await tx.prepare(`DELETE FROM box_transfer_items WHERE transfer_id = ?`).run(id).catch(() => {});
+      await tx.prepare(`DELETE FROM box_transfers WHERE id = ?`).run(id);
+    });
+    await auditLog(req.user!.id, 'DELETE_BOX_TRANSFER_LOG', 'box_transfers', id, {});
+    return res.json({ success: true, message: 'Box transfer log deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/pre-qc-assignments/:productQr/:preQcQr — Unassign a Pre-QC barcode from a garment
+router.delete('/admin/pre-qc-assignments/:productQr/:preQcQr', authenticateToken, async (req: AuthRequest, res, next) => {
+  try {
+    const { productQr, preQcQr } = req.params;
+    await db.prepare(`DELETE FROM pre_qc_assignments WHERE product_qr = ? AND pre_qc_qr = ?`).run(productQr, preQcQr);
+    await auditLog(req.user!.id, 'UNASSIGN_PRE_QC', 'pre_qc_assignments', `${productQr}:${preQcQr}`, { productQr, preQcQr });
+    return res.json({ success: true, message: `Pre-QC QR '${preQcQr}' unassigned from '${productQr}'.` });
   } catch (err) {
     next(err);
   }

@@ -735,48 +735,73 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       ORDER BY s.created_at DESC
     `);
 
-    // 14. Detailed QC Inspection Logs with real line_number and PO line fallback
-    const qcLogs = await db.prepare(`
-      SELECT qr.id, qr.item_id, iu.qr_code as item_qr, qr.qc_result, qr.test_result, qr.failure_reason, qr.scanned_at,
-             po.id as po_id, po.po_number, s.name as style_name,
-             COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
-             u.full_name as operator_name
-      FROM qc_results qr
-      JOIN item_units iu ON iu.id = qr.item_id
-      LEFT JOIN production_orders po ON po.id = iu.production_order_id
-      LEFT JOIN styles s ON s.id = po.style_id
-      LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
-      LEFT JOIN production_lines pl ON pl.id = so.line_id
-      LEFT JOIN users u ON u.id = qr.operator_id
-      ORDER BY qr.scanned_at DESC
-    `).all() as any[];
+    // 14. Detailed QC Inspection Logs with linked Pre-QC QRs
+    let qcLogs: any[] = [];
+    try {
+      qcLogs = await db.prepare(`
+        SELECT qr.id, qr.item_id, iu.qr_code as item_qr, qr.qc_result, qr.test_result, qr.failure_reason, qr.scanned_at,
+               po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name,
+               COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
+               u.full_name as operator_name,
+               (
+                 SELECT GROUP_CONCAT(DISTINCT pqa.pre_qc_qr SEPARATOR ', ')
+                 FROM pre_qc_assignments pqa
+                 WHERE pqa.product_qr = iu.qr_code
+               ) as linked_pre_qc_qrs
+        FROM qc_results qr
+        JOIN item_units iu ON iu.id = qr.item_id
+        LEFT JOIN production_orders po ON po.id = iu.production_order_id
+        LEFT JOIN styles s ON s.id = po.style_id
+        LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
+        LEFT JOIN production_lines pl ON pl.id = so.line_id
+        LEFT JOIN users u ON u.id = qr.operator_id
+        ORDER BY qr.scanned_at DESC
+        LIMIT 250
+      `).all() as any[];
+    } catch {
+      qcLogs = [];
+    }
 
-    // 15. Detailed AQL & Final AQL Logs with real line_number and PO line fallback
-    const aqlLogs = await db.prepare(`
-      SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason, ai.required_samples,
-             ai.started_at, ai.completed_at,
-             po.id as po_id, po.po_number, s.name as style_name,
-             COALESCE(NULLIF(TRIM(ai.line_number), ''), NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
-             u.full_name as inspector_name,
-             (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
-      FROM aql_inspections ai
-      LEFT JOIN boxes b ON b.id = ai.box_id
-      LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
-      LEFT JOIN styles s ON s.id = po.style_id
-      LEFT JOIN sales_orders so ON so.id = ai.sales_order_id
-      LEFT JOIN production_lines pl ON pl.id = so.line_id
-      LEFT JOIN users u ON u.id = ai.inspector_id
-      ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
-    `).all() as any[];
+    // 15. Detailed Normal AQL Logs
+    let aqlLogs: any[] = [];
+    let finalAqlLogs: any[] = [];
+    try {
+      const rawAql = await db.prepare(`
+        SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason, ai.required_samples,
+               ai.started_at, ai.completed_at, ai.stage,
+               po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name,
+               COALESCE(NULLIF(TRIM(ai.line_number), ''), NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
+               u.full_name as inspector_name,
+               (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
+        FROM aql_inspections ai
+        LEFT JOIN boxes b ON b.id = ai.box_id
+        LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
+        LEFT JOIN styles s ON s.id = po.style_id
+        LEFT JOIN sales_orders so ON so.id = ai.sales_order_id
+        LEFT JOIN production_lines pl ON pl.id = so.line_id
+        LEFT JOIN users u ON u.id = ai.inspector_id
+        ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+        LIMIT 250
+      `).all() as any[];
 
-    // 16. Detailed Pre-QC Logs with real line_number and PO line fallback
+      aqlLogs = rawAql.filter(a => !a.stage || !String(a.stage).toUpperCase().includes('FINAL'));
+      finalAqlLogs = rawAql.filter(a => a.stage && String(a.stage).toUpperCase().includes('FINAL'));
+    } catch {
+      aqlLogs = [];
+      finalAqlLogs = [];
+    }
+
+    // 16. Detailed Pre-QC Logs with Assigned QC QR and operator info
     let preQcLogs: any[] = [];
     try {
       preQcLogs = await db.prepare(`
         SELECT pq.id, pq.item_id, iu.qr_code as item_qr, pq.pre_qc_result, pq.failure_reason, pq.scanned_at,
-               po.id as po_id, po.po_number, s.name as style_name,
+               po.id as po_id, po.po_number, po.po_name, po.customer, s.name as style_name,
                COALESCE(NULLIF(TRIM(pq.line_number), ''), NULLIF(TRIM(po.line_number), ''), pl.name, 'Line 1') as line_name,
-               u.full_name as operator_name
+               u.full_name as operator_name,
+               pqa.product_qr as assigned_qc_qr,
+               pqa.assigned_at,
+               assign_u.full_name as assigned_by_name
         FROM pre_qc_results pq
         JOIN item_units iu ON iu.id = pq.item_id
         LEFT JOIN production_orders po ON (po.id = pq.production_order_id OR po.id = iu.production_order_id)
@@ -784,10 +809,36 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
         LEFT JOIN production_lines pl ON pl.id = so.line_id
         LEFT JOIN users u ON u.id = pq.operator_id
+        LEFT JOIN pre_qc_assignments pqa ON (pqa.pre_qc_qr = iu.qr_code)
+        LEFT JOIN users assign_u ON assign_u.id = pqa.operator_id
         ORDER BY pq.scanned_at DESC
+        LIMIT 250
       `).all() as any[];
     } catch {
       preQcLogs = [];
+    }
+
+    // 17. Box Transfers Log
+    let boxTransfers: any[] = [];
+    try {
+      boxTransfers = await db.prepare(`
+        SELECT bt.id as transfer_id, bt.source_box_id, bt.destination_box_id, bt.item_count, bt.transferred_at, bt.remarks,
+               COALESCE(sb.box_code, sb.box_number) as source_box_code,
+               COALESCE(db.box_code, db.box_number) as dest_box_code,
+               u.full_name as transferred_by_name,
+               po.po_number, po.po_name, s.name as style_name, po.customer,
+               COALESCE(NULLIF(TRIM(sb.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name
+        FROM box_transfers bt
+        LEFT JOIN boxes sb ON sb.id = bt.source_box_id
+        LEFT JOIN boxes db ON db.id = bt.destination_box_id
+        LEFT JOIN production_orders po ON (po.id = bt.production_order_id OR po.id = sb.production_order_id)
+        LEFT JOIN styles s ON s.id = po.style_id
+        LEFT JOIN users u ON u.id = bt.transferred_by
+        ORDER BY bt.transferred_at DESC
+        LIMIT 100
+      `).all() as any[];
+    } catch {
+      boxTransfers = [];
     }
 
     return res.json({
@@ -823,7 +874,9 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       adminStyles,
       qcLogs,
       aqlLogs,
-      preQcLogs
+      finalAqlLogs,
+      preQcLogs,
+      boxTransfers
     });
   } catch (err) {
     next(err);
@@ -868,13 +921,38 @@ router.patch('/alerts/:id/read', authenticateToken, async (req, res, next) => {
   }
 });
 
-// GET /api/reports/production?range=today|week|month
+// GET /api/reports/production?range=today|week|month|all&startDate=&endDate=
 router.get('/reports/production', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
-    const range = req.query.range || 'today';
+    const range = (req.query.range || 'all').toString().toLowerCase();
+    const startDateParam = (req.query.startDate || '').toString().trim();
+    const endDateParam = (req.query.endDate || '').toString().trim();
     const queryPlant = (req.query.plant || '').toString().trim();
     const isSupervisorOnly = req.user?.role === 'SUPERVISOR';
     const userPlant = req.user?.plant;
+
+    let filterDateFrom: Date | null = null;
+    let filterDateTo: Date | null = null;
+    if (startDateParam) {
+      filterDateFrom = new Date(`${startDateParam}T00:00:00.000Z`);
+    }
+    if (endDateParam) {
+      filterDateTo = new Date(`${endDateParam}T23:59:59.999Z`);
+    } else if (filterDateFrom && !endDateParam) {
+      filterDateTo = new Date(`${startDateParam}T23:59:59.999Z`);
+    }
+
+    if (!filterDateFrom && !filterDateTo && range !== 'all') {
+      const now = new Date();
+      if (range === 'today') {
+        filterDateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        filterDateTo = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      } else if (range === 'week') {
+        filterDateFrom = new Date(Date.now() - 7 * 86400000);
+      } else if (range === 'month') {
+        filterDateFrom = new Date(Date.now() - 30 * 86400000);
+      }
+    }
 
     let poWhere = '';
     const poParams: any[] = [];
@@ -888,97 +966,324 @@ router.get('/reports/production', authenticateToken, async (req: AuthRequest, re
 
     const pos = await db.prepare(`
       SELECT 
-        po.id, po.po_number, po.po_name, po.customer, po.status, po.created_at, po.plant,
-        s.name as style_name,
+        po.id, po.po_number, po.po_name, po.customer, po.customer_id, po.status, po.created_at, po.plant, po.total_quantity,
+        po.style_id,
+        s.name as style_name, s.code as style_code, s.customer as style_customer,
+        c.name as customer_name,
         (SELECT SUM(quantity) FROM production_order_configs WHERE production_order_id = po.id) as cfg_qty,
-        (SELECT SUM(order_quantity) FROM sales_orders WHERE production_order_id = po.id) as so_qty
+        (SELECT COUNT(*) FROM sales_orders WHERE production_order_id = po.id) as so_count
       FROM production_orders po
       LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN customers c ON (c.id = po.customer_id OR c.name = po.customer)
       ${poWhere}
       ORDER BY po.created_at DESC
     `).all(...poParams) as any[];
 
-    const poBreakdown = await Promise.all(pos.map(async p => {
-      const targetQty = Number(p.cfg_qty || p.so_qty || 500);
+    const poBreakdown: any[] = [];
 
-      const qcPassRow = await db.prepare(`
-        SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
-        JOIN item_units iu ON iu.id = qr.item_id
-        WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-          AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
-      `).get(p.id, p.id) as any;
-      const qcPassed = Number(qcPassRow?.cnt || 0);
+    for (const p of pos) {
+      const isStyleDirect = (p.po_number && p.po_number.startsWith('STYLE-')) ||
+                            (p.po_name && p.po_name.toLowerCase().includes('direct run'));
 
-      const qcFailRow = await db.prepare(`
-        SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
-        LEFT JOIN item_units iu ON iu.id = qf.item_id
-        WHERE (iu.production_order_id = ? OR qf.po_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-          AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
-      `).get(p.id, p.id, p.id) as any;
-      const qcFailed = Number(qcFailRow?.cnt || 0);
+      const custName = p.customer_name || p.customer || p.style_customer || 'Factory Customer';
+      const styleName = p.style_name || 'Standard Style';
 
-      const packedRow = await db.prepare(`
-        SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
-        JOIN boxes b ON b.id = bi.box_id
-        LEFT JOIN item_units iu ON iu.id = bi.item_id
-        WHERE (b.production_order_id = ? OR iu.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-          AND bi.active = 1
-      `).get(p.id, p.id, p.id) as any;
-      const packedCount = Number(packedRow?.cnt || 0);
+      if (p.so_count > 0) {
+        // Multi-tier order: broken down per Sales Order (SO)
+        const soList = await db.prepare(`
+          SELECT so.*, pl.name as line_name 
+          FROM sales_orders so 
+          LEFT JOIN production_lines pl ON pl.id = so.line_id
+          WHERE so.production_order_id = ?
+          ORDER BY so.created_at ASC
+        `).all(p.id) as any[];
 
-      const aqlPassRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM aql_inspections ai
-        LEFT JOIN boxes b ON b.id = ai.box_id
-        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
-          AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
-      `).get(p.id, p.id) as any;
-      const aqlPassed = Number(aqlPassRow?.cnt || 0);
+        for (const so of soList) {
+          const soDate = new Date(so.created_at || p.created_at);
+          if (filterDateFrom && soDate < filterDateFrom) continue;
+          if (filterDateTo && soDate > filterDateTo) continue;
 
-      const aqlFailRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM aql_inspections ai
-        LEFT JOIN boxes b ON b.id = ai.box_id
-        WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
-          AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
-      `).get(p.id, p.id) as any;
-      const aqlFailed = Number(aqlFailRow?.cnt || 0);
+          const targetQty = Number(so.order_quantity || 0);
 
-      const boxTransferRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM box_transfers bt
-        JOIN boxes b ON b.id = bt.source_box_id
-        WHERE b.production_order_id = ? OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?)
-      `).get(p.id, p.id) as any;
-      const boxTransfers = Number(boxTransferRow?.cnt || 0);
+          const preQcRow = await db.prepare(`
+            SELECT COUNT(DISTINCT pqr.item_id) as cnt FROM pre_qc_results pqr
+            JOIN item_units iu ON iu.id = pqr.item_id
+            WHERE iu.sales_order_id = ? AND UPPER(TRIM(COALESCE(pqr.pre_qc_result, 'PASS'))) = 'PASS'
+          `).get(so.id) as any;
+          const preQc = Number(preQcRow?.cnt || 0);
 
-      const scrappedRow = await db.prepare(`
-        SELECT COUNT(*) as cnt FROM permanently_removed_items
-        WHERE production_order_id = ?
-      `).get(p.id) as any;
-      const scrappedCount = Number(scrappedRow?.cnt || 0);
+          const qcPassRow = await db.prepare(`
+            SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+            JOIN item_units iu ON iu.id = qr.item_id
+            WHERE iu.sales_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+          `).get(so.id) as any;
+          const qcPassed = Number(qcPassRow?.cnt || 0);
 
-      const completionPct = targetQty > 0 ? Math.min(100, Math.round((packedCount / targetQty) * 100)) : 0;
-      const totalQc = qcPassed + qcFailed;
-      const qcPassRate = totalQc > 0 ? Math.round((qcPassed / totalQc) * 100) : 100;
+          const qcFailRow = await db.prepare(`
+            SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
+            JOIN item_units iu ON iu.id = qf.item_id
+            WHERE iu.sales_order_id = ? AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
+          `).get(so.id) as any;
+          const qcFailed = Number(qcFailRow?.cnt || 0);
 
-      return {
-        poId: p.id,
-        poNumber: p.po_number || p.id,
-        poName: p.po_name || 'N/A',
-        styleName: p.style_name || 'Standard Style',
-        customer: p.customer || 'Standard',
-        targetQuantity: targetQty,
-        qcPassed,
-        qcFailed,
-        qcPassRate: `${qcPassRate}%`,
-        packedCount,
-        aqlPassed,
-        aqlFailed,
-        boxTransfers,
-        scrappedCount,
-        completionPct: `${completionPct}%`,
-        status: p.status || 'CURRENT',
-        plant: p.plant || null
-      };
-    }));
+          const packedRow = await db.prepare(`
+            SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+            JOIN boxes b ON b.id = bi.box_id
+            LEFT JOIN item_units iu ON iu.id = bi.item_id
+            WHERE (b.sales_order_id = ? OR iu.sales_order_id = ?) AND bi.active = 1
+          `).get(so.id, so.id) as any;
+          const packedCount = Number(packedRow?.cnt || 0);
+
+          const aqlPassRow = await db.prepare(`
+            SELECT COUNT(DISTINCT ai.id) as cnt FROM aql_inspections ai
+            LEFT JOIN boxes b ON b.id = ai.box_id
+            WHERE (ai.sales_order_id = ? OR b.sales_order_id = ?)
+              AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+              AND UPPER(TRIM(COALESCE(ai.stage, 'AQL'))) NOT LIKE '%FINAL%'
+          `).get(so.id, so.id) as any;
+          const aqlPassed = Number(aqlPassRow?.cnt || 0);
+
+          const aqlFailRow = await db.prepare(`
+            SELECT COUNT(DISTINCT ai.id) as cnt FROM aql_inspections ai
+            LEFT JOIN boxes b ON b.id = ai.box_id
+            WHERE (ai.sales_order_id = ? OR b.sales_order_id = ?)
+              AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
+              AND UPPER(TRIM(COALESCE(ai.stage, 'AQL'))) NOT LIKE '%FINAL%'
+          `).get(so.id, so.id) as any;
+          const aqlFailed = Number(aqlFailRow?.cnt || 0);
+
+          const finalAqlPassRow = await db.prepare(`
+            SELECT COUNT(DISTINCT ai.id) as cnt FROM aql_inspections ai
+            LEFT JOIN boxes b ON b.id = ai.box_id
+            WHERE (ai.sales_order_id = ? OR b.sales_order_id = ?)
+              AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+              AND UPPER(TRIM(COALESCE(ai.stage, ''))) LIKE '%FINAL%'
+          `).get(so.id, so.id) as any;
+          const finalAqlPassed = Number(finalAqlPassRow?.cnt || 0);
+
+          const boxTransferRow = await db.prepare(`
+            SELECT COUNT(*) as cnt FROM box_transfers bt
+            JOIN boxes b ON b.id = bt.source_box_id
+            WHERE b.sales_order_id = ?
+          `).get(so.id) as any;
+          const boxTransfers = Number(boxTransferRow?.cnt || 0);
+
+          const scrappedRow = await db.prepare(`
+            SELECT COUNT(*) as cnt FROM permanently_removed_items pri
+            LEFT JOIN item_units iu ON iu.id = pri.item_id
+            WHERE iu.sales_order_id = ?
+          `).get(so.id) as any;
+          const scrappedCount = Number(scrappedRow?.cnt || 0);
+
+          const completionPct = targetQty > 0 ? Math.min(100, Math.round((packedCount / targetQty) * 100)) : 0;
+          const totalQc = qcPassed + qcFailed;
+          const qcPassRate = totalQc > 0 ? Math.round((qcPassed / totalQc) * 100) : 100;
+
+          poBreakdown.push({
+            id: `so-${so.id}`,
+            poId: p.id,
+            soId: so.id,
+            poNumber: p.po_number || p.id,
+            poName: p.po_name || p.po_number || p.id,
+            soNumber: so.so_number,
+            soName: so.so_number + (so.map_so && so.map_so !== so.so_number ? ` (${so.map_so})` : ''),
+            styleName,
+            customer: custName,
+            targetQuantity: targetQty,
+            plannedQty: targetQty,
+            preQc,
+            qc: qcPassed,
+            qcPassed,
+            qcFailed,
+            qcPassRate: `${qcPassRate}%`,
+            packing: packedCount,
+            packedCount,
+            aql: aqlPassed,
+            aqlPassed,
+            aqlFailed,
+            finalAql: finalAqlPassed,
+            finalAqlPassed,
+            transfers: boxTransfers,
+            boxTransfers,
+            scrap: scrappedCount,
+            scrappedCount,
+            completionPct: `${completionPct}%`,
+            status: so.status || p.status || 'CURRENT',
+            orderPathway: 'MULTI_TIER',
+            plant: p.plant || null,
+            createdAt: so.created_at || p.created_at
+          });
+        }
+      } else {
+        // Order without SO (PO-direct or Style-direct)
+        const poDate = new Date(p.created_at);
+        if (filterDateFrom && poDate < filterDateFrom) continue;
+        if (filterDateTo && poDate > filterDateTo) continue;
+
+        const targetQty = Number(p.cfg_qty || p.total_quantity || 500);
+
+        const preQcRow = await db.prepare(`
+          SELECT COUNT(DISTINCT pqr.item_id) as cnt FROM pre_qc_results pqr
+          LEFT JOIN item_units iu ON iu.id = pqr.item_id
+          WHERE (pqr.production_order_id = ? OR iu.production_order_id = ?)
+            AND UPPER(TRIM(COALESCE(pqr.pre_qc_result, 'PASS'))) = 'PASS'
+        `).get(p.id, p.id) as any;
+        const preQc = Number(preQcRow?.cnt || 0);
+
+        const qcPassRow = await db.prepare(`
+          SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
+          JOIN item_units iu ON iu.id = qr.item_id
+          WHERE iu.production_order_id = ? AND qr.qc_result = 'PASS' AND qr.test_result = 'PASS'
+        `).get(p.id) as any;
+        const qcPassed = Number(qcPassRow?.cnt || 0);
+
+        const qcFailRow = await db.prepare(`
+          SELECT COUNT(DISTINCT qf.item_id) as cnt FROM qc_fail_log qf
+          LEFT JOIN item_units iu ON iu.id = qf.item_id
+          WHERE (iu.production_order_id = ? OR qf.po_id = ?)
+            AND (qf.failure_type IS NULL OR qf.failure_type != 'PERMANENTLY_REMOVED')
+        `).get(p.id, p.id) as any;
+        const qcFailed = Number(qcFailRow?.cnt || 0);
+
+        const packedRow = await db.prepare(`
+          SELECT COUNT(DISTINCT bi.item_id) as cnt FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          LEFT JOIN item_units iu ON iu.id = bi.item_id
+          WHERE (b.production_order_id = ? OR iu.production_order_id = ?) AND bi.active = 1
+        `).get(p.id, p.id) as any;
+        const packedCount = Number(packedRow?.cnt || 0);
+
+        const aqlPassRow = await db.prepare(`
+          SELECT COUNT(DISTINCT ai.id) as cnt FROM aql_inspections ai
+          LEFT JOIN boxes b ON b.id = ai.box_id
+          WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+            AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+            AND UPPER(TRIM(COALESCE(ai.stage, 'AQL'))) NOT LIKE '%FINAL%'
+        `).get(p.id, p.id) as any;
+        const aqlPassed = Number(aqlPassRow?.cnt || 0);
+
+        const aqlFailRow = await db.prepare(`
+          SELECT COUNT(DISTINCT ai.id) as cnt FROM aql_inspections ai
+          LEFT JOIN boxes b ON b.id = ai.box_id
+          WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+            AND UPPER(TRIM(ai.result)) IN ('FAIL', 'FAILED')
+            AND UPPER(TRIM(COALESCE(ai.stage, 'AQL'))) NOT LIKE '%FINAL%'
+        `).get(p.id, p.id) as any;
+        const aqlFailed = Number(aqlFailRow?.cnt || 0);
+
+        const finalAqlPassRow = await db.prepare(`
+          SELECT COUNT(DISTINCT ai.id) as cnt FROM aql_inspections ai
+          LEFT JOIN boxes b ON b.id = ai.box_id
+          WHERE (ai.production_order_id = ? OR b.production_order_id = ?)
+            AND UPPER(TRIM(ai.result)) IN ('PASS', 'PASSED')
+            AND UPPER(TRIM(COALESCE(ai.stage, ''))) LIKE '%FINAL%'
+        `).get(p.id, p.id) as any;
+        const finalAqlPassed = Number(finalAqlPassRow?.cnt || 0);
+
+        const boxTransferRow = await db.prepare(`
+          SELECT COUNT(*) as cnt FROM box_transfers bt
+          JOIN boxes b ON b.id = bt.source_box_id
+          WHERE b.production_order_id = ?
+        `).get(p.id) as any;
+        const boxTransfers = Number(boxTransferRow?.cnt || 0);
+
+        const scrappedRow = await db.prepare(`
+          SELECT COUNT(*) as cnt FROM permanently_removed_items
+          WHERE production_order_id = ?
+        `).get(p.id) as any;
+        const scrappedCount = Number(scrappedRow?.cnt || 0);
+
+        const completionPct = targetQty > 0 ? Math.min(100, Math.round((packedCount / targetQty) * 100)) : 0;
+        const totalQc = qcPassed + qcFailed;
+        const qcPassRate = totalQc > 0 ? Math.round((qcPassed / totalQc) * 100) : 100;
+
+        poBreakdown.push({
+          id: `po-${p.id}`,
+          poId: p.id,
+          soId: null,
+          poNumber: isStyleDirect ? '' : (p.po_number || p.id),
+          poName: isStyleDirect ? 'No PO & SO' : (p.po_name || p.po_number || p.id),
+          soNumber: '',
+          soName: isStyleDirect ? 'No PO & SO' : 'No SO',
+          styleName,
+          customer: custName,
+          targetQuantity: targetQty,
+          plannedQty: targetQty,
+          preQc,
+          qc: qcPassed,
+          qcPassed,
+          qcFailed,
+          qcPassRate: `${qcPassRate}%`,
+          packing: packedCount,
+          packedCount,
+          aql: aqlPassed,
+          aqlPassed,
+          aqlFailed,
+          finalAql: finalAqlPassed,
+          finalAqlPassed,
+          transfers: boxTransfers,
+          boxTransfers,
+          scrap: scrappedCount,
+          scrappedCount,
+          completionPct: `${completionPct}%`,
+          status: p.status || 'CURRENT',
+          orderPathway: isStyleDirect ? 'STYLE_DIRECT' : 'PO_DIRECT',
+          plant: p.plant || null,
+          createdAt: p.created_at
+        });
+      }
+    }
+
+    // Include registered styles that have no production orders yet (so all styles appear)
+    try {
+      const standaloneStyles = await db.prepare(`
+        SELECT s.*, c.name as customer_name
+        FROM styles s
+        LEFT JOIN customers c ON (c.id = s.customer_id OR c.name = s.customer)
+        WHERE s.id NOT IN (SELECT DISTINCT style_id FROM production_orders WHERE style_id IS NOT NULL)
+      `).all() as any[];
+
+      for (const st of standaloneStyles) {
+        const stDate = new Date(st.created_at || Date.now());
+        if (filterDateFrom && stDate < filterDateFrom) continue;
+        if (filterDateTo && stDate > filterDateTo) continue;
+
+        poBreakdown.push({
+          id: `style-${st.id}`,
+          poId: null,
+          soId: null,
+          poNumber: '',
+          poName: 'No PO & SO',
+          soNumber: '',
+          soName: 'No PO & SO',
+          styleName: st.name || 'Registered Style',
+          customer: st.customer_name || st.customer || 'Factory Customer',
+          targetQuantity: 0,
+          plannedQty: 0,
+          preQc: 0,
+          qc: 0,
+          qcPassed: 0,
+          qcFailed: 0,
+          qcPassRate: '100%',
+          packing: 0,
+          packedCount: 0,
+          aql: 0,
+          aqlPassed: 0,
+          aqlFailed: 0,
+          finalAql: 0,
+          finalAqlPassed: 0,
+          transfers: 0,
+          boxTransfers: 0,
+          scrap: 0,
+          scrappedCount: 0,
+          completionPct: '0%',
+          status: 'REGISTERED',
+          orderPathway: 'STYLE_ONLY',
+          plant: null,
+          createdAt: st.created_at || null
+        });
+      }
+    } catch (_) {}
 
     const lines = await db.prepare(`SELECT * FROM production_lines`).all() as any[];
     const lineBreakdown = await Promise.all(lines.map(async line => {
@@ -1021,6 +1326,332 @@ router.get('/reports/production', authenticateToken, async (req: AuthRequest, re
       velocityVariance: '+0% vs Target',
       poBreakdown,
       lineBreakdown
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/reports/operational-logs — Deep Stage Logs & Unit Records per PO/SO
+router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { poId, soId, styleName, customer, range = 'all', startDate, endDate, search } = req.query as {
+      poId?: string;
+      soId?: string;
+      styleName?: string;
+      customer?: string;
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+    };
+
+    // Helper for date filtering across operations
+    const buildDateFilter = (field: string) => {
+      if (startDate && endDate) {
+        return ` AND ${field} >= '${startDate}' AND ${field} <= '${endDate} 23:59:59'`;
+      }
+      if (range === 'today') {
+        return ` AND DATE(${field}) = CURDATE()`;
+      }
+      if (range === 'week') {
+        return ` AND ${field} >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
+      }
+      if (range === 'month') {
+        return ` AND ${field} >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+      }
+      return '';
+    };
+
+    // 1. Pre-QC Logs with Assigned QC QR and SO
+    let preQcQuery = `
+      SELECT pq.id, pq.item_id, iu.qr_code as item_qr, pq.pre_qc_result, pq.test_details, pq.failure_reason, pq.scanned_at,
+             po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
+             COALESCE(NULLIF(TRIM(pq.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+             u.full_name as operator_name,
+             pqa.product_qr as assigned_qc_qr,
+             pqa.assigned_at,
+             assign_u.full_name as assigned_by_name
+      FROM pre_qc_results pq
+      JOIN item_units iu ON iu.id = pq.item_id
+      LEFT JOIN production_orders po ON (po.id = pq.production_order_id OR po.id = iu.production_order_id)
+      LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = pq.operator_id
+      LEFT JOIN pre_qc_assignments pqa ON (pqa.pre_qc_qr = iu.qr_code)
+      LEFT JOIN users assign_u ON assign_u.id = pqa.operator_id
+      WHERE 1=1 ${buildDateFilter('pq.scanned_at')}
+    `;
+    const preQcParams: any[] = [];
+    if (poId && poId.trim()) {
+      preQcQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      preQcParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      preQcQuery += ` AND (s.name = ? OR s.code = ?)`;
+      preQcParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      preQcQuery += ` AND po.customer = ?`;
+      preQcParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      preQcQuery += ` AND (iu.qr_code LIKE ? OR pqa.product_qr LIKE ? OR u.full_name LIKE ? OR po.po_number LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      preQcParams.push(term, term, term, term);
+    }
+    preQcQuery += ` ORDER BY pq.scanned_at DESC LIMIT 300`;
+    let preQcLogs: any[] = [];
+    try {
+      preQcLogs = await db.prepare(preQcQuery).all(...preQcParams) as any[];
+    } catch { preQcLogs = []; }
+
+    // 2. QC Inspection Logs with linked Pre-QC QRs, SO, and real Inspector Name
+    let qcQuery = `
+      SELECT qr.id, qr.item_id, iu.qr_code as item_qr, qr.qc_result, qr.test_result, qr.test_details, qr.failure_reason, qr.scanned_at,
+             po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
+             COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+             COALESCE(u.full_name, test_u.full_name, 'QC Inspector') as inspector_name,
+             COALESCE(u.full_name, test_u.full_name, 'QC Inspector') as operator_name,
+             (
+               SELECT GROUP_CONCAT(DISTINCT pqa.pre_qc_qr SEPARATOR ', ')
+               FROM pre_qc_assignments pqa
+               WHERE pqa.product_qr = iu.qr_code
+             ) as linked_pre_qc_qrs
+      FROM qc_results qr
+      JOIN item_units iu ON iu.id = qr.item_id
+      LEFT JOIN production_orders po ON po.id = iu.production_order_id
+      LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = qr.operator_id
+      LEFT JOIN users test_u ON test_u.id = qr.test_operator_id
+      WHERE 1=1 ${buildDateFilter('qr.scanned_at')}
+    `;
+    const qcParams: any[] = [];
+    if (poId && poId.trim()) {
+      qcQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      qcParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      qcQuery += ` AND (s.name = ? OR s.code = ?)`;
+      qcParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      qcQuery += ` AND po.customer = ?`;
+      qcParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      qcQuery += ` AND (iu.qr_code LIKE ? OR qr.failure_reason LIKE ? OR u.full_name LIKE ? OR test_u.full_name LIKE ? OR po.po_number LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      qcParams.push(term, term, term, term, term);
+    }
+    qcQuery += ` ORDER BY qr.scanned_at DESC LIMIT 300`;
+    let qcLogs: any[] = [];
+    try {
+      qcLogs = await db.prepare(qcQuery).all(...qcParams) as any[];
+    } catch { qcLogs = []; }
+
+    // 3. Carton Packing Logs (Box-Level for Batch Inspection & Individual Item Removal)
+    let packingQuery = `
+      SELECT b.id, b.id as box_id, COALESCE(b.box_code, b.box_number) as box_code, b.box_number, b.capacity,
+             COALESCE(NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+             b.status as box_status, b.status,
+             b.created_at, b.created_at as packed_at,
+             po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, s.name as style_name, po.customer,
+             (SELECT COUNT(*) FROM box_items bi2 WHERE bi2.box_id = b.id AND bi2.active = 1) as current_fill,
+             (SELECT COUNT(*) FROM box_items bi2 WHERE bi2.box_id = b.id AND bi2.active = 1) as activeFilledCount,
+             (
+               SELECT GROUP_CONCAT(DISTINCT iu2.qr_code SEPARATOR ',')
+               FROM box_items bi3
+               JOIN item_units iu2 ON iu2.id = bi3.item_id
+               WHERE bi3.box_id = b.id AND bi3.active = 1
+             ) as packed_qrs_str
+      FROM boxes b
+      LEFT JOIN production_orders po ON po.id = b.production_order_id
+      LEFT JOIN sales_orders so ON so.id = b.sales_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      WHERE 1=1 ${buildDateFilter('b.created_at')}
+    `;
+    const packingParams: any[] = [];
+    if (poId && poId.trim()) {
+      packingQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      packingParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      packingQuery += ` AND (s.name = ? OR s.code = ?)`;
+      packingParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      packingQuery += ` AND po.customer = ?`;
+      packingParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      packingQuery += ` AND (b.box_code LIKE ? OR b.box_number LIKE ? OR po.po_number LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      packingParams.push(term, term, term);
+    }
+    packingQuery += ` ORDER BY b.created_at DESC LIMIT 200`;
+    let rawPackingBoxes: any[] = [];
+    try {
+      rawPackingBoxes = await db.prepare(packingQuery).all(...packingParams) as any[];
+    } catch { rawPackingBoxes = []; }
+
+    const packingLogs = rawPackingBoxes.map(b => {
+      const qrs = b.packed_qrs_str ? b.packed_qrs_str.split(',').filter(Boolean) : [];
+      return {
+        ...b,
+        boxCode: b.box_code || b.box_number,
+        boxNumber: b.box_number || b.box_code,
+        poNumber: b.po_number || b.po_name || 'No PO & SO',
+        soName: b.so_name || 'No SO',
+        styleName: b.style_name || 'Standard Style',
+        activeFilledCount: Number(b.activeFilledCount || qrs.length || 0),
+        capacity: Number(b.capacity || 24),
+        remainingCapacity: Math.max(0, Number(b.capacity || 24) - Number(b.activeFilledCount || qrs.length || 0)),
+        productQrs: qrs,
+        items: qrs.map((qr: string) => ({ qr_code: qr, packed_at: b.created_at }))
+      };
+    });
+
+    // 4 & 5. AQL and Final AQL Logs with SO
+    let aqlQuery = `
+      SELECT ai.id, ai.box_id, b.box_code, b.box_number, ai.result, ai.failure_reason, ai.required_samples,
+             ai.started_at, ai.completed_at, ai.stage,
+             po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
+             COALESCE(NULLIF(TRIM(ai.line_number), ''), NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+             u.full_name as inspector_name,
+             (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
+      FROM aql_inspections ai
+      LEFT JOIN boxes b ON b.id = ai.box_id
+      LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
+      LEFT JOIN sales_orders so ON (so.id = ai.sales_order_id OR so.id = b.sales_order_id)
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = ai.inspector_id
+      WHERE 1=1 ${buildDateFilter('ai.started_at')}
+    `;
+    const aqlParams: any[] = [];
+    if (poId && poId.trim()) {
+      aqlQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      aqlParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      aqlQuery += ` AND (s.name = ? OR s.code = ?)`;
+      aqlParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      aqlQuery += ` AND po.customer = ?`;
+      aqlParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      aqlQuery += ` AND (b.box_code LIKE ? OR b.box_number LIKE ? OR u.full_name LIKE ? OR ai.failure_reason LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      aqlParams.push(term, term, term, term);
+    }
+    aqlQuery += ` ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC LIMIT 200`;
+    let rawAqlLogs: any[] = [];
+    try {
+      rawAqlLogs = await db.prepare(aqlQuery).all(...aqlParams) as any[];
+    } catch { rawAqlLogs = []; }
+    const aqlLogs = rawAqlLogs.filter(a => !a.stage || !String(a.stage).toUpperCase().includes('FINAL'));
+    const finalAqlLogs = rawAqlLogs.filter(a => a.stage && String(a.stage).toUpperCase().includes('FINAL'));
+
+    // 6. Box Transfers with SO
+    let transferQuery = `
+      SELECT bt.id, bt.id as transfer_id, bt.source_box_id, bt.destination_box_id, bt.item_count, bt.transferred_at, bt.remarks,
+             COALESCE(sb.box_code, sb.box_number) as source_box_code,
+             COALESCE(db.box_code, db.box_number) as dest_box_code,
+             u.full_name as transferred_by_name,
+             po.po_number, po.po_name, so.so_number as so_name, s.name as style_name, po.customer,
+             COALESCE(NULLIF(TRIM(sb.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name
+      FROM box_transfers bt
+      LEFT JOIN boxes sb ON sb.id = bt.source_box_id
+      LEFT JOIN boxes db ON db.id = bt.destination_box_id
+      LEFT JOIN production_orders po ON (po.id = bt.production_order_id OR po.id = sb.production_order_id)
+      LEFT JOIN sales_orders so ON (so.id = sb.sales_order_id OR so.id = db.sales_order_id)
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = bt.transferred_by
+      WHERE 1=1 ${buildDateFilter('bt.transferred_at')}
+    `;
+    const trfParams: any[] = [];
+    if (poId && poId.trim()) {
+      transferQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      trfParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      transferQuery += ` AND (s.name = ? OR s.code = ?)`;
+      trfParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      transferQuery += ` AND po.customer = ?`;
+      trfParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      transferQuery += ` AND (sb.box_code LIKE ? OR db.box_code LIKE ? OR u.full_name LIKE ? OR bt.remarks LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      trfParams.push(term, term, term, term);
+    }
+    transferQuery += ` ORDER BY bt.transferred_at DESC LIMIT 100`;
+    let transferLogs: any[] = [];
+    try {
+      transferLogs = await db.prepare(transferQuery).all(...trfParams) as any[];
+    } catch { transferLogs = []; }
+
+    // 7. Scrapped Logs with SO
+    let scrapQuery = `
+      SELECT p.id, p.item_qr, p.action_type, p.reason, p.removed_at,
+             u.full_name as removed_by_name,
+             COALESCE(po.line_number, 'Line 1') as line_number,
+             po.po_number, po.po_name, so.so_number as so_name, s.name as style_name, po.customer
+      FROM permanently_removed_items p
+      LEFT JOIN production_orders po ON po.id = p.production_order_id
+      LEFT JOIN item_units iu ON iu.qr_code = p.item_qr
+      LEFT JOIN sales_orders so ON so.id = iu.sales_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users u ON u.id = p.removed_by
+      WHERE 1=1 ${buildDateFilter('p.removed_at')}
+    `;
+    const scrapParams: any[] = [];
+    if (poId && poId.trim()) {
+      scrapQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      scrapParams.push(poId.trim(), poId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      scrapQuery += ` AND (s.name = ? OR s.code = ?)`;
+      scrapParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      scrapQuery += ` AND po.customer = ?`;
+      scrapParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      scrapQuery += ` AND (p.item_qr LIKE ? OR p.reason LIKE ? OR u.full_name LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      scrapParams.push(term, term, term);
+    }
+    scrapQuery += ` ORDER BY p.removed_at DESC LIMIT 100`;
+    let scrappedLogs: any[] = [];
+    try {
+      scrappedLogs = await db.prepare(scrapQuery).all(...scrapParams) as any[];
+    } catch { scrappedLogs = []; }
+
+    return res.json({
+      status: 'SUCCESS',
+      preQcLogs,
+      qcLogs,
+      packingLogs,
+      aqlLogs,
+      finalAqlLogs,
+      transferLogs,
+      scrappedLogs,
+      counts: {
+        preQc: preQcLogs.length,
+        qc: qcLogs.length,
+        packing: packingLogs.length,
+        aql: aqlLogs.length,
+        finalAql: finalAqlLogs.length,
+        transfers: transferLogs.length,
+        scrapped: scrappedLogs.length
+      }
     });
   } catch (err) {
     next(err);
