@@ -100,7 +100,7 @@ export const AdminOrders: React.FC = () => {
 
   // ── Primary Tab State: 'new' vs 'current' ───────────────────────
   const [activeTab, setActiveTab] = useState<'new' | 'current'>('current');
-  const [currentSubTab, setCurrentSubTab] = useState<'customer' | 'styles' | 'po' | 'so'>('po');
+  const [currentSubTab, setCurrentSubTab] = useState<'customer' | 'styles' | 'po' | 'so'>('customer');
   const [newStep, setNewStep] = useState<'customer' | 'style' | 'po' | 'so'>('customer');
 
   // Customer state
@@ -799,7 +799,7 @@ export const AdminOrders: React.FC = () => {
       setCurrentSubTab('so');
     } else {
       setActiveTab('current');
-      setCurrentSubTab('po');
+      setCurrentSubTab('customer');
     }
   }, []);
 
@@ -1139,15 +1139,15 @@ export const AdminOrders: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ flex: '1 1 auto', minWidth: '200px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>
+      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ flex: '1 1 auto', minWidth: '180px' }}>
+          <h2 className="orders-header-title">
             {activeTab === 'new'
               ? 'Launch New Order (Customer ➔ Style ➔ PO ➔ SO)'
               : 'Factory Production Orders & Multi-Tier Oversight'}
           </h2>
           {activeTab !== 'new' && (
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
+            <p className="orders-header-desc">
               Live oversight across Customers, Styles, Production Orders, and Sales Orders with live status.
             </p>
           )}
@@ -1155,36 +1155,15 @@ export const AdminOrders: React.FC = () => {
       </div>
 
       {/* ── Modern Primary Tabs Bar (Only 2 Tabs: Create New & Current) ── */}
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        backgroundColor: 'var(--bg-surface-1)',
-        padding: '5px',
-        borderRadius: '14px',
-        border: '1.5px solid var(--border-color)',
-        width: '100%',
-        maxWidth: '440px',
-      }}>
+      <div className="orders-primary-tabs">
         <button
           type="button"
           onClick={() => setActiveTab('new')}
+          className="orders-primary-tab-btn"
           style={{
-            flex: 1,
-            padding: '10px 16px',
-            fontSize: '13px',
-            fontWeight: 800,
-            borderRadius: '10px',
             backgroundColor: activeTab === 'new' ? 'var(--primary-teal)' : 'transparent',
             color: activeTab === 'new' ? '#071B23' : 'var(--text-secondary)',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            transition: 'all 0.2s ease',
             boxShadow: activeTab === 'new' ? '0 0 12px rgba(20, 184, 166, 0.25)' : 'none',
-            whiteSpace: 'nowrap'
           }}
         >
           <PlusCircle size={16} /> Create New
@@ -1193,23 +1172,11 @@ export const AdminOrders: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab('current')}
+          className="orders-primary-tab-btn"
           style={{
-            flex: 1,
-            padding: '10px 16px',
-            fontSize: '13px',
-            fontWeight: 800,
-            borderRadius: '10px',
             backgroundColor: activeTab === 'current' ? 'var(--primary-teal)' : 'transparent',
             color: activeTab === 'current' ? '#071B23' : 'var(--text-secondary)',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            transition: 'all 0.2s ease',
             boxShadow: activeTab === 'current' ? '0 0 12px rgba(20, 184, 166, 0.25)' : 'none',
-            whiteSpace: 'nowrap'
           }}
         >
           <ClipboardList size={16} /> Current
@@ -1220,110 +1187,57 @@ export const AdminOrders: React.FC = () => {
       {activeTab === 'new' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Step Navigation Bar: 1. Customer -> 2. Style -> 3. PO (Optional) -> 4. SO (Optional) */}
-          <div style={{
-            display: 'flex',
-            backgroundColor: 'var(--bg-surface-1)',
-            borderRadius: '14px',
-            border: '1.5px solid var(--border-color)',
-            padding: '6px',
-            gap: '8px',
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch'
-          }}>
+          <div className="orders-subtabs-bar">
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => setNewStep('customer')}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '10px 14px',
-                borderRadius: '10px',
                 border: newStep === 'customer' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: newStep === 'customer' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: newStep === 'customer' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <Building2 size={16} /> 1. Customer {selectedCustomerForNew ? '✓' : ''}
+              1. Customer {selectedCustomerForNew ? '✓' : ''}
             </button>
 
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => setNewStep('style')}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '10px 14px',
-                borderRadius: '10px',
                 border: newStep === 'style' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: newStep === 'style' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: newStep === 'style' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <Shirt size={16} /> 2. Style {selectedStyleForNew ? '✓' : ''}
+              2. Style {selectedStyleForNew ? '✓' : ''}
             </button>
 
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => setNewStep('po')}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '10px 14px',
-                borderRadius: '10px',
                 border: newStep === 'po' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: newStep === 'po' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: newStep === 'po' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <ClipboardList size={16} /> 3. PO (Optional)
+              3. PO
             </button>
 
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => setNewStep('so')}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '10px 14px',
-                borderRadius: '10px',
                 border: newStep === 'so' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: newStep === 'so' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: newStep === 'so' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <Layers size={16} /> 4. SO (Optional)
+              4. SO
             </button>
           </div>
 
@@ -1445,18 +1359,6 @@ export const AdminOrders: React.FC = () => {
                   <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>
                     Select or Define Garment Style
                   </h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Selected Customer: <strong style={{ color: 'var(--primary-teal)' }}>{selectedCustomerForNew?.name || 'Any Customer'}</strong>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setNewStep('customer')}
-                      style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      Change Customer
-                    </button>
-                  </div>
                 </div>
                 <button
                   type="button"
@@ -1478,52 +1380,29 @@ export const AdminOrders: React.FC = () => {
               </div>
 
               {selectedStyleForNew && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{
-                    backgroundColor: 'rgba(20, 184, 166, 0.1)',
-                    border: '1.5px solid var(--primary-teal)',
-                    padding: '14px 18px',
-                    borderRadius: '12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '12px',
-                    flexWrap: 'wrap'
-                  }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                  <div className="order-selected-entity-box">
                     <div>
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
                         SELECTED ACTIVE STYLE:
                       </span>
-                      <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>
+                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
                         {selectedStyleForNew.name} ({selectedStyleForNew.code})
                       </strong>
                     </div>
                   </div>
 
-                  {/* ── TWO CLEAR ACTION PATHWAYS WHEN STYLE IS SELECTED (50% / 50% SIDE-BY-SIDE) ── */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
-                    gap: '14px'
-                  }}>
+                  {/* ── TWO CLEAR ACTION PATHWAYS (SIDE-BY-SIDE NEXT TO NEXT) ── */}
+                  <div className="order-two-options-grid">
                     {/* Left Box (50%): Option 1 - Proceed to Step 3 (PO Order) */}
-                    <div style={{
-                      backgroundColor: 'rgba(20, 184, 166, 0.06)',
-                      border: '1.5px dashed var(--primary-teal)',
-                      borderRadius: '14px',
-                      padding: '16px 18px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary-teal)', fontWeight: 800, fontSize: '13px' }}>
+                    <div className="order-option-box order-option-box-teal">
+                      <div className="order-option-title" style={{ color: 'var(--primary-teal)' }}>
                         <ArrowRight size={16} /> Option 1: Proceed to Step 3 (PO Order)
                       </div>
                       <button
                         type="button"
                         onClick={() => setNewStep('po')}
-                        className="btn btn-primary"
+                        className="btn btn-primary order-option-btn"
                         style={{
                           width: '100%',
                           padding: '11px 18px',
@@ -1536,27 +1415,19 @@ export const AdminOrders: React.FC = () => {
                           whiteSpace: 'nowrap'
                         }}
                       >
-                        Proceed to Step 3: Production Order (PO) <ArrowRight size={15} />
+                        <span className="mobile-hide">Proceed to Step 3: </span>PO Order <ArrowRight size={14} />
                       </button>
                     </div>
 
                     {/* Right Box (50%): Option 2 - Configure & Launch Style Order (Yellow Button) */}
-                    <div style={{
-                      backgroundColor: 'rgba(234, 179, 8, 0.06)',
-                      border: '1.5px dashed #eab308',
-                      borderRadius: '14px',
-                      padding: '16px 18px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#eab308', fontWeight: 800, fontSize: '13px' }}>
+                    <div className="order-option-box order-option-box-yellow">
+                      <div className="order-option-title" style={{ color: '#eab308' }}>
                         <Zap size={16} /> Option 2: Launch Direct Order at Style Level
                       </div>
                       <button
                         type="button"
                         onClick={handleLaunchStyleDirect}
+                        className="order-option-btn"
                         style={{
                           width: '100%',
                           padding: '11px 18px',
@@ -1570,12 +1441,12 @@ export const AdminOrders: React.FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '6px',
+                          gap: '5px',
                           whiteSpace: 'nowrap',
-                          boxShadow: '0 2px 12px rgba(234, 179, 8, 0.35)'
+                          boxShadow: '0 2px 10px rgba(234, 179, 8, 0.35)'
                         }}
                       >
-                        <Zap size={15} /> Configure & Launch Style Order ➔
+                        <Zap size={14} /> <span className="mobile-hide">Configure & </span>Launch Style ➔
                       </button>
                     </div>
                   </div>
@@ -1640,29 +1511,6 @@ export const AdminOrders: React.FC = () => {
                   <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>
                     Select or Define Production Order (PO)
                   </h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Customer: <strong style={{ color: 'var(--primary-teal)' }}>{selectedCustomerForNew?.name || selectedStyleForNew?.customer || 'Factory Customer'}</strong>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedCustomerForNew(null); setSelectedStyleForNew(null); setSelectedPoForNew(null); setSelectedSoForNew(null); setNewStep('customer'); }}
-                      style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      Change Customer
-                    </button>
-                    <span style={{ color: 'var(--text-muted)' }}>•</span>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Style: <strong style={{ color: 'var(--primary-teal)' }}>{selectedStyleForNew?.name} ({selectedStyleForNew?.code})</strong>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedStyleForNew(null); setSelectedPoForNew(null); setSelectedSoForNew(null); setNewStep('style'); }}
-                      style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      Change Style
-                    </button>
-                  </div>
                 </div>
                 <button
                   type="button"
@@ -1683,55 +1531,32 @@ export const AdminOrders: React.FC = () => {
               </div>
 
               {selectedPoForNew && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{
-                    backgroundColor: 'rgba(20, 184, 166, 0.1)',
-                    border: '1.5px solid var(--primary-teal)',
-                    padding: '14px 18px',
-                    borderRadius: '12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '12px',
-                    flexWrap: 'wrap'
-                  }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                  <div className="order-selected-entity-box">
                     <div>
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
                         SELECTED ACTIVE PO:
                       </span>
-                      <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>
+                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
                         {selectedPoForNew.poNumber || selectedPoForNew.id} {selectedPoForNew.name || selectedPoForNew.poName ? `— ${selectedPoForNew.name || selectedPoForNew.poName}` : ''}
                       </strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '10px' }}>
-                        • Style: {selectedStyleForNew?.code || selectedPoForNew.style_code || 'STD'} • Customer: {selectedCustomerForNew?.name || selectedPoForNew.customer || 'Factory'}
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                        • Style: {selectedStyleForNew?.code || selectedPoForNew.style_code || 'STD'}
                       </span>
                     </div>
                   </div>
 
-                  {/* ── TWO CLEAR ACTION PATHWAYS WHEN PO IS SELECTED (50% / 50% SIDE-BY-SIDE) ── */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
-                    gap: '14px'
-                  }}>
+                  {/* ── TWO CLEAR ACTION PATHWAYS (SIDE-BY-SIDE NEXT TO NEXT) ── */}
+                  <div className="order-two-options-grid">
                     {/* Left Box (50%): Option 1 - Proceed to Step 4 (SO Order) */}
-                    <div style={{
-                      backgroundColor: 'rgba(20, 184, 166, 0.06)',
-                      border: '1.5px dashed var(--primary-teal)',
-                      borderRadius: '14px',
-                      padding: '16px 18px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary-teal)', fontWeight: 800, fontSize: '13px' }}>
+                    <div className="order-option-box order-option-box-teal">
+                      <div className="order-option-title" style={{ color: 'var(--primary-teal)' }}>
                         <ArrowRight size={16} /> Option 1: Proceed to Step 4 (SO Order)
                       </div>
                       <button
                         type="button"
                         onClick={() => setNewStep('so')}
-                        className="btn btn-primary"
+                        className="btn btn-primary order-option-btn"
                         style={{
                           width: '100%',
                           padding: '11px 18px',
@@ -1744,27 +1569,19 @@ export const AdminOrders: React.FC = () => {
                           whiteSpace: 'nowrap'
                         }}
                       >
-                        Proceed to Step 4: Sales Order (SO) <ArrowRight size={15} />
+                        <span className="mobile-hide">Proceed to Step 4: </span>SO Order <ArrowRight size={14} />
                       </button>
                     </div>
 
                     {/* Right Box (50%): Option 2 - Configure & Launch PO Order (Yellow Button) */}
-                    <div style={{
-                      backgroundColor: 'rgba(234, 179, 8, 0.06)',
-                      border: '1.5px dashed #eab308',
-                      borderRadius: '14px',
-                      padding: '16px 18px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: '12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#eab308', fontWeight: 800, fontSize: '13px' }}>
+                    <div className="order-option-box order-option-box-yellow">
+                      <div className="order-option-title" style={{ color: '#eab308' }}>
                         <ClipboardList size={16} /> Option 2: Launch Direct Production Order
                       </div>
                       <button
                         type="button"
                         onClick={handleLaunchPoDirect}
+                        className="order-option-btn"
                         style={{
                           width: '100%',
                           padding: '11px 18px',
@@ -1778,12 +1595,12 @@ export const AdminOrders: React.FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '6px',
+                          gap: '5px',
                           whiteSpace: 'nowrap',
-                          boxShadow: '0 2px 12px rgba(234, 179, 8, 0.35)'
+                          boxShadow: '0 2px 10px rgba(234, 179, 8, 0.35)'
                         }}
                       >
-                        <Zap size={15} /> Configure & Launch PO Order ➔
+                        <Zap size={14} /> <span className="mobile-hide">Configure & </span>Launch PO ➔
                       </button>
                     </div>
                   </div>
@@ -1878,18 +1695,6 @@ export const AdminOrders: React.FC = () => {
                   <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>
                     Select or Define Sales Order (SO)
                   </h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Hierarchy: <strong>{selectedCustomerForNew?.name || 'Customer'}</strong> ➔ <strong>{selectedStyleForNew?.code || 'Style'}</strong> ➔ <strong style={{ color: 'var(--primary-teal)' }}>{selectedPoForNew?.poNumber || selectedPoForNew?.id || newPoStepForm.poNumber}</strong>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedSoForNew(null); setNewStep('po'); }}
-                      style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      Change PO
-                    </button>
-                  </div>
                 </div>
                 <button
                   type="button"
@@ -1909,79 +1714,45 @@ export const AdminOrders: React.FC = () => {
               </div>
 
               {selectedSoForNew && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{
-                    backgroundColor: 'rgba(20, 184, 166, 0.1)',
-                    border: '1.5px solid var(--primary-teal)',
-                    padding: '14px 18px',
-                    borderRadius: '12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '12px',
-                    flexWrap: 'wrap'
-                  }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                  <div className="order-selected-entity-box">
                     <div>
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
                         SELECTED ACTIVE SO:
                       </span>
-                      <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>
+                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
                         {selectedSoForNew.so_number} {selectedSoForNew.map_so ? `— ${selectedSoForNew.map_so}` : ''}
                       </strong>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '10px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
                         • PO: {selectedSoForNew.po_number || selectedPoForNew?.poNumber || selectedPoForNew?.id}
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSoForNew(null)}
-                      style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '8px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', cursor: 'pointer' }}
-                    >
-                      Change SO
-                    </button>
                   </div>
 
-                  <div style={{
-                    backgroundColor: 'rgba(234, 179, 8, 0.06)',
-                    border: '1.5px dashed #eab308',
-                    borderRadius: '14px',
-                    padding: '16px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '14px',
-                    flexWrap: 'wrap'
-                  }}>
-                    <div style={{ flex: '1 1 300px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#eab308', fontWeight: 800, fontSize: '13px' }}>
-                        <Zap size={16} /> Full 4-Tier Order Hierarchy Ready
-                      </div>
-                      <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        All tiers verified: Customer ➔ Style ➔ PO ➔ SO. Proceed directly to configure Pre-QC, QC, Shift assignments, and box packing.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleLaunchFullMultiTier}
-                      style={{
-                        padding: '12px 22px',
-                        fontSize: '13px',
-                        fontWeight: 900,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        whiteSpace: 'nowrap',
-                        backgroundColor: '#eab308',
-                        color: '#0f172a',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 16px rgba(234, 179, 8, 0.4)'
-                      }}
-                    >
-                      <Zap size={16} /> Configure & Launch Full Multi-Tier Order ➔
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLaunchFullMultiTier}
+                    className="order-option-btn"
+                    style={{
+                      width: '100%',
+                      padding: '11px 18px',
+                      backgroundColor: '#eab308',
+                      border: 'none',
+                      borderRadius: '10px',
+                      color: '#0f172a',
+                      fontWeight: 800,
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 10px rgba(234, 179, 8, 0.35)'
+                    }}
+                  >
+                    <Zap size={14} /> <span className="mobile-hide">Configure & </span>Launch Full Multi-Tier Order ➔
+                  </button>
                 </div>
               )}
 
@@ -2071,153 +1842,117 @@ export const AdminOrders: React.FC = () => {
       {activeTab === 'current' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* Sub-Tabs Bar: 1. Customer, 2. Styles, 3. PO, 4. SO */}
-          <div style={{
-            display: 'flex',
-            gap: '8px',
-            backgroundColor: 'var(--bg-surface-1)',
-            padding: '6px',
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)',
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch'
-          }}>
+          <div className="orders-subtabs-bar">
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => { setCurrentSubTab('customer'); fetchAdminCustomers(); }}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '9px 14px',
-                borderRadius: '8px',
                 border: currentSubTab === 'customer' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: currentSubTab === 'customer' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: currentSubTab === 'customer' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <Building2 size={15} /> 1. Customer ({customers.length})
+              1. Customer
             </button>
 
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => { setCurrentSubTab('styles'); fetchAdminStyles(); }}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '9px 14px',
-                borderRadius: '8px',
                 border: currentSubTab === 'styles' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: currentSubTab === 'styles' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: currentSubTab === 'styles' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <Shirt size={15} /> 2. Styles ({adminStyles.length})
+              2. Styles
             </button>
 
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => { setCurrentSubTab('po'); fetchOrders(); }}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '9px 14px',
-                borderRadius: '8px',
                 border: currentSubTab === 'po' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: currentSubTab === 'po' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: currentSubTab === 'po' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <ClipboardList size={15} /> 3. PO ({orders.length})
+              3. PO
             </button>
 
             <button
               type="button"
+              className="orders-subtab-btn"
               onClick={() => { setCurrentSubTab('so'); fetchAdminSalesOrders(); }}
               style={{
-                flex: '1 0 auto',
-                minWidth: '120px',
-                padding: '9px 14px',
-                borderRadius: '8px',
                 border: currentSubTab === 'so' ? '1.5px solid var(--primary-teal)' : '1px solid transparent',
                 backgroundColor: currentSubTab === 'so' ? 'rgba(20, 184, 166, 0.16)' : 'transparent',
                 color: currentSubTab === 'so' ? 'var(--primary-teal)' : 'var(--text-secondary)',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap'
               }}
             >
-              <Layers size={15} /> 4. SO ({salesOrders.length})
+              4. SO
             </button>
           </div>
 
           {/* ── SubTab 1: CUSTOMERS ── */}
           {currentSubTab === 'customer' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: '12px',
-                flexWrap: 'wrap',
-                backgroundColor: 'var(--bg-surface-1)',
-                padding: '12px 16px',
-                borderRadius: '12px',
-                border: '1px solid var(--border-color)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 260px' }}>
-                  <div style={{ position: 'relative', width: '100%' }}>
-                    <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                    <input
-                      type="text"
-                      placeholder="Search customers by name, code, contact..."
-                      value={customerSearchQuery}
-                      onChange={(e) => setCustomerSearchQuery(e.target.value)}
-                      style={{
-                        ...styles.input,
-                        paddingLeft: '34px',
-                        margin: 0
-                      }}
-                    />
-                  </div>
+              <div className="orders-search-bar-po">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px', minWidth: 0 }}>
+                  <Search size={18} color="var(--primary-teal)" style={{ flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    placeholder="Search customers by name, code, contact…"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-primary)',
+                      fontSize: '13.5px',
+                      fontWeight: 600,
+                      outline: 'none',
+                      width: '100%',
+                      minWidth: 0
+                    }}
+                  />
+                  {customerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomerSearchQuery('')}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <button
-                    onClick={fetchAdminCustomers}
-                    className="btn btn-secondary"
-                    style={{ padding: '8px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px' }}
-                    disabled={loadingCustomers}
-                  >
-                    <RefreshCw size={13} className={loadingCustomers ? 'spin' : ''} /> Refresh
-                  </button>
-                </div>
+
+                <button
+                  type="button"
+                  className="orders-search-btn-scan"
+                  onClick={fetchAdminCustomers}
+                  disabled={loadingCustomers}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                    border: '1px solid var(--primary-teal)',
+                    color: 'var(--primary-teal)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
+                  }}
+                  title="Reload customer list"
+                >
+                  <RefreshCw size={13} className={loadingCustomers ? 'spin' : ''} /> Refresh
+                </button>
               </div>
 
               {filteredCustomers.length === 0 ? (
@@ -2235,7 +1970,7 @@ export const AdminOrders: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '14px' }}>
+                <div className="orders-grid-cards">
                   {filteredCustomers.map(c => (
                     <div
                       key={c.id}
@@ -2354,55 +2089,51 @@ export const AdminOrders: React.FC = () => {
           {currentSubTab === 'po' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* Search Bar for POs, Styles & Barcode scanning */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            backgroundColor: 'var(--bg-surface-1)',
-            padding: '10px 14px',
-            borderRadius: '14px',
-            border: '1.5px solid var(--border-color)',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-          }}>
-            <Search size={18} color="var(--primary-teal)" />
-            <input
-              type="text"
-              value={orderSearchQuery}
-              onChange={e => setOrderSearchQuery(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && orderSearchQuery.trim()) {
-                  setLifecycleSearchCode(orderSearchQuery.trim());
-                  setShowLifecycleModal(true);
-                }
-              }}
-              placeholder="Search by PO Number, Style, Customer or scan Box / Product QR…"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-primary)',
-                fontSize: '14px',
-                fontWeight: 600,
-                outline: 'none',
-                flex: 1
-              }}
-            />
-            {orderSearchQuery && (
-              <button
-                type="button"
-                onClick={() => setOrderSearchQuery('')}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-              >
-                <X size={16} />
-              </button>
-            )}
+          <div className="orders-search-bar-po">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px', minWidth: 0 }}>
+              <Search size={18} color="var(--primary-teal)" style={{ flexShrink: 0 }} />
+              <input
+                type="text"
+                value={orderSearchQuery}
+                onChange={e => setOrderSearchQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && orderSearchQuery.trim()) {
+                    setLifecycleSearchCode(orderSearchQuery.trim());
+                    setShowLifecycleModal(true);
+                  }
+                }}
+                placeholder="Search PO, Style, Customer or scan QR…"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-primary)',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  outline: 'none',
+                  width: '100%',
+                  minWidth: 0
+                }}
+              />
+              {orderSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setOrderSearchQuery('')}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
             <button
               type="button"
+              className="orders-search-btn-scan"
               onClick={() => {
                 setLifecycleSearchCode(orderSearchQuery.trim());
                 setShowLifecycleModal(true);
               }}
               style={{
-                padding: '6px 14px',
+                padding: '7px 12px',
                 borderRadius: '8px',
                 backgroundColor: 'rgba(22, 184, 174, 0.15)',
                 border: '1px solid var(--primary-teal)',
@@ -2413,7 +2144,8 @@ export const AdminOrders: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
+                flexShrink: 0
               }}
               title="Inspect lifecycle of product QR or box code"
             >
@@ -2457,7 +2189,7 @@ export const AdminOrders: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '14px' }}>
+            <div className="orders-grid-cards">
               {filteredOrders.map(po => {
             const packedQty = Number(po.packedCount || po.packed_count || 0);
             const targetQty = Number(po.configuredQuantity || po.total_quantity || 500);
@@ -2652,47 +2384,60 @@ export const AdminOrders: React.FC = () => {
   {currentSubTab === 'styles' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Search Bar */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '12px',
-            flexWrap: 'wrap',
-            backgroundColor: 'var(--bg-surface-1)',
-            padding: '12px 16px',
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 260px' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                <input
-                  type="text"
-                  placeholder="Search styles by code, name, customer..."
-                  value={styleSearchQuery}
-                  onChange={(e) => setStyleSearchQuery(e.target.value)}
-                  style={{
-                    ...styles.input,
-                    paddingLeft: '34px',
-                    margin: 0
-                  }}
-                />
-              </div>
+          <div className="orders-search-bar-po">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px', minWidth: 0 }}>
+              <Search size={18} color="var(--primary-teal)" style={{ flexShrink: 0 }} />
+              <input
+                type="text"
+                value={styleSearchQuery}
+                onChange={(e) => setStyleSearchQuery(e.target.value)}
+                placeholder="Search styles by code, name, customer…"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-primary)',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  outline: 'none',
+                  width: '100%',
+                  minWidth: 0
+                }}
+              />
+              {styleSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setStyleSearchQuery('')}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Showing <strong>{filteredStyles.length}</strong> of {adminStyles.length} styles
-              </span>
-              <button
-                type="button"
-                onClick={fetchAdminStyles}
-                className="btn btn-secondary"
-                style={{ padding: '8px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px' }}
-                disabled={loadingStyles}
-              >
-                <RefreshCw size={13} className={loadingStyles ? 'spin' : ''} /> Refresh
-              </button>
-            </div>
+
+            <button
+              type="button"
+              className="orders-search-btn-scan"
+              onClick={fetchAdminStyles}
+              disabled={loadingStyles}
+              style={{
+                padding: '7px 12px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                border: '1px solid var(--primary-teal)',
+                color: 'var(--primary-teal)',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}
+              title="Reload styles list"
+            >
+              <RefreshCw size={13} className={loadingStyles ? 'spin' : ''} /> Refresh
+            </button>
           </div>
 
           {/* Styles Grid */}
@@ -2720,7 +2465,7 @@ export const AdminOrders: React.FC = () => {
               </p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '14px' }}>
+            <div className="orders-grid-cards">
               {filteredStyles.map((s: any) => {
                 const poCount = Number(s.po_count || 0);
                 const directStyleOrder = orders.find(o => {
@@ -2897,47 +2642,64 @@ export const AdminOrders: React.FC = () => {
         </div>
       )}
 
-      {/* ── SubTab 4: SALES ORDERS (SO) ── */}
-      {currentSubTab === 'so' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '12px',
-            flexWrap: 'wrap',
-            backgroundColor: 'var(--bg-surface-1)',
-            padding: '12px 16px',
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 260px' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                <input
-                  type="text"
-                  placeholder="Search SO number, SO Name, PO, Style..."
-                  value={soSearchQuery}
-                  onChange={(e) => setSoSearchQuery(e.target.value)}
+          {/* ── SubTab 4: SALES ORDERS (SO) ── */}
+          {currentSubTab === 'so' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="orders-search-bar-po">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 180px', minWidth: 0 }}>
+                  <Search size={18} color="var(--primary-teal)" style={{ flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    value={soSearchQuery}
+                    onChange={(e) => setSoSearchQuery(e.target.value)}
+                    placeholder="Search SO number, SO Name, PO, Style…"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-primary)',
+                      fontSize: '13.5px',
+                      fontWeight: 600,
+                      outline: 'none',
+                      width: '100%',
+                      minWidth: 0
+                    }}
+                  />
+                  {soSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSoSearchQuery('')}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="orders-search-btn-scan"
+                  onClick={fetchAdminSalesOrders}
+                  disabled={loadingSalesOrders}
                   style={{
-                    ...styles.input,
-                    paddingLeft: '34px',
-                    margin: 0
+                    padding: '7px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+                    border: '1px solid var(--primary-teal)',
+                    color: 'var(--primary-teal)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
                   }}
-                />
+                  title="Reload sales orders list"
+                >
+                  <RefreshCw size={13} className={loadingSalesOrders ? 'spin' : ''} /> Refresh
+                </button>
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button
-                onClick={fetchAdminSalesOrders}
-                className="btn btn-secondary"
-                style={{ padding: '8px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px' }}
-                disabled={loadingSalesOrders}
-              >
-                <RefreshCw size={13} className={loadingSalesOrders ? 'spin' : ''} /> Refresh
-              </button>
-            </div>
-          </div>
 
           {filteredSalesOrders.length === 0 ? (
             <div style={{
@@ -2954,7 +2716,7 @@ export const AdminOrders: React.FC = () => {
               </p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '14px' }}>
+            <div className="orders-grid-cards">
               {filteredSalesOrders.map(so => (
                 <div
                   key={so.id}

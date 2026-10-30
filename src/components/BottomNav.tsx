@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { Home, ClipboardList, ScanLine, Bell, User, BarChart, Package, Menu } from 'lucide-react';
+import { Home, ClipboardList, ScanLine, Bell, User, BarChart, Package } from 'lucide-react';
 import '../styles/tokens.css';
 
 export const BottomNav: React.FC = () => {
@@ -53,9 +53,7 @@ export const BottomNav: React.FC = () => {
     );
   }
 
-  // Supervisor & Admin Navigation (5 items: Home, Dashboard, Users, Reports, More)
-
-  // Admin Navigation (5 items)
+  // Supervisor & Admin Navigation (4 items: Home, Dashboard, Users, Reports)
   return (
     <nav className="bottom-nav-bar" style={styles.navBar}>
       <button
@@ -88,14 +86,6 @@ export const BottomNav: React.FC = () => {
       >
         <Package size={20} />
         <span>Reports</span>
-      </button>
-
-      <button
-        style={isActive('/admin/more') ? styles.navItemActive : styles.navItem}
-        onClick={() => navigate('/admin/more')}
-      >
-        <Menu size={20} />
-        <span>More</span>
       </button>
     </nav>
   );
