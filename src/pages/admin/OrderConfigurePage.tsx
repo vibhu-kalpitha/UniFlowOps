@@ -129,6 +129,7 @@ export const OrderConfigurePage: React.FC = () => {
 
   // ── STEP 2: PRODUCT CONFIGURATIONS (STRUCTURED LIKE BOX CONFIGURATIONS) ───
   const [allowNoProductPrefix, setAllowNoProductPrefix] = useState(false);
+  const [noPrefixProductQty, setNoPrefixProductQty] = useState<number | string>(1000);
   const [configs, setConfigs] = useState<ProductConfiguration[]>([
     { configCode: 'PNFL-SS-', size: 'SS', quantity: 500 },
     { configCode: 'PNFL-SM-', size: 'SM', quantity: 500 }
@@ -136,10 +137,17 @@ export const OrderConfigurePage: React.FC = () => {
 
   // ── STEP 2: BOX CONFIGURATIONS ───────────────────────────────────────────
   const [allowNoBoxPrefix, setAllowNoBoxPrefix] = useState(false);
+  const [noPrefixBoxCapacity, setNoPrefixBoxCapacity] = useState<number | string>(12);
   const [boxConfigs, setBoxConfigs] = useState<PoBoxConfiguration[]>([
     { prefix: 'BX', size: 'SS', capacity: 12 },
     { prefix: 'BX', size: 'M', capacity: 12 }
   ]);
+
+  // Format PO for UI display (strips auto-generated trailing timestamp numbers like -2731 from STYLE-10000-2731)
+  const formatPoDisplay = (po?: string) => {
+    if (!po) return '';
+    return po.replace(/^(STYLE-[^\-]+)-\d{3,}$/, '$1');
+  };
 
   // Submitting state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -236,6 +244,8 @@ export const OrderConfigurePage: React.FC = () => {
         // Product configurations
         const rawProductConfigs = res.productConfigurations || res.configs;
         if (Array.isArray(rawProductConfigs) && rawProductConfigs.length > 0) {
+          const sumQty = rawProductConfigs.reduce((acc: number, c: any) => acc + (Number(c.quantity) || 0), 0);
+          setNoPrefixProductQty(sumQty || 1000);
           setConfigs(rawProductConfigs.map((c: any) => ({
             id: c.id,
             configCode: c.configCode || c.config_code || 'STD',
@@ -246,11 +256,14 @@ export const OrderConfigurePage: React.FC = () => {
             productSerialStart: c.productSerialStart || c.product_serial_start || 1,
             productSerialEnd: c.productSerialEnd || c.product_serial_end || Number(c.quantity) || 500
           })));
+        } else if (res.totalQuantity || res.total_quantity) {
+          setNoPrefixProductQty(Number(res.totalQuantity || res.total_quantity) || 1000);
         }
 
         // Box configurations
         const rawBoxConfigs = res.boxConfigurations || res.boxConfigs;
         if (Array.isArray(rawBoxConfigs) && rawBoxConfigs.length > 0) {
+          setNoPrefixBoxCapacity(Number(rawBoxConfigs[0].capacity) || 12);
           setBoxConfigs(rawBoxConfigs.map((b: any) => ({
             id: b.id,
             prefix: b.prefix || 'BX',
@@ -505,9 +518,33 @@ export const OrderConfigurePage: React.FC = () => {
     setConfigs(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleNoPrefixProductQtyChange = (val: number | string) => {
+    setNoPrefixProductQty(val);
+    const num = val === '' ? 0 : Number(val);
+    if (configs.length === 0) {
+      setConfigs([{ configCode: 'FREE-SERIAL', size: 'ALL', quantity: num }]);
+    } else if (configs.length === 1) {
+      setConfigs(prev => [{ ...prev[0], quantity: num }]);
+    }
+  };
+
+  const handleNoPrefixBoxCapacityChange = (val: number | string) => {
+    setNoPrefixBoxCapacity(val);
+    const num = val === '' ? 0 : Number(val);
+    if (boxConfigs.length === 0) {
+      setBoxConfigs([{ prefix: 'BX', size: 'ALL', capacity: num }]);
+    } else if (boxConfigs.length === 1) {
+      setBoxConfigs(prev => [{ ...prev[0], capacity: num }]);
+    }
+  };
+
   const totalCalculatedQty = useMemo(() => {
-    return configs.reduce((acc, c) => acc + (Number(c.quantity) || 0), 0);
-  }, [configs]);
+    const sum = configs.reduce((acc, c) => acc + (Number(c.quantity) || 0), 0);
+    if (allowNoProductPrefix && (configs.length === 0 || sum === 0)) {
+      return Number(noPrefixProductQty) || 0;
+    }
+    return sum;
+  }, [configs, allowNoProductPrefix, noPrefixProductQty]);
 
   // ── BOX CONFIGURATION LOGIC ──────────────────────────────────────────────
   const addBoxConfigRow = () => {
@@ -543,6 +580,16 @@ export const OrderConfigurePage: React.FC = () => {
       setActiveTab('configs');
       return;
     }
+    if (allowNoProductPrefix && configs.length === 0 && (!noPrefixProductQty || Number(noPrefixProductQty) <= 0)) {
+      showToast('Please enter a valid product quantity for No-Prefix mode', 'warning');
+      setActiveTab('configs');
+      return;
+    }
+    if (allowNoBoxPrefix && boxConfigs.length === 0 && (!noPrefixBoxCapacity || Number(noPrefixBoxCapacity) <= 0)) {
+      showToast('Please enter a valid box capacity for No-Box-Prefix mode', 'warning');
+      setActiveTab('configs');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -574,6 +621,40 @@ export const OrderConfigurePage: React.FC = () => {
       const poNum = draftOrder?.poNumber || `PO-${Date.now().toString().slice(-6)}`;
       const mapPo = draftOrder?.mapPo || `MAP-${poNum}`;
 
+      const finalProductConfigs = (allowNoProductPrefix && configs.length === 0)
+        ? [{
+            configCode: 'FREE-SERIAL',
+            productType: 'STANDARD',
+            size: 'ALL',
+            quantity: Number(noPrefixProductQty) || 1000,
+            productQrPrefix: '',
+            productSerialStart: 1,
+            productSerialEnd: Number(noPrefixProductQty) || 1000
+          }]
+        : configs.map(c => ({
+            id: (c as any).id,
+            configCode: c.configCode,
+            productType: c.productType || 'STANDARD',
+            size: c.size || 'STD',
+            quantity: Number(c.quantity) || 500,
+            productQrPrefix: c.configCode,
+            productSerialStart: 1,
+            productSerialEnd: Number(c.quantity) || 500
+          }));
+
+      const finalBoxConfigs = (allowNoBoxPrefix && boxConfigs.length === 0)
+        ? [{
+            prefix: 'BX',
+            size: 'ALL',
+            capacity: Number(noPrefixBoxCapacity) || 12
+          }]
+        : boxConfigs.map(b => ({
+            id: (b as any).id,
+            prefix: b.prefix || 'BX',
+            size: b.size || 'ALL',
+            capacity: Number(b.capacity) || 12
+          }));
+
       const finalPayload = {
         id: poNum,
         poName: draftOrder?.poName || `${draftOrder?.styleName || 'Production'} Run`,
@@ -597,20 +678,8 @@ export const OrderConfigurePage: React.FC = () => {
         preQcStationCount: preQcStationCount,
         allowNoProductPrefix: allowNoProductPrefix,
         allowNoBoxPrefix: allowNoBoxPrefix,
-        productConfigurations: configs.map(c => ({
-          configCode: c.configCode,
-          productType: c.productType || 'STANDARD',
-          size: c.size || 'STD',
-          quantity: Number(c.quantity) || 500,
-          productQrPrefix: c.configCode,
-          productSerialStart: 1,
-          productSerialEnd: Number(c.quantity) || 500
-        })),
-        boxConfigurations: boxConfigs.map(b => ({
-          prefix: b.prefix || 'BX',
-          size: b.size || 'ALL',
-          capacity: Number(b.capacity) || 12
-        })),
+        productConfigurations: finalProductConfigs,
+        boxConfigurations: finalBoxConfigs,
         shifts: allocations,
         allocations: allocations,
         orderPathway: draftOrder?.orderPathway || (poNum.startsWith('STYLE-') ? 'STYLE_DIRECT' : 'PO_DIRECT')
@@ -622,32 +691,10 @@ export const OrderConfigurePage: React.FC = () => {
           ...finalPayload,
           id: poNum,
           poNumber: poNum,
-          configs: configs.map(c => ({
-            id: (c as any).id,
-            configCode: c.configCode,
-            productType: c.productType || 'STANDARD',
-            size: c.size || 'STD',
-            quantity: Number(c.quantity) || 500
-          })),
-          productConfigurations: configs.map(c => ({
-            id: (c as any).id,
-            configCode: c.configCode,
-            productType: c.productType || 'STANDARD',
-            size: c.size || 'STD',
-            quantity: Number(c.quantity) || 500
-          })),
-          boxConfigs: boxConfigs.map(b => ({
-            id: (b as any).id,
-            prefix: b.prefix || 'BX',
-            size: b.size || 'ALL',
-            capacity: Number(b.capacity) || 12
-          })),
-          boxConfigurations: boxConfigs.map(b => ({
-            id: (b as any).id,
-            prefix: b.prefix || 'BX',
-            size: b.size || 'ALL',
-            capacity: Number(b.capacity) || 12
-          }))
+          configs: finalProductConfigs,
+          productConfigurations: finalProductConfigs,
+          boxConfigs: finalBoxConfigs,
+          boxConfigurations: finalBoxConfigs
         };
 
         await apiFetch<any>(`/api/admin/orders/${editTargetId}`, {
@@ -693,7 +740,9 @@ export const OrderConfigurePage: React.FC = () => {
               style_code: draftOrder.styleCode || '',
               colour: 'Standard',
               order_quantity: totalCalculatedQty || 500,
-              box_capacity: Number(boxConfigs[0]?.capacity) || 12
+              box_capacity: (allowNoBoxPrefix && boxConfigs.length === 0)
+                ? (Number(noPrefixBoxCapacity) || 12)
+                : (Number(boxConfigs[0]?.capacity) || 12)
             })
           });
         } catch (e) {
@@ -769,7 +818,7 @@ export const OrderConfigurePage: React.FC = () => {
                 <Zap size={13} /> {isEditMode ? 'EDIT ORDER CONFIGURATIONS' : 'CONFIGURE ORDER FLOW'}
               </span>
               <strong style={{ fontSize: '18px', color: 'var(--text-primary)' }}>
-                {draftOrder?.poNumber || 'New Production Run'}
+                {formatPoDisplay(draftOrder?.poNumber) || 'New Production Run'}
               </strong>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -1694,7 +1743,13 @@ export const OrderConfigurePage: React.FC = () => {
 
             {/* No Prefix / Free Serial Numbers toggle card */}
             <div
-              onClick={() => setAllowNoProductPrefix(!allowNoProductPrefix)}
+              onClick={() => {
+                const nextVal = !allowNoProductPrefix;
+                setAllowNoProductPrefix(nextVal);
+                if (nextVal && (!noPrefixProductQty || Number(noPrefixProductQty) === 0)) {
+                  setNoPrefixProductQty(totalCalculatedQty || 1000);
+                }
+              }}
               style={{
                 backgroundColor: allowNoProductPrefix ? 'rgba(20, 184, 166, 0.12)' : 'var(--bg-surface-2)',
                 border: `1.5px solid ${allowNoProductPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
@@ -1726,6 +1781,53 @@ export const OrderConfigurePage: React.FC = () => {
                 {allowNoProductPrefix ? 'ENABLED' : 'DISABLED'}
               </span>
             </div>
+
+            {/* If No Prefix is ENABLED: Show Product Quantity input */}
+            {allowNoProductPrefix && (
+              <div style={{
+                backgroundColor: 'rgba(20, 184, 166, 0.08)',
+                border: '1.5px solid var(--primary-teal)',
+                borderRadius: '10px',
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block', marginBottom: '2px', letterSpacing: '0.05em' }}>
+                    PRODUCT QUANTITY (PCS)
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    Enter total order quantity for free / no-prefix serial items.
+                  </span>
+                </div>
+                <div style={{ width: '180px' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={noPrefixProductQty}
+                    onChange={e => {
+                      const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                      handleNoPrefixProductQtyChange(val);
+                    }}
+                    placeholder="e.g. 1000"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      backgroundColor: 'var(--bg-surface-1)',
+                      border: '1.5px solid var(--primary-teal)',
+                      borderRadius: '8px',
+                      color: 'var(--primary-teal)',
+                      fontWeight: 800,
+                      fontSize: '15px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Product Configuration Rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1861,7 +1963,13 @@ export const OrderConfigurePage: React.FC = () => {
 
             {/* No Box Prefix toggle card */}
             <div
-              onClick={() => setAllowNoBoxPrefix(!allowNoBoxPrefix)}
+              onClick={() => {
+                const nextVal = !allowNoBoxPrefix;
+                setAllowNoBoxPrefix(nextVal);
+                if (nextVal && (!noPrefixBoxCapacity || Number(noPrefixBoxCapacity) === 0)) {
+                  setNoPrefixBoxCapacity(Number(boxConfigs[0]?.capacity) || 12);
+                }
+              }}
               style={{
                 backgroundColor: allowNoBoxPrefix ? 'rgba(20, 184, 166, 0.12)' : 'var(--bg-surface-2)',
                 border: `1.5px solid ${allowNoBoxPrefix ? 'var(--primary-teal)' : 'var(--border-color)'}`,
@@ -1893,6 +2001,53 @@ export const OrderConfigurePage: React.FC = () => {
                 {allowNoBoxPrefix ? 'ENABLED' : 'DISABLED'}
               </span>
             </div>
+
+            {/* If No Box Prefix is ENABLED: Show Box Capacity / Quantity input */}
+            {allowNoBoxPrefix && (
+              <div style={{
+                backgroundColor: 'rgba(20, 184, 166, 0.08)',
+                border: '1.5px solid var(--primary-teal)',
+                borderRadius: '10px',
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block', marginBottom: '2px', letterSpacing: '0.05em' }}>
+                    BOX CAPACITY / QUANTITY (PCS PER BOX)
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    Set maximum pieces packed per box for free / no-prefix box identifiers.
+                  </span>
+                </div>
+                <div style={{ width: '180px' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    value={noPrefixBoxCapacity}
+                    onChange={e => {
+                      const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                      handleNoPrefixBoxCapacityChange(val);
+                    }}
+                    placeholder="e.g. 12"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      backgroundColor: 'var(--bg-surface-1)',
+                      border: '1.5px solid var(--primary-teal)',
+                      borderRadius: '8px',
+                      color: 'var(--primary-teal)',
+                      fontWeight: 800,
+                      fontSize: '15px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Box Rows */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2055,7 +2210,7 @@ export const OrderConfigurePage: React.FC = () => {
                 <div style={{ fontSize: '13px', lineHeight: '1.8' }}>
                   <div>Customer: <strong>{draftOrder?.customer || 'Factory Customer'}</strong></div>
                   <div>Garment Style: <strong>{draftOrder?.styleName} ({draftOrder?.styleCode})</strong></div>
-                  <div>PO Number: <strong>{draftOrder?.poNumber}</strong></div>
+                  <div>PO Number: <strong>{formatPoDisplay(draftOrder?.poNumber)}</strong></div>
                   {draftOrder?.soNumber && <div>Sales Order (SO): <strong style={{ color: '#60a5fa' }}>{draftOrder.soNumber}</strong></div>}
                 </div>
               </div>
@@ -2094,8 +2249,8 @@ export const OrderConfigurePage: React.FC = () => {
                 </span>
                 <div style={{ fontSize: '13px', lineHeight: '1.8' }}>
                   <div>Total Order Quantity: <strong style={{ fontSize: '16px', color: 'var(--primary-teal)' }}>{totalCalculatedQty} pcs</strong></div>
-                  <div>Configurations: <strong>{configs.length} size variants</strong></div>
-                  <div>Box Configurations: <strong>{boxConfigs.map(b => `${b.prefix}-${b.size} (${b.capacity} pcs)`).join(', ')}</strong></div>
+                  <div>Configurations: <strong>{allowNoProductPrefix && configs.length === 0 ? 'No-Prefix / Free Serials' : `${configs.length} size variants`}</strong></div>
+                  <div>Box Configurations: <strong>{allowNoBoxPrefix && boxConfigs.length === 0 ? `Free Boxes (${noPrefixBoxCapacity} pcs/box)` : boxConfigs.map(b => `${b.prefix}-${b.size} (${b.capacity} pcs)`).join(', ')}</strong></div>
                   <div>Free Serials: <strong>{allowNoProductPrefix ? 'Yes' : 'No'}</strong> • Free Boxes: <strong>{allowNoBoxPrefix ? 'Yes' : 'No'}</strong></div>
                 </div>
               </div>
