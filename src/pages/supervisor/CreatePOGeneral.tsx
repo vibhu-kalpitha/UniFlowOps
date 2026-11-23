@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { apiFetch } from '../../services/api';
 import { OperationType, QcTestMode, ProductionOrder } from '../../types';
-import { ArrowRight, CheckSquare, Square, Plus, X, Users, Clock, ChevronDown, ChevronRight, Copy, Sparkles, Check, FileText, Building2 } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckSquare, Square, Plus, X, Users, Clock, ChevronDown, ChevronRight, Copy, Sparkles, Check, FileText, Building2 } from 'lucide-react';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { parsePoLines, formatPoLinesString } from '../../utils/formatters';
 import '../../styles/tokens.css';
@@ -72,15 +72,15 @@ const CreatePOGeneralInner: React.FC = () => {
   const [loadingStyles, setLoadingStyles] = useState(true);
   const [selectedStyleId, setSelectedStyleId] = useState('');
 
-  const [poId, setPoId] = useState(() => `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`);
-  const [poName, setPoName] = useState(() => '');
-  const [mapPo, setMapPo] = useState(() => `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`);
-  const [startDate, setStartDate] = useState('2026-09-15');
-  const [dueDate, setDueDate] = useState('2026-10-10');
-  const [supervisor, setSupervisor] = useState('Nimal Perera');
-  const [plant, setPlant] = useState(() => currentUser?.plant || 'Biyagama');
+  const [poId, setPoId] = useState('');
+  const [poName, setPoName] = useState('');
+  const [mapPo, setMapPo] = useState('');
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState('');
+  const [supervisor, setSupervisor] = useState(() => currentUser?.name || '');
+  const [plant, setPlant] = useState(() => currentUser?.plant || '');
   const [lineNumber, setLineNumber] = useState('');
-  const [remarks, setRemarks] = useState('Export batch for Q4 delivery');
+  const [remarks, setRemarks] = useState('');
 
   const [selectedOps, setSelectedOps] = useState<OperationType[]>([
     'Pre QC', 'QC Test', 'Packing', 'AQL Checker', 'Box Transfer',
@@ -298,20 +298,20 @@ const CreatePOGeneralInner: React.FC = () => {
 
   // Handler to apply all configurations from a source PO
   const applyPoConfig = (sourcePo: ProductionOrder) => {
-    // Generate a fresh unique PO ID
-    const newPoId = `PO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    // PO ID (user can enter or customize)
+    const newPoId = sourcePo.poNumber ? `${sourcePo.poNumber}-COPY` : '';
     setPoId(newPoId);
 
     // PO Name (editable by user)
     const copiedName = sourcePo.poName
       ? `${sourcePo.poName} (Copy)`
-      : `${sourcePo.id} Copy`;
+      : `${sourcePo.id || ''} Copy`;
     setPoName(copiedName);
 
     // Map PO (editable by user)
     const copiedMapPo = sourcePo.mapPo
       ? `${sourcePo.mapPo}-COPY`
-      : `MAP-PO-${Math.floor(40000 + Math.random() * 9000)}`;
+      : '';
     setMapPo(copiedMapPo);
 
     // Garment Style
@@ -519,8 +519,8 @@ const CreatePOGeneralInner: React.FC = () => {
       showToast('Please select a Garment Style first', 'warning');
       return;
     }
-    if (!poId.trim() || !mapPo.trim()) {
-      showToast('Please fill required PO number fields', 'warning');
+    if (!poId.trim()) {
+      showToast('Please enter PO number', 'warning');
       return;
     }
     if (selectedOps.length === 0) {
@@ -596,11 +596,30 @@ const CreatePOGeneralInner: React.FC = () => {
         </div>
       </div>
 
-      <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Create Production Order</h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-          Step 2 of 4: Select Garment Style, define PO details, and pick operator–shift allocations.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>Create Production Order</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px', marginBottom: 0 }}>
+            Step 2 of 4: Select Garment Style, define PO details, and pick operator–shift allocations.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/supervisor/home')}
+          className="btn btn-secondary"
+          style={{
+            padding: '7px 14px',
+            fontSize: '12px',
+            fontWeight: 700,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            borderRadius: 'var(--radius-md)',
+            cursor: 'pointer'
+          }}
+        >
+          <ArrowLeft size={16} /> Back to Dashboard
+        </button>
       </div>
 
       {/* ── Copy Settings from Previous PO Card ────────────────────────── */}

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ShieldCheck, TestTube, Layers } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ArrowLeft, ShieldCheck, TestTube, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
 import { DueDateBadge } from '../../components/DueDateBadge';
@@ -63,6 +64,7 @@ interface QcHistoryData {
 type QcStep = 'NORMAL' | 'STEP_1_ASSIGN' | 'STEP_1_SAVED' | 'STEP_2_QC';
 
 export const QCTestPage: React.FC = () => {
+  const navigate = useNavigate();
   const { activeJob, setActiveJob, incrementQCPassed, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
@@ -793,7 +795,21 @@ export const QCTestPage: React.FC = () => {
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => navigate('/operator/home')}
+              className="btn btn-secondary"
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
             <button
               onClick={() => setShowPoSelector(true)}
               className="btn btn-secondary"

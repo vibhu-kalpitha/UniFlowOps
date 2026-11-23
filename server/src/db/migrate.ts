@@ -640,6 +640,13 @@ async function runStartupColumnChecks(): Promise<void> {
       } catch (e: any) { console.warn('  ⚠️ FK fk_owa_po (non-fatal):', e.message); }
     }
 
+    // ── sales_orders: make map_so nullable ─────────────────────────────
+    if (await tableExists('sales_orders')) {
+      try {
+        await db.exec(`ALTER TABLE sales_orders MODIFY COLUMN map_so VARCHAR(191) NULL`);
+      } catch (_) { /* non-fatal */ }
+    }
+
     // ── production_order_configs table ───────────────────────────────
     try {
       if (!(await tableExists('production_order_configs'))) {

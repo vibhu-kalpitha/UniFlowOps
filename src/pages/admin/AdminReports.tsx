@@ -143,11 +143,19 @@ export const AdminReports: React.FC = () => {
 
   // Item-wise delete from Box Content Detail modal
   const handleRemoveBoxItem = async (boxId: string, qrCode: string) => {
+    const targetBoxId = boxId || selectedBoxModal?.id || selectedBoxModal?.box_id || selectedBoxModal?.box_code || selectedBoxModal?.boxCode || selectedBoxModal?.box_number;
+    if (!targetBoxId) {
+      showToast('Box identifier not found.', 'error');
+      return;
+    }
+
+    const boxLabel = selectedBoxModal?.boxCode || selectedBoxModal?.box_code || selectedBoxModal?.box_number || selectedBoxModal?.boxNumber || targetBoxId;
+    const confirmed = window.confirm(`Are you sure you want to remove item "${qrCode}" from Box "${boxLabel}"?\n\nThe item will be unlinked from this carton and reset back to QC Passed.`);
+    if (!confirmed) return;
+
     try {
-      await apiFetch(`/api/boxes/${encodeURIComponent(boxId)}/items/${encodeURIComponent(qrCode)}`, { method: 'DELETE' }).catch(err => {
-        console.warn('API remove box item warning:', err);
-      });
-      showToast(`Item '${qrCode}' removed from box.`, 'success');
+      await apiFetch(`/api/boxes/${encodeURIComponent(targetBoxId)}/items/${encodeURIComponent(qrCode)}`, { method: 'DELETE' });
+      showToast(`Item '${qrCode}' removed from Box ${boxLabel} successfully.`, 'success');
 
       setSelectedBoxModal((prev: any) => {
         if (!prev) return prev;
@@ -167,7 +175,7 @@ export const AdminReports: React.FC = () => {
         return {
           ...base,
           packingLogs: (base.packingLogs || []).map((b: any) => {
-            const isMatch = b.id === boxId || b.box_id === boxId || b.box_code === boxId || b.boxCode === boxId || b.box_number === boxId;
+            const isMatch = b.id === targetBoxId || b.box_id === targetBoxId || b.box_code === targetBoxId || b.boxCode === targetBoxId || b.box_number === targetBoxId;
             if (!isMatch) return b;
             const updatedQrs = (b.productQrs || []).filter((q: string) => q !== qrCode);
             const updatedItems = (b.items || []).filter((i: any) => (typeof i === 'string' ? i : (i.qr_code || i.qr)) !== qrCode);
@@ -187,7 +195,7 @@ export const AdminReports: React.FC = () => {
         return {
           ...prev,
           adminBoxes: (prev.adminBoxes || []).map((b: any) => {
-            const isMatch = b.id === boxId || b.box_id === boxId || b.box_code === boxId || b.boxCode === boxId || b.box_number === boxId;
+            const isMatch = b.id === targetBoxId || b.box_id === targetBoxId || b.box_code === targetBoxId || b.boxCode === targetBoxId || b.box_number === targetBoxId;
             if (!isMatch) return b;
             const updatedQrs = (b.productQrs || []).filter((q: string) => q !== qrCode);
             const updatedItems = (b.items || []).filter((i: any) => (typeof i === 'string' ? i : (i.qr_code || i.qr)) !== qrCode);
@@ -201,6 +209,9 @@ export const AdminReports: React.FC = () => {
           })
         };
       });
+
+      // Synchronize backend data
+      await fetchReports();
     } catch (err: any) {
       showToast(err.message || 'Failed to remove item from box.', 'error');
     }
@@ -2073,6 +2084,179 @@ export const AdminReports: React.FC = () => {
     showToast(`Exported ${tabTitle} (${rows.length} rows) to CSV`, 'success');
   };
 
+  /* ── Export Complete Merged Product & Box CSV (with AQL & Final AQL) ─ */
+  const handleExportMergedProductBoxCsv = async () => {
+    try {
+      showToast('Generating Merged Product & Box CSV report with AQL data...', 'info');
+
+      const qParams = new URLSearchParams();
+      if (tabTimeRange && tabTimeRange !== 'All') {
+        qParams.set('range', tabTimeRange.toLowerCase());
+      } else if (timeRange.toLowerCase() !== 'all') {
+        qParams.set('range', timeRange.toLowerCase());
+      } else {
+        qParams.set('range', 'all');
+      }
+
+      const effectiveDateFrom = tabDateFrom || selectedDateFrom;
+      const effectiveDateTo = tabDateTo || selectedDateTo;
+      if (effectiveDateFrom) qParams.set('startDate', effectiveDateFrom);
+      if (effectiveDateTo) qParams.set('endDate', effectiveDateTo);
+
+      if (selectedPoFilter) qParams.set('poId', selectedPoFilter);
+      if (selectedSoFilter) qParams.set('soId', selectedSoFilter);
+      if (selectedStyleFilter) qParams.set('styleName', selectedStyleFilter);
+      if (selectedCustomerFilter) qParams.set('customer', selectedCustomerFilter);
+      if (tabSearchTerm && tabSearchTerm.trim()) qParams.set('search', tabSearchTerm.trim());
+
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const response = await fetch(`/api/reports/product-box-merged-export?${qParams.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const dateStr = new Date().toISOString().split('T')[0];
+        link.setAttribute('download', `UniFlow_Product_Box_Merged_${dateStr}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('Merged Product & Box CSV exported successfully!', 'success');
+        return;
+      }
+
+      // Client-side fallback if server endpoint cannot be reached
+      console.warn('Backend merged CSV export endpoint returned', response.status, '- attempting client-side fallback');
+      const headers = [
+        '#',
+        'QC QR Barcode',
+        'Box Code',
+        'Packing State',
+        'Box Status',
+        'Customer',
+        'Style Name',
+        'PO Number',
+        'SO Name',
+        'Line',
+        'Inspector',
+        'Result',
+        'Defect / Reason',
+        'QC Date & Time',
+        'Packed By',
+        'Capacity',
+        'Current Fill',
+        'Packed Date & Time',
+        'Linked Pre-QC QR(s)',
+        'AQL Result',
+        'AQL Defect / Notes',
+        'AQL Inspector',
+        'AQL Date & Time',
+        'Final AQL Result',
+        'Final AQL Notes',
+        'Final AQL Auditor',
+        'Final AQL Date & Time'
+      ];
+
+      const toCsvField = (val: any): string => {
+        if (val === null || val === undefined || val === '') return '';
+        const str = String(val).trim();
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      const rows = filteredQcLogs.map((qc, idx) => {
+        const qr = qc.item_qr || qc.qr_code || '';
+        const matchingBox = filteredPackingLogs.find(bx => {
+          const qrs = bx.productQrs || (bx.items || []).map((it: any) => typeof it === 'string' ? it : (it.qr_code || it.qr));
+          return qrs.includes(qr);
+        });
+
+        const isPacked = Boolean(matchingBox);
+        const boxCode = isPacked ? (matchingBox.box_code || matchingBox.box_number || matchingBox.boxCode) : 'Not Packed';
+        const packingState = isPacked ? 'PACKED' : 'UNPACKED';
+        const boxStatus = isPacked ? (matchingBox.box_status || matchingBox.status || 'COMPLETE') : '';
+        const packedBy = isPacked ? (matchingBox.packed_by_name || matchingBox.items?.[0]?.packed_by_name || 'Operator') : '';
+        const capacity = isPacked ? (matchingBox.capacity || 24) : '';
+        const currentFill = isPacked ? (matchingBox.activeFilledCount || matchingBox.current_fill || (matchingBox.productQrs?.length || 0)) : '';
+        const packedDateTime = isPacked ? formatSriLankaDateTime(matchingBox.packed_at || matchingBox.created_at) : '';
+
+        const preQcList = Array.isArray(qc.linked_pre_qc_qrs)
+          ? qc.linked_pre_qc_qrs
+          : typeof qc.linked_pre_qc_qrs === 'string' && qc.linked_pre_qc_qrs.trim().length > 0
+          ? qc.linked_pre_qc_qrs.split(',').map((s: string) => s.trim())
+          : [];
+        const linkedPreQcs = preQcList.length > 0 ? preQcList.join('; ') : 'Direct / None';
+
+        const matchingAql = isPacked ? filteredAqlLogs.find(a => (a.box_code === boxCode || a.box_id === matchingBox.id)) : null;
+        const matchingFinalAql = isPacked ? filteredFinalAqlLogs.find(fa => (fa.box_code === boxCode || fa.box_id === matchingBox.id)) : null;
+
+        const aqlResult = isPacked ? (matchingAql?.result || 'PENDING') : '';
+        const aqlDefectNotes = isPacked ? (matchingAql?.failure_reason || matchingAql?.defect_notes || '') : '';
+        const aqlInspector = isPacked ? (matchingAql?.inspector_name || '') : '';
+        const aqlDateTime = isPacked && matchingAql ? formatSriLankaDateTime(matchingAql.audited_at || matchingAql.completed_at || matchingAql.created_at) : '';
+
+        const finalAqlResult = isPacked ? (matchingFinalAql?.result || 'PENDING') : '';
+        const finalAqlNotes = isPacked ? (matchingFinalAql?.failure_reason || matchingFinalAql?.defect_notes || '') : '';
+        const finalAqlAuditor = isPacked ? (matchingFinalAql?.inspector_name || '') : '';
+        const finalAqlDateTime = isPacked && matchingFinalAql ? formatSriLankaDateTime(matchingFinalAql.audited_at || matchingFinalAql.completed_at || matchingFinalAql.created_at) : '';
+
+        return [
+          idx + 1,
+          toCsvField(qr),
+          toCsvField(boxCode),
+          packingState,
+          boxStatus,
+          toCsvField(qc.customer || matchingBox?.customer || ''),
+          toCsvField(qc.style_name || matchingBox?.style_name || ''),
+          toCsvField(qc.po_number || matchingBox?.po_number || 'No PO & SO'),
+          toCsvField(qc.so_name || matchingBox?.so_name || 'No SO'),
+          toCsvField(qc.line_name || matchingBox?.line_name || 'Line 1'),
+          toCsvField(qc.inspector_name || 'QC Inspector'),
+          qc.qc_result || qc.result || 'PASS',
+          toCsvField(qc.failure_reason || qc.defect_reason || ''),
+          toCsvField(formatSriLankaDateTime(qc.scanned_at)),
+          toCsvField(packedBy),
+          capacity,
+          currentFill,
+          toCsvField(packedDateTime),
+          toCsvField(linkedPreQcs),
+          toCsvField(aqlResult),
+          toCsvField(aqlDefectNotes),
+          toCsvField(aqlInspector),
+          toCsvField(aqlDateTime),
+          toCsvField(finalAqlResult),
+          toCsvField(finalAqlNotes),
+          toCsvField(finalAqlAuditor),
+          toCsvField(finalAqlDateTime)
+        ];
+      });
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `UniFlow_Product_Box_Merged_${dateStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast(`Exported Merged Product & Box CSV (${rows.length} rows)`, 'success');
+    } catch (err: any) {
+      console.error('Merged CSV export error:', err);
+      showToast(err.message || 'Failed to export Merged Product & Box CSV.', 'error');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Printable Header */}
@@ -2804,22 +2988,49 @@ export const AdminReports: React.FC = () => {
             )}
           </div>
 
-          {/* Export to CSV */}
-          <button
-            onClick={handleExportActiveTabCsv}
-            className="btn btn-secondary"
-            style={{
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 700,
-              borderRadius: '8px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <FileSpreadsheet size={14} /> Export CSV
-          </button>
+          {/* Export to CSV Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleExportMergedProductBoxCsv}
+              className="btn btn-primary"
+              style={{
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 700,
+                borderRadius: '8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: '#0D9488',
+                color: '#ffffff',
+                border: 'none',
+                boxShadow: '0 2px 4px rgba(13, 148, 136, 0.25)',
+                cursor: 'pointer'
+              }}
+              title="Export complete Merged Product-to-Box CSV with AQL & Final AQL"
+            >
+              <FileSpreadsheet size={14} /> All Merged CSV Export
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportActiveTabCsv}
+              className="btn btn-secondary"
+              style={{
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 700,
+                borderRadius: '8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              title="Export currently active tab to CSV"
+            >
+              <FileSpreadsheet size={14} /> Export Active Tab CSV
+            </button>
+          </div>
         </div>
 
         {/* TAB 1: PRE QC (With Pre-QC to QC Assignment Link) */}
@@ -3176,6 +3387,49 @@ export const AdminReports: React.FC = () => {
         {/* TAB 3: CARTON PACKING */}
         {activeLogTab === 'packing' && (
           <div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '10px',
+              padding: '10px 14px',
+              backgroundColor: 'var(--bg-surface-2)',
+              borderRadius: '8px',
+              border: '1px solid var(--border-color)',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <div>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Carton Packing Logs &amp; Fill Verification
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>
+                  Click &quot;View Items&quot; under Capacity &amp; Fill to view and remove individual garments from a box.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportMergedProductBoxCsv}
+                className="btn btn-primary"
+                style={{
+                  padding: '5px 12px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  borderRadius: '6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: '#0D9488',
+                  color: '#ffffff',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+                title="Download full merged Product-to-Box CSV with AQL & Final AQL"
+              >
+                <FileSpreadsheet size={13} /> Export Merged Product &amp; Box CSV
+              </button>
+            </div>
+
             {filteredPackingLogs.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
                 No carton packing records found matching current filters.
@@ -4100,9 +4354,14 @@ export const AdminReports: React.FC = () => {
             </div>
 
             <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>
-                Active Scanned Garment QRs ({selectedBoxModal.productQrs?.length || 0}):
-              </h4>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '4px' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                  Active Scanned Garment QRs ({selectedBoxModal.productQrs?.length || 0}):
+                </h4>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Click <span style={{ color: '#EF4444', fontWeight: 700 }}>✕</span> to remove an item from box
+                </span>
+              </div>
               <div style={{
                 maxHeight: '180px',
                 overflowY: 'auto',
@@ -4134,7 +4393,7 @@ export const AdminReports: React.FC = () => {
                       <span>{qr}</span>
                       <button
                         type="button"
-                        onClick={() => handleRemoveBoxItem(selectedBoxModal.id, qr)}
+                        onClick={() => handleRemoveBoxItem(selectedBoxModal.id || selectedBoxModal.box_id || selectedBoxModal.boxCode || selectedBoxModal.box_code || selectedBoxModal.boxNumber, qr)}
                         title={`Delete ${qr} from this box`}
                         style={{
                           background: 'rgba(239, 68, 68, 0.18)',
@@ -4142,7 +4401,7 @@ export const AdminReports: React.FC = () => {
                           borderRadius: '4px',
                           color: '#EF4444',
                           cursor: 'pointer',
-                          padding: '2px',
+                          padding: '2px 4px',
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',

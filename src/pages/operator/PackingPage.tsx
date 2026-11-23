@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight, Layers } from 'lucide-react';
+import { Package, CheckCircle2, Clock, FileText, BoxSelect, ScanLine, ArrowLeftRight, ArrowLeft, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { isCodeInRange } from '../../utils/rangeValidation';
 import { formatPoDisplayName } from '../../utils/formatters';
@@ -395,7 +395,21 @@ export const PackingPage: React.FC = () => {
               </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => navigate('/operator/home')}
+              className="btn btn-secondary"
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
             <button
               onClick={() => setShowPoSelector(true)}
               className="btn btn-secondary"

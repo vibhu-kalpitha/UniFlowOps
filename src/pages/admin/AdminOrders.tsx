@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
-import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy, Shirt, Plus, PlusCircle, ArrowRight, Users, ClipboardList, Search, ScanLine, Building2, Layers, CheckCircle2, Settings } from 'lucide-react';
+import { SlidersHorizontal, Edit3, Trash2, RefreshCw, X, Box, Zap, ShieldAlert, Copy, Shirt, Plus, PlusCircle, ArrowRight, ArrowLeft, Users, ClipboardList, Search, ScanLine, Building2, Layers, CheckCircle2, Settings } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { parsePoLines, formatPoLinesString } from '../../utils/formatters';
 import { CodeLifecycleModal } from '../../components/CodeLifecycleModal';
@@ -49,8 +49,9 @@ interface FullPoFormData {
 
 export const AdminOrders: React.FC = () => {
   const navigate = useNavigate();
-  const { currentRole, showToast } = useApp();
+  const { currentRole, currentUser, showToast } = useApp();
   const canDelete = currentRole === 'admin';
+  const canManageCustomers = currentRole === 'admin';
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [orderSearchQuery, setOrderSearchQuery] = useState<string>('');
@@ -183,23 +184,23 @@ export const AdminOrders: React.FC = () => {
 
   // Step forms for cascading 'Create New' wizard
   const [newPoStepForm, setNewPoStepForm] = useState({
-    poNumber: `PO-${Date.now().toString().slice(-6)}`,
+    poNumber: '',
     poName: '',
-    mapPo: `SO-${Date.now().toString().slice(-4)}`,
+    mapPo: '',
     startDate: new Date().toISOString().split('T')[0],
-    dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
-    plant: 'Plant 1',
-    lineNumber: 'Line 1',
-    totalQuantity: 500,
+    dueDate: '',
+    plant: currentUser?.plant || '',
+    lineNumber: '',
+    totalQuantity: '' as any,
     remarks: ''
   });
   const [newSoStepForm, setNewSoStepForm] = useState({
-    so_number: `SO-${Date.now().toString().slice(-5)}`,
-    map_so: `MAP-SO-${Date.now().toString().slice(-4)}`,
-    product: 'Garment Product',
-    colour: 'Standard',
-    size_range: 'S, M, L, XL',
-    order_quantity: 500,
+    so_number: '',
+    map_so: '',
+    product: '',
+    colour: '',
+    size_range: '',
+    order_quantity: '' as any,
     box_capacity: 12
   });
 
@@ -251,8 +252,12 @@ export const AdminOrders: React.FC = () => {
       showToast('Please select a style first', 'error');
       return;
     }
-    const poNum = (selectedPoForNew?.poNumber || selectedPoForNew?.id || newPoStepForm.poNumber || `PO-${Date.now().toString().slice(-6)}`).trim();
-    const mapPo = (selectedPoForNew?.mapPo || newPoStepForm.mapPo || `SO-${Date.now().toString().slice(-4)}`).trim();
+    const poNum = (selectedPoForNew?.poNumber || selectedPoForNew?.id || newPoStepForm.poNumber || '').trim();
+    if (!poNum) {
+      showToast('Please enter or select a PO number', 'error');
+      return;
+    }
+    const mapPo = (selectedPoForNew?.mapPo || newPoStepForm.mapPo || '').trim();
     
     sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleForNew.id);
     sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify({
@@ -267,7 +272,7 @@ export const AdminOrders: React.FC = () => {
       mapPo: mapPo,
       startDate: newPoStepForm.startDate,
       dueDate: newPoStepForm.dueDate,
-      plant: newPoStepForm.plant,
+      plant: newPoStepForm.plant || currentUser?.plant || '',
       lineNumber: newPoStepForm.lineNumber,
       remarks: selectedPoForNew?.remarks || newPoStepForm.remarks
     }));
@@ -280,9 +285,17 @@ export const AdminOrders: React.FC = () => {
       showToast('Please select a style first', 'error');
       return;
     }
-    const poNum = (selectedPoForNew?.poNumber || selectedPoForNew?.id || newPoStepForm.poNumber || `PO-${Date.now().toString().slice(-6)}`).trim();
-    const mapPo = (selectedPoForNew?.mapPo || newPoStepForm.mapPo || `SO-${Date.now().toString().slice(-4)}`).trim();
-    const soNum = (selectedSoForNew?.so_number || newSoStepForm.so_number || `SO-${Date.now().toString().slice(-5)}`).trim();
+    const poNum = (selectedPoForNew?.poNumber || selectedPoForNew?.id || newPoStepForm.poNumber || '').trim();
+    if (!poNum) {
+      showToast('Please enter or select a PO number', 'error');
+      return;
+    }
+    const soNum = (selectedSoForNew?.so_number || newSoStepForm.so_number || '').trim();
+    if (!soNum) {
+      showToast('Please enter or select a Sales Order (SO) number', 'error');
+      return;
+    }
+    const mapPo = (selectedPoForNew?.mapPo || newPoStepForm.mapPo || '').trim();
 
     sessionStorage.setItem('uniflow_draft_po_style_id', selectedStyleForNew.id);
     sessionStorage.setItem('uniflow_draft_po_general', JSON.stringify({
@@ -299,7 +312,7 @@ export const AdminOrders: React.FC = () => {
       soId: selectedSoForNew?.id,
       startDate: newPoStepForm.startDate,
       dueDate: newPoStepForm.dueDate,
-      plant: newPoStepForm.plant,
+      plant: newPoStepForm.plant || currentUser?.plant || '',
       lineNumber: newPoStepForm.lineNumber,
       remarks: `Sales Order: ${soNum} | Colour: ${selectedSoForNew?.colour || newSoStepForm.colour || 'Standard'}`
     }));
@@ -1140,17 +1153,36 @@ export const AdminOrders: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ flex: '1 1 auto', minWidth: '180px' }}>
-          <h2 className="orders-header-title">
-            {activeTab === 'new'
-              ? 'Launch New Order (Customer ➔ Style ➔ PO ➔ SO)'
-              : 'Factory Production Orders & Multi-Tier Oversight'}
-          </h2>
-          {activeTab !== 'new' && (
-            <p className="orders-header-desc">
-              Live oversight across Customers, Styles, Production Orders, and Sales Orders with live status.
-            </p>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: '180px' }}>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="btn btn-secondary"
+            style={{
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderRadius: 'var(--radius-md)',
+              cursor: 'pointer'
+            }}
+          >
+            <ArrowLeft size={15} /> Back
+          </button>
+          <div>
+            <h2 className="orders-header-title">
+              {activeTab === 'new'
+                ? 'Launch New Order (Customer ➔ Style ➔ PO ➔ SO)'
+                : 'Factory Production Orders & Multi-Tier Oversight'}
+            </h2>
+            {activeTab !== 'new' && (
+              <p className="orders-header-desc">
+                Live oversight across Customers, Styles, Production Orders, and Sales Orders with live status.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1250,17 +1282,19 @@ export const AdminOrders: React.FC = () => {
                     Step 1 of 4 • Primary Client Entity
                   </span>
                   <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 0' }}>
-                    Select or Create Customer
+                    {canManageCustomers ? 'Select or Create Customer' : 'Select Customer'}
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAddCustomerModal(true)}
-                  className="btn btn-primary"
-                  style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <Plus size={15} /> + Create New Customer
-                </button>
+                {canManageCustomers && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCustomerModal(true)}
+                    className="btn btn-primary"
+                    style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Plus size={15} /> + Create New Customer
+                  </button>
+                )}
               </div>
 
               {selectedCustomerForNew && (
@@ -1700,8 +1734,8 @@ export const AdminOrders: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setNewSoModalForm({
-                      so_number: `SO-${Date.now().toString().slice(-5)}`,
-                      map_so: `MAP-SO-${Date.now().toString().slice(-4)}`,
+                      so_number: '',
+                      map_so: '',
                       notes: ''
                     });
                     setShowAddSoModalInStep(true);
@@ -2026,34 +2060,36 @@ export const AdminOrders: React.FC = () => {
                       </div>
 
                       <div style={{ display: 'flex', gap: '8px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingCustomer(c);
-                            setEditCustomerForm({
-                              name: c.name || '',
-                              code: c.code || '',
-                              notes: c.notes || ''
-                            });
-                          }}
-                          style={{
-                            flex: 1,
-                            padding: '7px 10px',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            borderRadius: '8px',
-                            backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                            border: '1px solid #3b82f6',
-                            color: '#60a5fa',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <Edit3 size={13} /> Edit
-                        </button>
+                        {canManageCustomers && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCustomer(c);
+                              setEditCustomerForm({
+                                name: c.name || '',
+                                code: c.code || '',
+                                notes: c.notes || ''
+                              });
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: '7px 10px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              borderRadius: '8px',
+                              backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                              border: '1px solid #3b82f6',
+                              color: '#60a5fa',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Edit3 size={13} /> Edit
+                          </button>
+                        )}
                         {canDelete && (
                           <button
                             type="button"
@@ -2737,10 +2773,10 @@ export const AdminOrders: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                       <div>
                         <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase' }}>
-                          SO: {so.so_number}
+                          SO Number: {so.so_number}
                         </span>
                         <h4 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0' }}>
-                          SO Name: {so.map_so || '—'}
+                          {so.so_number} {so.map_so ? `• ${so.map_so}` : ''}
                         </h4>
                       </div>
                       <StatusPill label={so.status || 'CURRENT'} variant={so.status === 'COMPLETED' ? 'green' : 'teal'} />
@@ -4347,14 +4383,14 @@ export const AdminOrders: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    SO Name
+                    SO Name (Optional)
                   </label>
                   <input
                     type="text"
                     value={newSoForm.map_so}
                     onChange={e => setNewSoForm({ ...newSoForm, map_so: e.target.value })}
                     style={styles.input}
-                    placeholder="e.g. SO Name / Internal Ref"
+                    placeholder="e.g. SO Name / Internal Ref (Optional)"
                   />
                 </div>
               </div>
@@ -4630,14 +4666,14 @@ export const AdminOrders: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    SO Name
+                    SO Name (Optional)
                   </label>
                   <input
                     type="text"
                     value={newSoModalForm.map_so}
                     onChange={e => setNewSoModalForm({ ...newSoModalForm, map_so: e.target.value })}
                     style={styles.input}
-                    placeholder="e.g. SO Name / Internal Ref"
+                    placeholder="e.g. SO Name / Internal Ref (Optional)"
                   />
                 </div>
               </div>
@@ -5137,14 +5173,14 @@ export const AdminOrders: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    SO Name
+                    SO Name (Optional)
                   </label>
                   <input
                     type="text"
                     value={editSoForm.map_so}
                     onChange={e => setEditSoForm({ ...editSoForm, map_so: e.target.value })}
                     style={styles.input}
-                    placeholder="e.g. SO Name / Internal Ref"
+                    placeholder="e.g. SO Name / Internal Ref (Optional)"
                   />
                 </div>
               </div>

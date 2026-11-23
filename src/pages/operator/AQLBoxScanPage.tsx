@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { ArrowRight, BoxSelect, ScanLine, Package, Search, ArrowLeftRight, Layers } from 'lucide-react';
+import { ArrowRight, ArrowLeft, BoxSelect, ScanLine, Package, Search, ArrowLeftRight, Layers } from 'lucide-react';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
@@ -271,20 +271,36 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
               Scan packing box barcode to load items for inspection
             </span>
           </div>
-          <button
-            onClick={() => setShowPoSelector(true)}
-            className="btn btn-secondary"
-            style={{
-              padding: '4px 10px',
-              fontSize: '11px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              borderRadius: 'var(--radius-md)'
-            }}
-          >
-            <ArrowLeftRight size={12} /> Switch PO
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => navigate('/operator/home')}
+              className="btn btn-secondary"
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeft size={12} /> Back
+            </button>
+            <button
+              onClick={() => setShowPoSelector(true)}
+              className="btn btn-secondary"
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                borderRadius: 'var(--radius-md)'
+              }}
+            >
+              <ArrowLeftRight size={12} /> Switch PO
+            </button>
+          </div>
         </div>
       </div>
 

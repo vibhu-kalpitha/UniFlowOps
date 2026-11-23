@@ -48,7 +48,7 @@ router.get('/admin/customers', authenticateToken, requireRole(['ADMIN', 'SUPERVI
   }
 });
 
-router.post('/customers', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+router.post('/customers', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const b = createCustomerSchema.parse(req.body);
     const code = b.code.trim().toUpperCase();
@@ -72,7 +72,7 @@ router.post('/customers', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']
   }
 });
 
-router.put('/customers/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
+router.put('/customers/:id', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
     const b = req.body;
@@ -202,9 +202,11 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
 });
 
 // ── Sales Orders Endpoints ───────────────────────────────────────────
-router.get('/sales-orders', authenticateToken, async (req, res, next) => {
+router.get('/sales-orders', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const poId = req.query.poId as string;
+    const userRole = req.user?.role;
+    const userPlant = req.user?.plant;
     let sql = `
       SELECT so.*,
         po.po_number, po.po_name, po.customer, po.customer_id, po.style_id,
@@ -218,10 +220,18 @@ router.get('/sales-orders', authenticateToken, async (req, res, next) => {
       LEFT JOIN production_lines pl ON pl.id = so.line_id
       LEFT JOIN shifts sh ON sh.id = so.shift_id
     `;
+    const conditions: string[] = [];
     const params: any[] = [];
     if (poId) {
-      sql += ` WHERE (so.production_order_id = ? OR po.po_number = ?)`;
+      conditions.push(`(so.production_order_id = ? OR po.po_number = ?)`);
       params.push(poId, poId);
+    }
+    if (userRole === 'SUPERVISOR' && userPlant && userPlant.trim() !== '') {
+      conditions.push(`LOWER(TRIM(po.plant)) = LOWER(TRIM(?))`);
+      params.push(userPlant.trim());
+    }
+    if (conditions.length > 0) {
+      sql += ` WHERE ` + conditions.join(' AND ');
     }
     sql += ` ORDER BY so.created_at DESC`;
     const soList = await db.prepare(sql).all(...params);
@@ -231,9 +241,11 @@ router.get('/sales-orders', authenticateToken, async (req, res, next) => {
   }
 });
 
-router.get('/admin/sales-orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+router.get('/admin/sales-orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
-    const sql = `
+    const userRole = req.user?.role;
+    const userPlant = req.user?.plant;
+    let sql = `
       SELECT so.*,
         po.po_number, po.po_name, po.customer, po.customer_id, po.style_id,
         s.name as style_name, s.code as style_code_from_style,
@@ -245,9 +257,18 @@ router.get('/admin/sales-orders', authenticateToken, requireRole(['ADMIN', 'SUPE
       LEFT JOIN customers c ON c.id = po.customer_id OR LOWER(TRIM(c.name)) = LOWER(TRIM(po.customer))
       LEFT JOIN production_lines pl ON pl.id = so.line_id
       LEFT JOIN shifts sh ON sh.id = so.shift_id
-      ORDER BY so.created_at DESC
     `;
-    const soList = await db.prepare(sql).all();
+    const conditions: string[] = [];
+    const params: any[] = [];
+    if (userRole === 'SUPERVISOR' && userPlant && userPlant.trim() !== '') {
+      conditions.push(`LOWER(TRIM(po.plant)) = LOWER(TRIM(?))`);
+      params.push(userPlant.trim());
+    }
+    if (conditions.length > 0) {
+      sql += ` WHERE ` + conditions.join(' AND ');
+    }
+    sql += ` ORDER BY so.created_at DESC`;
+    const soList = await db.prepare(sql).all(...params);
     return res.json(soList);
   } catch (err) {
     next(err);
@@ -282,11 +303,12 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
     }
 
     const existing = await db.prepare(`SELECT * FROM sales_orders WHERE UPPER(TRIM(so_number)) = UPPER(TRIM(?))`).get(b.so_number) as any;
+    const finalMapSo = b.map_so && b.map_so.trim() ? b.map_so.trim() : null;
     if (existing) {
       await db.prepare(`
         UPDATE sales_orders SET
           production_order_id = ?,
-          map_so = COALESCE(?, map_so),
+          map_so = ?,
           product = COALESCE(?, product),
           style_code = COALESCE(?, style_code),
           colour = COALESCE(?, colour),
@@ -299,7 +321,7 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
         WHERE id = ?
       `).run(
         po.id,
-        b.map_so || b.so_number,
+        finalMapSo,
         b.product || po.style_code || 'Standard Garment',
         b.style_code || po.style_code || 'STD',
         b.colour || 'Default',
@@ -323,8 +345,8 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
     `).run(
       id,
       po.id,
-      b.so_number,
-      b.map_so || b.so_number,
+      b.so_number.trim(),
+      finalMapSo,
       b.product || po.style_code || 'Standard Garment',
       b.style_code || po.style_code || 'STD',
       b.colour || 'Default',
@@ -347,18 +369,29 @@ router.put('/sales-orders/:id', authenticateToken, requireRole(['SUPERVISOR', 'A
   try {
     const { id } = req.params;
     const { so_number, map_so, colour, order_quantity, box_capacity, remarks, notes } = req.body;
+    const existingSo = await db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(id) as any;
+    if (!existingSo) {
+      return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
+    }
+    if (req.user?.role === 'SUPERVISOR' && req.user?.plant) {
+      const parentPo = await db.prepare(`SELECT plant FROM production_orders WHERE id = ?`).get(existingSo.production_order_id) as any;
+      if (parentPo?.plant && parentPo.plant.trim().toLowerCase() !== req.user.plant.trim().toLowerCase()) {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'You can only edit Sales Orders for your assigned plant' });
+      }
+    }
     const finalRemarks = remarks !== undefined ? remarks : (notes !== undefined ? notes : null);
+    const finalMapSo = map_so !== undefined ? (map_so && String(map_so).trim() ? String(map_so).trim() : null) : existingSo.map_so;
     await db.prepare(`
       UPDATE sales_orders
       SET so_number = COALESCE(?, so_number),
-          map_so = COALESCE(?, map_so),
+          map_so = ?,
           colour = COALESCE(?, colour),
           order_quantity = COALESCE(?, order_quantity),
           box_capacity = COALESCE(?, box_capacity),
           remarks = COALESCE(?, remarks),
           updated_at = NOW(3)
       WHERE id = ?
-    `).run(so_number || null, map_so || null, colour || null, order_quantity || null, box_capacity || null, finalRemarks, id);
+    `).run(so_number && String(so_number).trim() ? String(so_number).trim() : null, finalMapSo, colour || null, order_quantity || null, box_capacity || null, finalRemarks, id);
     const updated = await db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(id);
     return res.json(updated);
   } catch (err) {
@@ -1482,9 +1515,18 @@ router.put('/admin/styles/:id', authenticateToken, requireRole(['SUPERVISOR', 'A
 
 // ── ADMIN PRODUCTION ORDERS & QUANTITY EDITING ────────────────────
 // GET /api/admin/orders
-router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req, res, next) => {
+router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
-    const orders = await db.query(`
+    const userRole = req.user?.role;
+    const userPlant = req.user?.plant;
+    let poWhere = '';
+    const poParams: any[] = [];
+    if (userRole === 'SUPERVISOR' && userPlant && userPlant.trim() !== '') {
+      poWhere = 'WHERE LOWER(TRIM(po.plant)) = LOWER(TRIM(?))';
+      poParams.push(userPlant.trim());
+    }
+
+    const orders = await db.prepare(`
       SELECT 
         po.id, po.po_number, po.po_name, po.map_po, po.customer, po.start_date, po.due_date, po.status, po.remarks, po.qc_test_mode, po.shift_id, po.supervisor_id, po.created_at,
         po.allow_no_product_prefix, po.allow_no_box_prefix, po.plant, po.line_number,
@@ -1495,8 +1537,9 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
       FROM production_orders po
       LEFT JOIN styles s ON s.id = po.style_id
       LEFT JOIN users u ON u.id = po.supervisor_id
+      ${poWhere}
       ORDER BY po.created_at DESC
-    `);
+    `).all(...poParams);
 
     const allConfigs = await db.prepare(`
       SELECT id, production_order_id, config_code, product_type, size, quantity, product_qr_prefix, product_serial_start, product_serial_end
@@ -1719,6 +1762,11 @@ router.patch('/admin/orders/:id', authenticateToken, requireRole(['ADMIN', 'SUPE
     const po = await db.prepare(`SELECT * FROM production_orders WHERE id = ? OR po_number = ?`).get(poParam, poParam) as any;
     if (!po) {
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
+    }
+    if (req.user?.role === 'SUPERVISOR' && req.user?.plant && po.plant) {
+      if (po.plant.trim().toLowerCase() !== req.user.plant.trim().toLowerCase()) {
+        return res.status(403).json({ error: 'FORBIDDEN', message: 'You can only edit Production Orders for your assigned plant' });
+      }
     }
 
     const {
@@ -2260,32 +2308,38 @@ router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, nex
 router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { boxId, qrCode } = req.params;
-    const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(boxId, boxId, boxId) as any;
+    const cleanBoxId = (boxId || '').trim();
+    const cleanQr = (qrCode || '').trim();
+
+    const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(cleanBoxId, cleanBoxId, cleanBoxId) as any;
     if (!box) {
       return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found.' });
     }
 
-    const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ?`).get(qrCode.trim().toUpperCase()) as any;
+    const item = await db.prepare(`SELECT * FROM item_units WHERE UPPER(TRIM(qr_code)) = ? OR id = ?`).get(cleanQr.toUpperCase(), cleanQr) as any;
     if (!item) {
-      return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: `Item '${qrCode}' not found.` });
+      return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: `Item '${cleanQr}' not found.` });
     }
 
-    const boxItem = await db.prepare(`SELECT * FROM box_items WHERE box_id = ? AND item_id = ? ORDER BY id DESC`).get(box.id, item.id) as any;
+    const boxItem = await db.prepare(`SELECT * FROM box_items WHERE (box_id = ? OR box_id = ? OR box_id = ?) AND item_id = ? ORDER BY id DESC`).get(box.id, box.box_code || '', box.box_number || '', item.id) as any;
     if (!boxItem) {
-      return res.status(404).json({ error: 'ITEM_NOT_IN_BOX', message: `Item '${qrCode}' is not in Box ${box.box_code || box.box_number}.` });
+      return res.status(404).json({ error: 'ITEM_NOT_IN_BOX', message: `Item '${cleanQr}' is not in Box ${box.box_code || box.box_number}.` });
     }
 
     await db.transaction(async (tx) => {
       // 1. Delete item from box_items
-      await tx.prepare(`DELETE FROM box_items WHERE id = ?`).run(boxItem.id);
+      await tx.prepare(`DELETE FROM box_items WHERE (box_id = ? OR box_id = ? OR box_id = ?) AND item_id = ?`).run(box.id, box.box_code || '', box.box_number || '', item.id);
 
-      // 2. Reset item status back to 'QC_PASSED' if it passed QC, else 'CREATED'
-      const qcPass = await tx.prepare(`SELECT id FROM qc_results WHERE item_id = ? AND qc_result = 'PASS' AND test_result = 'PASS'`).get(item.id) as any;
+      // 2. Also remove any linked aql_samples for this item in this box
+      await tx.prepare(`DELETE FROM aql_samples WHERE inspection_id IN (SELECT id FROM aql_inspections WHERE box_id = ? OR box_id = ?) AND (item_id = ? OR qr_code = ?)`).run(box.id, box.box_code || '', item.id, item.qr_code).catch(() => {});
+
+      // 3. Reset item status back to 'QC_PASSED' if it passed QC, else 'CREATED'
+      const qcPass = await tx.prepare(`SELECT id FROM qc_results WHERE item_id = ? AND qc_result = 'PASS' AND (test_result = 'PASS' OR test_result IS NULL)`).get(item.id) as any;
       const newStatus = qcPass ? 'QC_PASSED' : 'CREATED';
       await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(newStatus, item.id);
 
-      // 3. Re-open box if count is below capacity
-      const remainingRow = await tx.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE box_id = ? AND active = 1`).get(box.id) as any;
+      // 4. Re-open box if count is below capacity
+      const remainingRow = await tx.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE (box_id = ? OR box_id = ? OR box_id = ?) AND active = 1`).get(box.id, box.box_code || '', box.box_number || '') as any;
       const remainingCount = Number(remainingRow?.cnt || 0);
       if (remainingCount < box.capacity) {
         await tx.prepare(`UPDATE boxes SET status = 'OPEN', updated_at = NOW(3) WHERE id = ?`).run(box.id);
@@ -2294,12 +2348,12 @@ router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: Auth
 
     await auditLog(req.user!.id, 'REMOVE_BOX_ITEM', 'boxes', box.id, {
       boxCode: box.box_code || box.box_number,
-      itemQr: qrCode
+      itemQr: cleanQr
     });
 
     return res.json({
       success: true,
-      message: `Item '${qrCode}' removed from Box ${box.box_code || box.box_number} successfully.`
+      message: `Item '${cleanQr}' removed from Box ${box.box_code || box.box_number} successfully.`
     });
   } catch (err) {
     next(err);

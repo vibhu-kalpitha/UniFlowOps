@@ -1669,6 +1669,311 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
   }
 });
 
+// GET /api/reports/product-box-merged-export — Full Merged Product & Box CSV with AQL & Final AQL
+router.get('/reports/product-box-merged-export', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { poId, soId, styleName, customer, range = 'all', startDate, endDate, search } = req.query as {
+      poId?: string;
+      soId?: string;
+      styleName?: string;
+      customer?: string;
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+    };
+
+    const buildDateFilter = (field: string) => {
+      if (startDate && endDate) {
+        return ` AND ${field} >= '${startDate}' AND ${field} <= '${endDate} 23:59:59'`;
+      }
+      if (range === 'today') {
+        return ` AND DATE(${field}) = CURDATE()`;
+      }
+      if (range === 'week') {
+        return ` AND ${field} >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
+      }
+      if (range === 'month') {
+        return ` AND ${field} >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+      }
+      return '';
+    };
+
+    const formatSriLankaDateTime = (val?: string | Date | null): string => {
+      if (!val) return '';
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleString('en-GB', {
+          timeZone: 'Asia/Colombo',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        }).replace(/[\s\u202F]/g, ' ');
+      } catch {
+        return '';
+      }
+    };
+
+    const toCsvField = (val: any): string => {
+      if (val === null || val === undefined || val === '') return '';
+      const str = String(val).trim();
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    let mergedQuery = `
+      SELECT 
+        iu.qr_code as qc_qr_barcode,
+        COALESCE(b.box_code, b.box_number) as box_code,
+        b.status as box_status,
+        b.capacity,
+        (SELECT COUNT(*) FROM box_items bi_count WHERE bi_count.box_id = b.id AND bi_count.active = 1) as box_current_fill,
+        bi.packed_at as item_packed_at,
+        b.created_at as box_packed_at,
+        COALESCE(NULLIF(TRIM(pack_u.full_name), ''), NULLIF(TRIM(pack_u.username), '')) as packed_by_name,
+        po.customer,
+        s.name as style_name,
+        COALESCE(NULLIF(TRIM(po.po_number), ''), NULLIF(TRIM(po.po_name), ''), 'No PO & SO') as po_number,
+        COALESCE(NULLIF(TRIM(so.so_number), ''), 'No SO') as so_name,
+        COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+        COALESCE(NULLIF(TRIM(qc_u.full_name), ''), NULLIF(TRIM(test_u.full_name), ''), 'QC Inspector') as inspector_name,
+        COALESCE(NULLIF(TRIM(qr.qc_result), ''), NULLIF(TRIM(qr.test_result), ''), 'PASS') as result,
+        COALESCE(qr.failure_reason, '') as failure_reason,
+        qr.scanned_at as qc_scanned_at,
+        (
+          SELECT GROUP_CONCAT(DISTINCT pqa.pre_qc_qr SEPARATOR '; ')
+          FROM pre_qc_assignments pqa
+          WHERE pqa.product_qr = iu.qr_code
+        ) as linked_pre_qcs,
+        (
+          SELECT ai.result
+          FROM aql_inspections ai
+          WHERE (ai.box_id = b.id OR (b.box_code IS NOT NULL AND ai.box_id = b.box_code))
+            AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) NOT LIKE '%FINAL%')
+          ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+          LIMIT 1
+        ) as aql_result,
+        (
+          SELECT ai.failure_reason
+          FROM aql_inspections ai
+          WHERE (ai.box_id = b.id OR (b.box_code IS NOT NULL AND ai.box_id = b.box_code))
+            AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) NOT LIKE '%FINAL%')
+          ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+          LIMIT 1
+        ) as aql_defect_notes,
+        (
+          SELECT COALESCE(NULLIF(TRIM(u_aql.full_name), ''), NULLIF(TRIM(u_aql.username), ''))
+          FROM aql_inspections ai
+          LEFT JOIN users u_aql ON u_aql.id = ai.inspector_id
+          WHERE (ai.box_id = b.id OR (b.box_code IS NOT NULL AND ai.box_id = b.box_code))
+            AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) NOT LIKE '%FINAL%')
+          ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+          LIMIT 1
+        ) as aql_inspector_name,
+        (
+          SELECT COALESCE(ai.completed_at, ai.started_at)
+          FROM aql_inspections ai
+          WHERE (ai.box_id = b.id OR (b.box_code IS NOT NULL AND ai.box_id = b.box_code))
+            AND (ai.stage IS NULL OR UPPER(TRIM(ai.stage)) NOT LIKE '%FINAL%')
+          ORDER BY COALESCE(ai.completed_at, ai.started_at) DESC
+          LIMIT 1
+        ) as aql_date_time,
+        (
+          SELECT fai.result
+          FROM aql_inspections fai
+          WHERE (fai.box_id = b.id OR (b.box_code IS NOT NULL AND fai.box_id = b.box_code))
+            AND UPPER(TRIM(fai.stage)) LIKE '%FINAL%'
+          ORDER BY COALESCE(fai.completed_at, fai.started_at) DESC
+          LIMIT 1
+        ) as final_aql_result,
+        (
+          SELECT fai.failure_reason
+          FROM aql_inspections fai
+          WHERE (fai.box_id = b.id OR (b.box_code IS NOT NULL AND fai.box_id = b.box_code))
+            AND UPPER(TRIM(fai.stage)) LIKE '%FINAL%'
+          ORDER BY COALESCE(fai.completed_at, fai.started_at) DESC
+          LIMIT 1
+        ) as final_aql_notes,
+        (
+          SELECT COALESCE(NULLIF(TRIM(u_faql.full_name), ''), NULLIF(TRIM(u_faql.username), ''))
+          FROM aql_inspections fai
+          LEFT JOIN users u_faql ON u_faql.id = fai.inspector_id
+          WHERE (fai.box_id = b.id OR (b.box_code IS NOT NULL AND fai.box_id = b.box_code))
+            AND UPPER(TRIM(fai.stage)) LIKE '%FINAL%'
+          ORDER BY COALESCE(fai.completed_at, fai.started_at) DESC
+          LIMIT 1
+        ) as final_aql_auditor_name,
+        (
+          SELECT COALESCE(fai.completed_at, fai.started_at)
+          FROM aql_inspections fai
+          WHERE (fai.box_id = b.id OR (b.box_code IS NOT NULL AND fai.box_id = b.box_code))
+            AND UPPER(TRIM(fai.stage)) LIKE '%FINAL%'
+          ORDER BY COALESCE(fai.completed_at, fai.started_at) DESC
+          LIMIT 1
+        ) as final_aql_date_time
+      FROM item_units iu
+      LEFT JOIN qc_results qr ON qr.item_id = iu.id
+      LEFT JOIN box_items bi ON (bi.item_id = iu.id AND bi.active = 1)
+      LEFT JOIN boxes b ON b.id = bi.box_id
+      LEFT JOIN production_orders po ON (po.id = iu.production_order_id OR po.id = b.production_order_id)
+      LEFT JOIN sales_orders so ON (so.id = iu.sales_order_id OR so.id = b.sales_order_id)
+      LEFT JOIN styles s ON s.id = po.style_id
+      LEFT JOIN users qc_u ON qc_u.id = qr.operator_id
+      LEFT JOIN users test_u ON test_u.id = qr.test_operator_id
+      LEFT JOIN users pack_u ON (pack_u.id = bi.packed_by OR pack_u.id = b.packed_by)
+      WHERE (qr.id IS NOT NULL OR bi.id IS NOT NULL)
+      ${buildDateFilter('COALESCE(qr.scanned_at, bi.packed_at, b.created_at)')}
+    `;
+
+    const mergedParams: any[] = [];
+
+    // Role-based segregation for Plant Supervisors
+    if (req.user?.role === 'SUPERVISOR') {
+      const supervisorRow = await db.prepare(`SELECT plant_id, plant FROM users WHERE id = ?`).get(req.user.id) as any;
+      const supervisorPlant = supervisorRow?.plant || supervisorRow?.plant_id;
+      if (supervisorPlant && supervisorPlant !== 'ALL') {
+        mergedQuery += ` AND (po.plant = ? OR po.plant_id = ?)`;
+        mergedParams.push(supervisorPlant, supervisorPlant);
+      }
+    }
+
+    if (poId && poId.trim()) {
+      mergedQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      mergedParams.push(poId.trim(), poId.trim());
+    }
+    if (soId && soId.trim()) {
+      mergedQuery += ` AND (so.id = ? OR so.so_number = ?)`;
+      mergedParams.push(soId.trim(), soId.trim());
+    }
+    if (styleName && styleName.trim()) {
+      mergedQuery += ` AND (s.name = ? OR s.code = ?)`;
+      mergedParams.push(styleName.trim(), styleName.trim());
+    }
+    if (customer && customer.trim()) {
+      mergedQuery += ` AND po.customer = ?`;
+      mergedParams.push(customer.trim());
+    }
+    if (search && search.trim()) {
+      mergedQuery += ` AND (iu.qr_code LIKE ? OR b.box_code LIKE ? OR b.box_number LIKE ? OR po.po_number LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      mergedParams.push(term, term, term, term);
+    }
+
+    mergedQuery += ` ORDER BY COALESCE(qr.scanned_at, bi.packed_at, b.created_at) DESC`;
+
+    const results = await db.prepare(mergedQuery).all(...mergedParams) as any[];
+
+    const headers = [
+      '#',
+      'QC QR Barcode',
+      'Box Code',
+      'Packing State',
+      'Box Status',
+      'Customer',
+      'Style Name',
+      'PO Number',
+      'SO Name',
+      'Line',
+      'Inspector',
+      'Result',
+      'Defect / Reason',
+      'QC Date & Time',
+      'Packed By',
+      'Capacity',
+      'Current Fill',
+      'Packed Date & Time',
+      'Linked Pre-QC QR(s)',
+      'AQL Result',
+      'AQL Defect / Notes',
+      'AQL Inspector',
+      'AQL Date & Time',
+      'Final AQL Result',
+      'Final AQL Notes',
+      'Final AQL Auditor',
+      'Final AQL Date & Time'
+    ];
+
+    const rows = results.map((r, idx) => {
+      const isPacked = Boolean(r.box_code);
+      const boxCode = isPacked ? r.box_code : 'Not Packed';
+      const packingState = isPacked ? 'PACKED' : 'UNPACKED';
+      const boxStatus = isPacked ? (r.box_status || 'COMPLETE') : '';
+      const customerVal = r.customer || '';
+      const styleNameVal = r.style_name || '';
+      const poNumVal = r.po_number || 'No PO & SO';
+      const soNumVal = r.so_name || 'No SO';
+      const lineVal = r.line_name || 'Line 1';
+      const inspectorVal = r.inspector_name || 'QC Inspector';
+      const resultVal = r.result || 'PASS';
+      const defectReasonVal = r.failure_reason || '';
+      const qcDateTimeVal = formatSriLankaDateTime(r.qc_scanned_at);
+      const packedByVal = isPacked ? (r.packed_by_name || 'Operator') : '';
+      const capacityVal = isPacked ? (r.capacity || 24) : '';
+      const currentFillVal = isPacked ? (r.box_current_fill || 0) : '';
+      const packedDateTimeVal = isPacked ? formatSriLankaDateTime(r.item_packed_at || r.box_packed_at) : '';
+      const linkedPreQcsVal = r.linked_pre_qcs || 'Direct / None';
+
+      // AQL Details
+      const aqlResultVal = isPacked ? (r.aql_result || 'PENDING') : '';
+      const aqlDefectNotesVal = isPacked ? (r.aql_defect_notes || '') : '';
+      const aqlInspectorVal = isPacked ? (r.aql_inspector_name || '') : '';
+      const aqlDateTimeVal = isPacked ? formatSriLankaDateTime(r.aql_date_time) : '';
+
+      // Final AQL Details
+      const finalAqlResultVal = isPacked ? (r.final_aql_result || 'PENDING') : '';
+      const finalAqlNotesVal = isPacked ? (r.final_aql_notes || '') : '';
+      const finalAqlAuditorVal = isPacked ? (r.final_aql_auditor_name || '') : '';
+      const finalAqlDateTimeVal = isPacked ? formatSriLankaDateTime(r.final_aql_date_time) : '';
+
+      return [
+        idx + 1,
+        toCsvField(r.qc_qr_barcode),
+        toCsvField(boxCode),
+        packingState,
+        boxStatus,
+        toCsvField(customerVal),
+        toCsvField(styleNameVal),
+        toCsvField(poNumVal),
+        toCsvField(soNumVal),
+        toCsvField(lineVal),
+        toCsvField(inspectorVal),
+        resultVal,
+        toCsvField(defectReasonVal),
+        toCsvField(qcDateTimeVal),
+        toCsvField(packedByVal),
+        capacityVal,
+        currentFillVal,
+        toCsvField(packedDateTimeVal),
+        toCsvField(linkedPreQcsVal),
+        toCsvField(aqlResultVal),
+        toCsvField(aqlDefectNotesVal),
+        toCsvField(aqlInspectorVal),
+        toCsvField(aqlDateTimeVal),
+        toCsvField(finalAqlResultVal),
+        toCsvField(finalAqlNotesVal),
+        toCsvField(finalAqlAuditorVal),
+        toCsvField(finalAqlDateTimeVal)
+      ];
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const today = new Date().toISOString().split('T')[0];
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="UniFlow_Product_Box_Merged_${today}.csv"`);
+    return res.send(csvContent);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/db-view - View all MySQL database tables & contents
 router.get('/db-view', async (req, res, next) => {
   try {

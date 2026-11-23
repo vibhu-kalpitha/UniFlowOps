@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { StatusPill } from '../../components/StatusPill';
 import { ProgressBar } from '../../components/ProgressBar';
 import { ScannerInput } from '../../components/ScannerInput';
 import { ScannerStatus } from '../../components/ScannerStatus';
 import { SelectPOForOperation } from '../../components/SelectPOForOperation';
-import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, Layers } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText, Check, ScanLine, ArrowLeftRight, ArrowLeft, Layers } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { formatPoDisplayName } from '../../utils/formatters';
 import { DueDateBadge } from '../../components/DueDateBadge';
@@ -21,6 +22,7 @@ interface ScannedItem {
 }
 
 export const PreQCPage: React.FC = () => {
+  const navigate = useNavigate();
   const { activeJob, setActiveJob, showToast } = useApp();
 
   const po = activeJob?.productionOrder;
@@ -391,12 +393,20 @@ export const PreQCPage: React.FC = () => {
               Customer: {po.customer} • Map PO: {po.mapPo}
             </p>
           </div>
-          <button
-            onClick={() => setShowPoSelector(true)}
-            style={styles.changePoBtn}
-          >
-            <ArrowLeftRight size={14} /> Switch PO
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => navigate('/operator/home')}
+              style={styles.changePoBtn}
+            >
+              <ArrowLeft size={14} /> Back
+            </button>
+            <button
+              onClick={() => setShowPoSelector(true)}
+              style={styles.changePoBtn}
+            >
+              <ArrowLeftRight size={14} /> Switch PO
+            </button>
+          </div>
         </div>
 
         {/* MY OPERATOR PROGRESS */}
