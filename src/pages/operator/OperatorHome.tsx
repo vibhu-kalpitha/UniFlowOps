@@ -183,7 +183,7 @@ export const OperatorHome: React.FC = () => {
   };
 
   const activeCustomer = po?.customer || fetchedPoDetails?.customer || '';
-  const activeStyle = po?.styleName || po?.styleCode || fetchedPoDetails?.styleName || 'Standard Style';
+  const activeStyle = po?.styleName || po?.styleCode || fetchedPoDetails?.styleName || po?.poName || fetchedPoDetails?.poName || '';
   const activePoNum = po?.id || po?.poNumber || fetchedPoDetails?.poNumber || '';
   const activePoName = po?.poName || fetchedPoDetails?.poName || '';
   const activeSo = so?.mapSo || (so as any)?.map_so || (po as any)?.mapPo || (po as any)?.map_po || fetchedPoDetails?.soName || fetchedPoDetails?.mapPo || '';

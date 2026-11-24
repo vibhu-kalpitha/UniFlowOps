@@ -198,7 +198,7 @@ router.get('/dashboard/operator', authenticateToken, async (req: AuthRequest, re
         poId: po.id,
         poNumber: po.po_number,
         poName: po.po_name || null,
-        styleName: po.style_name || po.style_code || 'Standard Style',
+        styleName: po.style_name || po.style_code || po.po_name || undefined,
         styleCode: po.style_code || null,
         targetQuantity,
         dueDate: po.due_date || null
@@ -248,7 +248,7 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
         id: p.id,
         poNumber: p.po_number || p.id,
         poName: p.po_name || null,
-        styleName: p.style_name || p.style_code || 'Standard Style',
+        styleName: p.style_name || p.style_code || p.po_name || undefined,
         customer: p.customer || 'Standard',
         supervisorName: p.supervisor_name || 'Supervisor',
         status: p.status || 'CURRENT',
@@ -317,7 +317,7 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
         poId: targetPo.id,
         poNumber: targetPo.po_number || targetPo.id,
         poName: targetPo.po_name || null,
-        styleName: targetPo.style_name || targetPo.style_code || 'Standard Style',
+        styleName: targetPo.style_name || targetPo.style_code || targetPo.po_name || undefined,
         customer: targetPo.customer || 'Standard Customer',
         supervisorName: targetPo.supervisor_name || 'Supervisor',
         shiftName: shiftRow?.name || 'Shift A',
@@ -380,7 +380,7 @@ router.get('/dashboard/supervisor', authenticateToken, requireRole(['SUPERVISOR'
           boxNumber: b.box_number || b.box_code,
           poNumber: b.po_number || b.production_order_id,
           poName: b.po_name || null,
-          styleName: b.style_name || 'Standard Style',
+          styleName: b.style_name || undefined,
           capacity,
           activeFilledCount: activeCount,
           remainingCapacity,
@@ -428,7 +428,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
       id: p.id,
       po_number: p.po_number,
       po_name: p.po_name || null,
-      style_name: p.style_name || p.style_code || 'Standard Style',
+      style_name: p.style_name || p.style_code || p.po_name || undefined,
       displayName: p.style_name
         ? (p.po_name ? `${p.style_name} - ${p.po_name} - ${p.po_number}` : `${p.style_name} - ${p.po_number}`)
         : (p.po_name ? `${p.po_name} - ${p.po_number}` : p.po_number)
@@ -608,7 +608,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         id: p.id,
         po_number: p.po_number,
         po_name: p.po_name || null,
-        style_name: p.style_name || p.style_ref_name || 'Standard Style',
+        style_name: p.style_name || p.style_ref_name || p.po_name || undefined,
         customer: p.customer || 'Standard Customer',
         supervisor_name: p.supervisor_name || 'Supervisor',
         status: p.status || 'CURRENT',
@@ -664,7 +664,7 @@ router.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN', 'SUPERVI
         lineName: b.line_name || 'Line 1',
         poNumber: b.po_number || b.production_order_id,
         poName: b.po_name || null,
-        styleName: b.style_name || 'Standard Style',
+        styleName: b.style_name || undefined,
         capacity,
         activeFilledCount: activeCount,
         remainingCapacity,
@@ -988,7 +988,7 @@ router.get('/reports/production', authenticateToken, async (req: AuthRequest, re
                             (p.po_name && p.po_name.toLowerCase().includes('direct run'));
 
       const custName = p.customer_name || p.customer || p.style_customer || 'Factory Customer';
-      const styleName = p.style_name || 'Standard Style';
+      const styleName = p.style_name || p.style_code || p.po_name || p.po_number || '';
 
       if (p.so_count > 0) {
         // Multi-tier order: broken down per Sales Order (SO)
@@ -1514,7 +1514,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
         boxNumber: b.box_number || b.box_code,
         poNumber: b.po_number || b.po_name || 'No PO & SO',
         soName: b.so_name || 'No SO',
-        styleName: b.style_name || 'Standard Style',
+        styleName: b.style_name || undefined,
         activeFilledCount: Number(b.activeFilledCount || qrs.length || 0),
         capacity: Number(b.capacity || 24),
         remainingCapacity: Math.max(0, Number(b.capacity || 24) - Number(b.activeFilledCount || qrs.length || 0)),

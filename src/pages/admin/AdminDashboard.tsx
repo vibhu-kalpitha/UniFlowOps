@@ -1160,7 +1160,7 @@ export const AdminDashboard: React.FC = () => {
                             {po.po_number}
                           </strong>
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {po.style_name || 'Standard Style'}
+                            {po.style_name || po.po_name || po.po_number || ''}
                           </span>
                         </div>
                         <StatusPill label={po.status || 'CURRENT'} variant={po.status === 'COMPLETED' ? 'green' : 'teal'} />

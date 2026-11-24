@@ -2215,7 +2215,7 @@ export const AdminOrders: React.FC = () => {
                       </span>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || 'Standard Style'}</strong></span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Style: <strong>{po.styleName || po.style_name || po.poName || po.po_number || '-'}</strong></span>
                       {po.plant && (
                         <span style={{
                           fontSize: '10px',

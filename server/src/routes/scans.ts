@@ -3414,7 +3414,7 @@ router.get('/lookup/lifecycle/:code', authenticateToken, async (req: AuthRequest
         productionOrderId: box.po_id || box.production_order_id,
         poNumber: box.po_number || 'N/A',
         poName: box.po_name,
-        style: box.style_name || box.style_code || 'Standard Style',
+        style: box.style_name || box.style_code || undefined,
         customer: box.customer || 'Customer',
         aqlInspections: aqlRows,
         items: boxItems.map(i => ({

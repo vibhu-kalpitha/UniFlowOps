@@ -4,14 +4,13 @@
 
 export function formatPoDisplayName(po: any): string {
   if (!po) return '';
-  const style = po.styleName || po.styleCode || 'Standard Style';
+  const style = (po.styleName || po.styleCode || '').trim();
   const name = (po.poName || po.po_name || '').trim();
-  const num = po.poNumber || po.po_number || po.id || '';
+  const num = (po.poNumber || po.po_number || po.id || '').trim();
 
-  if (name) {
-    return `${style} - ${name} - ${num}`;
-  }
-  return `${style} - ${num}`;
+  const parts = [style, name, num].filter(Boolean);
+  const uniqueParts = parts.filter((item, index) => parts.indexOf(item) === index);
+  return uniqueParts.join(' - ');
 }
 
 /**

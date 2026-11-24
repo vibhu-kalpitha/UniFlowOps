@@ -1993,7 +1993,7 @@ export const AdminReports: React.FC = () => {
 
     const rows = filteredOrders.map(p => [
       `"${p.customer || 'Factory Customer'}"`,
-      `"${p.styleName || 'Standard Style'}"`,
+      `"${p.styleName || p.styleCode || p.poName || p.poNumber || ''}"`,
       `"${p.poName || 'No PO & SO'}"`,
       `"${p.soName || 'No SO'}"`,
       p.plannedQty ?? p.targetQuantity ?? 0,
@@ -4061,7 +4061,7 @@ export const AdminReports: React.FC = () => {
 
                       {/* 2. Style Name */}
                       <td data-label="STYLE NAME" style={styles.td}>
-                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.styleName || 'Standard Style'}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.styleName || p.styleCode || p.poName || p.poNumber || '-'}</span>
                       </td>
 
                       {/* 3. PO Name */}

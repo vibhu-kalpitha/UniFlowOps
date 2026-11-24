@@ -231,7 +231,7 @@ const CreatePOReviewInner: React.FC = () => {
           </div>
           <div>
             <span style={styles.sumLabel}>Style Code / Name</span>
-            <span style={styles.sumVal}>{draftPoGeneral.styleCode || 'ST-900'} — {draftPoGeneral.styleName || 'Standard Style'}</span>
+            <span style={styles.sumVal}>{(draftPoGeneral.styleCode ? draftPoGeneral.styleCode + ' — ' : '') + (draftPoGeneral.styleName || 'Unassigned')}</span>
           </div>
           <div>
             <span style={styles.sumLabel}>Customer</span>

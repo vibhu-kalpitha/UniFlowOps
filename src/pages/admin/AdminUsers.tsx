@@ -63,11 +63,12 @@ export const AdminUsers: React.FC = () => {
   const [newPlantCode, setNewPlantCode] = useState('');
   const [newPlantName, setNewPlantName] = useState('');
   const [savingNewPlant, setSavingNewPlant] = useState(false);
+  const [deletingPlantId, setDeletingPlantId] = useState<string | null>(null);
 
   const fetchPlants = async () => {
     try {
       const data = await apiFetch<PlantItem[]>('/api/plants');
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setPlantsList(data);
         if (!plant && data[0]?.name) {
           setPlant(data[0].name);
@@ -75,6 +76,24 @@ export const AdminUsers: React.FC = () => {
       }
     } catch (err) {
       console.warn('Failed to fetch plants:', err);
+    }
+  };
+
+  const handleDeletePlant = async (plantId: string, plantName: string) => {
+    if (!window.confirm(`Are you sure you want to delete plant "${plantName}"?`)) {
+      return;
+    }
+    setDeletingPlantId(plantId);
+    try {
+      await apiFetch(`/api/plants/${encodeURIComponent(plantId)}`, {
+        method: 'DELETE'
+      });
+      showToast(`Plant "${plantName}" deleted successfully!`, 'success');
+      await fetchPlants();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete plant', 'error');
+    } finally {
+      setDeletingPlantId(null);
     }
   };
 
@@ -848,6 +867,77 @@ export const AdminUsers: React.FC = () => {
                 </button>
               </div>
             </form>
+
+            {/* Existing Plants List with Delete */}
+            <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Existing Plants ({plantsList.length})
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '4px' }}>
+                {plantsList.length === 0 ? (
+                  <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                    No plants registered yet.
+                  </div>
+                ) : (
+                  plantsList.map(p => (
+                    <div
+                      key={p.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        backgroundColor: 'var(--bg-surface-2)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '10px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(94, 234, 212, 0.12)',
+                          color: '#5EEAD4',
+                          fontFamily: 'monospace'
+                        }}>
+                          {p.code}
+                        </span>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {p.name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePlant(p.id, p.name)}
+                        disabled={deletingPlantId === p.id}
+                        title={`Delete ${p.name}`}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.12)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          borderRadius: '6px',
+                          color: '#EF4444',
+                          cursor: deletingPlantId === p.id ? 'not-allowed' : 'pointer',
+                          padding: '5px 8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Trash2 size={13} />
+                        {deletingPlantId === p.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

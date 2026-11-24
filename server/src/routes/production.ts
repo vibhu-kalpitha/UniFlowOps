@@ -64,6 +64,24 @@ router.post('/plants', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), 
   }
 });
 
+router.delete('/plants/:id', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const plant = await db.prepare(`SELECT * FROM plants WHERE id = ?`).get(id) as any;
+    if (!plant) {
+      return res.status(404).json({ error: 'PLANT_NOT_FOUND', message: 'Plant not found' });
+    }
+
+    // Soft delete so active=0 hides it from all queries
+    await db.prepare(`UPDATE plants SET active = 0, updated_at = NOW(3) WHERE id = ?`).run(id);
+
+    await auditLog(req.user!.id, 'DELETE_PLANT', 'plants', id, { code: plant.code, name: plant.name });
+    return res.json({ success: true, message: `Plant "${plant.name}" deleted successfully.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/customers', authenticateToken, async (req, res, next) => {
   try {
     const customers = await db.prepare(`
@@ -751,9 +769,9 @@ export async function formatProductionOrder(po: any, reqUser?: AuthUser) {
     poName: po.po_name || po.poName || undefined,
     mapPo: po.map_po,
     customer: po.customer || 'Factory Customer',
-    styleId: style ? style.id : null,
-    styleCode: style ? style.code : 'ST-900',
-    styleName: style ? style.name : 'Standard Style',
+    styleId: style ? style.id : (po.style_id || null),
+    styleCode: style ? style.code : (po.style_code || undefined),
+    styleName: style ? style.name : (po.style_name || po.po_name || undefined),
     startDate: po.start_date,
     dueDate: po.due_date,
     supervisorId: po.supervisor_id,
@@ -1662,8 +1680,8 @@ router.get('/admin/orders', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR
         map_po: p.map_po,
         styleId: p.style_id,
         style_id: p.style_id,
-        styleName: p.style_name || p.style_code || 'Standard Style',
-        style_name: p.style_name || p.style_code || 'Standard Style',
+        styleName: p.style_name || p.style_code || p.po_name || undefined,
+        style_name: p.style_name || p.style_code || p.po_name || undefined,
         styleCode: p.style_code,
         style_code: p.style_code,
         customer: p.customer || 'Standard',
@@ -2294,7 +2312,7 @@ router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
         poId: b.production_order_id,
         poNumber: b.po_number || b.production_order_id,
         poName: b.po_name || null,
-        styleName: b.style_name || 'Standard Style',
+        styleName: b.style_name || undefined,
         capacity,
         activeFilledCount: activeCount,
         remainingCapacity,

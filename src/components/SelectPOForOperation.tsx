@@ -260,7 +260,7 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
         }}>
           {pos.map(po => {
             const isSelected = selectedPoId === po.id || selectedPoId === po.dbId;
-            const styleDisplay = po.styleName || po.styleCode || 'Standard Style';
+            const styleDisplay = po.styleName || po.styleCode || po.poName || po.poNumber || po.id;
             const poNum = po.poNumber || (po as any).po_number || po.id;
             const soNum = po.mapPo || (po as any).map_so;
 
