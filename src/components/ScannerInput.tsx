@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { QrCode, Camera, Send, CheckCircle2, AlertTriangle, XCircle, Volume2, VolumeX, ScanLine } from 'lucide-react';
+import { QrCode, Camera, Send, CheckCircle2, AlertTriangle, XCircle, Volume2, VolumeX, ScanLine, X } from 'lucide-react';
 import { CameraScannerModal } from './CameraScannerModal';
 import { useKeyboardWedgeScanner } from '../hooks/useKeyboardWedgeScanner';
 
@@ -14,7 +14,7 @@ interface ScannerInputProps {
   placeholder?: string;
   autoFocus?: boolean;
   disabled?: boolean;
-  themeColor?: 'teal' | 'yellow' | 'amber';
+  themeColor?: 'teal' | 'yellow' | 'amber' | 'blue' | 'ocean';
 }
 
 export const ScannerInput: React.FC<ScannerInputProps> = ({
@@ -25,11 +25,25 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
   themeColor = 'teal',
 }) => {
   const isYellow = themeColor === 'yellow' || themeColor === 'amber';
-  const accentColor = isYellow ? '#F59E0B' : '#16B8AE';
-  const cardBg = isYellow ? 'rgba(245, 158, 11, 0.08)' : 'rgba(22, 184, 174, 0.08)';
-  const cardBorder = isYellow ? '2px dashed #F59E0B' : '2px dashed #16B8AE';
-  const pulseBg = isYellow ? 'rgba(245, 158, 11, 0.2)' : 'rgba(22, 184, 174, 0.2)';
-  const inputBorder = isYellow ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid rgba(22, 184, 174, 0.4)';
+  const isBlue = themeColor === 'blue' || themeColor === 'ocean';
+
+  const accentColor = isYellow ? '#F59E0B' : isBlue ? '#38BDF8' : '#16B8AE';
+  const cardBg = isYellow
+    ? 'rgba(245, 158, 11, 0.08)'
+    : isBlue
+    ? 'linear-gradient(135deg, rgba(2, 132, 199, 0.22) 0%, rgba(56, 189, 248, 0.10) 100%)'
+    : 'rgba(22, 184, 174, 0.08)';
+  const cardBorder = isYellow ? '2px dashed #F59E0B' : isBlue ? '2px dashed #38BDF8' : '2px dashed #16B8AE';
+  const cardBoxShadow = isBlue ? '0 0 18px rgba(56, 189, 248, 0.25), inset 0 0 12px rgba(2, 132, 199, 0.16)' : undefined;
+  const pulseBg = isYellow ? 'rgba(245, 158, 11, 0.2)' : isBlue ? 'rgba(56, 189, 248, 0.32)' : 'rgba(22, 184, 174, 0.2)';
+  const pulseBoxShadow = isBlue ? '0 0 12px rgba(56, 189, 248, 0.55)' : undefined;
+  const inputBorder = isYellow
+    ? '1px solid rgba(245, 158, 11, 0.5)'
+    : isBlue
+    ? '1.5px solid rgba(56, 189, 248, 0.65)'
+    : '1px solid rgba(22, 184, 174, 0.4)';
+  const inputBoxShadow = isBlue ? '0 0 12px rgba(56, 189, 248, 0.22)' : undefined;
+  const statusColor = isYellow ? '#F59E0B' : isBlue ? '#38BDF8' : '#16B8AE';
   const [inputValue, setInputValue] = useState('');
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -95,6 +109,9 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     isSubmittingRef.current = true;
     lastSubmittedRef.current = { code: upperCode, time: now };
     setInputValue('');
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
     try {
       const result = await onScan(code);
       if (result) {
@@ -134,10 +151,23 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
     localStorage.setItem('uniflow_mute_audio', String(newMute));
   };
 
+  const handleClear = () => {
+    setInputValue('');
+    if (inputRef.current) {
+      inputRef.current.value = '';
+      inputRef.current.focus();
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
-      handleCodeSubmitted(inputValue);
+      const code = inputValue.trim();
+      setInputValue('');
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+      handleCodeSubmitted(code);
     }
   };
 
@@ -157,15 +187,16 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
         }}
         disabled={disabled}
         style={{
-          backgroundColor: cardBg,
+          background: cardBg,
           border: cardBorder,
-          borderRadius: '16px',
-          padding: '20px 16px',
+          boxShadow: cardBoxShadow,
+          borderRadius: '12px',
+          padding: '8px 12px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: '8px',
+          gap: '4px',
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.6 : 1,
           width: '100%',
@@ -174,23 +205,26 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
         <div
           className="scan-pulse"
           style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '16px',
+            width: '32px',
+            height: '32px',
+            borderRadius: '8px',
             backgroundColor: pulseBg,
+            boxShadow: pulseBoxShadow,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: accentColor,
           }}
         >
-          <ScanLine size={30} />
+          <ScanLine size={18} />
         </div>
-        <span style={{ fontSize: '16px', fontWeight: 800, color: '#ECF7F6' }}>
-          {isYellow ? '📦 Connected Box Scanner Ready' : 'Connected QR Scanner Ready'}
-        </span>
-        <span style={{ fontSize: '12px', color: isYellow ? '#FDE68A' : '#8EABB0' }}>
-          {isYellow ? 'Tap to focus • Scan BOX barcode first before garments' : 'Tap to focus • Point Bluetooth/USB QR scanner to scan code'}
+        <span style={{
+          fontSize: '13px',
+          fontWeight: 800,
+          color: isBlue ? '#F0F9FF' : '#ECF7F6',
+          textShadow: isBlue ? '0 0 10px rgba(56, 189, 248, 0.45)' : undefined
+        }}>
+          {isYellow ? '📦 Connected Box Scanner Ready' : isBlue ? '🔍 Connected Product QR Scanner Ready' : 'Connected QR Scanner Ready'}
         </span>
       </button>
       {/* Input Bar */}
@@ -211,15 +245,27 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const code = inputValue.trim();
+                if (code) {
+                  setInputValue('');
+                  if (inputRef.current) inputRef.current.value = '';
+                  handleCodeSubmitted(code);
+                }
+              }
+            }}
             placeholder={placeholder}
             disabled={disabled}
             style={{
               width: '100%',
               paddingLeft: '40px',
-              paddingRight: '12px',
+              paddingRight: inputValue ? '38px' : '12px',
               height: '48px',
               backgroundColor: '#0D2630',
               border: inputBorder,
+              boxShadow: inputBoxShadow,
               borderRadius: '10px',
               color: '#FFFFFF',
               fontSize: '16px',
@@ -227,6 +273,29 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
               boxSizing: 'border-box',
             }}
           />
+          {inputValue && (
+            <button
+              type="button"
+              onClick={handleClear}
+              title="Clear input"
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: '#94A3B8',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flex: '1 0 auto', justifyContent: 'flex-end' }}>
@@ -265,7 +334,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
               backgroundColor: '#102E38',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '10px',
-              color: '#16B8AE',
+              color: isBlue ? '#38bdf8' : '#16B8AE',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -287,7 +356,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
               backgroundColor: '#102E38',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '10px',
-              color: muted ? '#64748B' : '#16B8AE',
+              color: muted ? '#64748B' : (isBlue ? '#38bdf8' : '#16B8AE'),
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -348,7 +417,7 @@ export const ScannerInput: React.FC<ScannerInputProps> = ({
 
       {/* Status Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748B' }}>
-        <span>Status: <strong style={{ color: '#16B8AE' }}>Scanner Active (Keyboard / Camera)</strong></span>
+        <span>Status: <strong style={{ color: statusColor }}>Scanner Active (Keyboard / Camera)</strong></span>
         {lastScan && <span>Last Scanned: <code style={{ color: '#94A3B8' }}>{lastScan}</code></span>}
       </div>
 

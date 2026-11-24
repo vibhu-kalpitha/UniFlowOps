@@ -1123,6 +1123,100 @@ async function runSchemaAlignment013() {
   }
 }
 
+async function runSchemaAlignment014(): Promise<void> {
+  console.log('🔧 Running Idempotent Schema Alignment (014 Plants Master Data)...');
+  try {
+    if (!(await tableExists('plants'))) {
+      await db.exec(`
+        CREATE TABLE plants (
+          id VARCHAR(191) PRIMARY KEY,
+          code VARCHAR(50) NOT NULL UNIQUE,
+          name VARCHAR(255) NOT NULL,
+          active TINYINT NOT NULL DEFAULT 1,
+          created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
+          updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+        );
+      `);
+      console.log('  ✅ Created plants table');
+    }
+
+    const countRow = await db.prepare(`SELECT COUNT(*) as cnt FROM plants`).get() as any;
+    if (!countRow || Number(countRow.cnt) === 0) {
+      const initialPlants = [
+        { id: 'plant-1', code: 'BIY-01', name: 'Biyagama' },
+        { id: 'plant-2', code: 'KAT-01', name: 'Katunayake' },
+        { id: 'plant-3', code: 'MAW-01', name: 'Mawathagama' },
+        { id: 'plant-4', code: 'AVI-01', name: 'Avissawella' },
+        { id: 'plant-5', code: 'KOG-01', name: 'Koggala' },
+        { id: 'plant-6', code: 'WAT-01', name: 'Wathupitiwala' }
+      ];
+      for (const p of initialPlants) {
+        await db.prepare(`
+          INSERT INTO plants (id, code, name, active)
+          VALUES (?, ?, ?, 1)
+          ON DUPLICATE KEY UPDATE name = VALUES(name)
+        `).run(p.id, p.code, p.name);
+      }
+      console.log('  ✅ Seeded initial plants');
+    }
+
+    if (await tableExists('customers') && !(await columnExists('customers', 'plant'))) {
+      await db.exec(`ALTER TABLE customers ADD COLUMN plant VARCHAR(191) NULL AFTER address;`);
+      console.log('  ✅ Added plant column to customers table');
+    }
+    if (await tableExists('styles') && !(await columnExists('styles', 'plant'))) {
+      await db.exec(`ALTER TABLE styles ADD COLUMN plant VARCHAR(191) NULL AFTER season;`);
+      console.log('  ✅ Added plant column to styles table');
+    }
+    if (await tableExists('sales_orders') && !(await columnExists('sales_orders', 'plant'))) {
+      await db.exec(`ALTER TABLE sales_orders ADD COLUMN plant VARCHAR(191) NULL AFTER shift_id;`);
+      console.log('  ✅ Added plant column to sales_orders table');
+    }
+  } catch (e: any) {
+    console.warn('  014 plants alignment warning (non-fatal):', e?.message);
+  }
+}
+
+async function runSchemaAlignment015() {
+  console.log('🔧 Running Idempotent Schema Alignment (015 Serial Numbers)...');
+  try {
+    if (await tableExists('item_units') && !(await columnExists('item_units', 'serial_number'))) {
+      await db.exec(`ALTER TABLE item_units ADD COLUMN serial_number VARCHAR(191) NULL AFTER qr_code;`);
+      try {
+        await db.exec(`CREATE INDEX idx_item_serial ON item_units (serial_number);`);
+      } catch {}
+      console.log('  ✅ Added serial_number column and index to item_units');
+    }
+
+    if (await tableExists('item_units') && await columnExists('item_units', 'serial_number')) {
+      const rows = await db.query<any>(`SELECT id, qr_code FROM item_units WHERE serial_number IS NULL OR serial_number = '' LIMIT 5000`);
+      if (rows && rows.length > 0) {
+        for (const r of rows) {
+          const raw = (r.qr_code || '').trim().toUpperCase();
+          let serial = raw;
+          if (raw.includes('-')) {
+            const parts = raw.split('-');
+            serial = parts[parts.length - 1].trim();
+          } else {
+            const digitsMatch = raw.match(/^([A-Z]+)(\d+)$/);
+            if (digitsMatch && digitsMatch[2]) {
+              serial = digitsMatch[2];
+            }
+          }
+          if (serial) {
+            await db.prepare(`UPDATE item_units SET serial_number = ? WHERE id = ?`).run(serial, r.id);
+          }
+        }
+        console.log(`  ✅ Backfilled serial_number for ${rows.length} existing item_units`);
+      } else {
+        console.log('  ✅ All item_units already have serial_number populated');
+      }
+    }
+  } catch (e: any) {
+    console.warn('  015 serial_number alignment warning (non-fatal):', e?.message);
+  }
+}
+
   console.log(`🎉 Migrations summary: ${applied.length} applied, ${skipped.length} already up-to-date.`);
   await runSchemaAlignment007();
   await runSchemaAlignment008();
@@ -1130,6 +1224,8 @@ async function runSchemaAlignment013() {
   await runSchemaAlignment010();
   await runSchemaAlignment012();
   await runSchemaAlignment013();
+  await runSchemaAlignment014();
+  await runSchemaAlignment015();
   return { applied, skipped };
 }
 

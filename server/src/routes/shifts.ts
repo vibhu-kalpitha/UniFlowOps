@@ -209,25 +209,27 @@ router.post('/allocate-time-frames', authenticateToken, requireRole(['SUPERVISOR
   }
 });
 
-// POST /api/shifts — Create a new shift group (e.g. Shift C, Shift D)
+// POST /api/shifts — Create a new group
 router.post('/', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const schema = z.object({
-      code: z.string().min(1).max(10),
-      name: z.string().min(1).max(100)
+      code: z.string().max(20).optional().nullable(),
+      name: z.string().min(1, 'Group name is required').max(100)
     });
     const { code, name } = schema.parse(req.body);
-    const cleanCode = code.trim().toUpperCase();
     const cleanName = name.trim();
-    const shiftId = `shift-${cleanCode.toLowerCase()}`;
+    const cleanCode = (code && code.trim())
+      ? code.trim().toUpperCase()
+      : (cleanName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase() || `GRP${Date.now().toString().slice(-4)}`);
+    const shiftId = `shift-${cleanCode.toLowerCase()}-${Date.now().toString().slice(-4)}`;
 
-    const existing = await db.prepare(`SELECT id, active FROM shifts WHERE id = ? OR code = ?`).get(shiftId, cleanCode) as any;
+    const existing = await db.prepare(`SELECT id, active FROM shifts WHERE LOWER(TRIM(name)) = LOWER(?) OR code = ?`).get(cleanName, cleanCode) as any;
     if (existing) {
       if (existing.active === 0) {
         await db.prepare(`UPDATE shifts SET active = 1, name = ?, start_time = '--:--', end_time = '--:--', time_frame_id = NULL WHERE id = ?`).run(cleanName, existing.id);
-        return res.status(200).json({ message: `Shift ${cleanName} restored successfully`, shift: { id: existing.id, code: cleanCode, name: cleanName } });
+        return res.status(200).json({ message: `Group ${cleanName} restored successfully`, shift: { id: existing.id, code: cleanCode, name: cleanName } });
       }
-      return res.status(400).json({ error: 'SHIFT_EXISTS', message: `Shift group "${cleanCode}" already exists` });
+      return res.status(400).json({ error: 'SHIFT_EXISTS', message: `Group "${cleanName}" already exists` });
     }
 
     await db.prepare(`
@@ -238,7 +240,7 @@ router.post('/', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async 
     await auditLog(req.user!.id, 'CREATE_SHIFT', 'shifts', shiftId, { code: cleanCode, name: cleanName });
 
     return res.status(201).json({
-      message: `Shift group ${cleanName} created successfully`,
+      message: `Group ${cleanName} created successfully`,
       shift: { id: shiftId, code: cleanCode, name: cleanName, start_time: '--:--', end_time: '--:--', members: [] }
     });
   } catch (err) {

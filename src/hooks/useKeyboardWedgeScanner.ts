@@ -23,25 +23,25 @@ export function useKeyboardWedgeScanner({ onScan, enabled = true }: ScannerOptio
       const target = e.target as HTMLElement;
       const isInputElem = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
 
+      // If the user is typing/scanning directly inside an active input element,
+      // do not accumulate in the background buffer and immediately wipe any stale buffer.
+      if (isInputElem) {
+        bufferRef.current = '';
+        keyTimesRef.current = [];
+        return;
+      }
+
       const now = Date.now();
       const timeDiff = now - lastKeyTimeRef.current;
       lastKeyTimeRef.current = now;
 
-      // If slow gap between keystrokes (> 150ms), reset buffer unless inside active scanner input
-      if (timeDiff > 150 && !isInputElem) {
+      // If slow gap between keystrokes (> 100ms), reset buffer (hardware scanners transmit in <40ms)
+      if (timeDiff > 100) {
         bufferRef.current = '';
         keyTimesRef.current = [];
       }
 
       if (e.key === 'Enter' || e.key === 'Tab') {
-        // If the keystroke occurred inside an input element (e.g. ScannerInput text box),
-        // let the input's form onSubmit handle it to prevent double-firing.
-        if (isInputElem) {
-          bufferRef.current = '';
-          keyTimesRef.current = [];
-          return;
-        }
-
         const raw = bufferRef.current.trim().replace(/[\r\n]+/g, '');
         if (raw.length >= 3) {
           // Calculate average inter-character delay to distinguish scanner from human typing

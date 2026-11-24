@@ -19,7 +19,6 @@ export const Header: React.FC<{ title?: string }> = ({ title }) => {
   const isRootPage = [
     '/operator/home',
     '/supervisor/home',
-    '/admin/orders',
     '/admin/home',
     '/admin/dashboard',
     '/login'

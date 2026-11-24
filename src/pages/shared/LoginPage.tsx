@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
@@ -13,6 +13,11 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [selectedRole, setSelectedRole] = useState<UserRole>('operator');
+
+  useEffect(() => {
+    // When on login page, clear any stale or expired token
+    localStorage.removeItem('uniflow_token');
+  }, []);
 
   const handleRoleSelect = (role: UserRole) => {
     setSelectedRole(role);

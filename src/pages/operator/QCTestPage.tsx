@@ -770,119 +770,89 @@ export const QCTestPage: React.FC = () => {
       {/* Top Banner - Compact */}
       <div style={styles.banner}>
         <div className="op-top-banner" style={{ gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={16} color="var(--primary-teal)" />
-            <div>
-              <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <span>Endline Inspection • {formatPoDisplayName(po)}</span>
-                {activeJob?.selectedLine && (
+          <div>
+            <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {(po?.customer || (po as any)?.customer_name) && (
+                <span style={{ color: 'var(--primary-teal)' }}>{po?.customer || (po as any)?.customer_name}</span>
+              )}
+              {(po?.customer || (po as any)?.customer_name) && <span style={{ color: 'var(--text-muted)' }}>•</span>}
+              <span>{po?.styleName || po?.styleCode || 'Style'}</span>
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <span>PO: <strong style={{ color: '#ffffff' }}>{po?.poNumber || (po as any)?.po_number || po?.id}</strong></span>
+              {((po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo) && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <span>SO: <strong style={{ color: '#ffffff' }}>{(po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo}</strong></span>
+                </>
+              )}
+              {activeJob?.selectedLine && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
                   <span style={{
-                    fontSize: '11px',
+                    fontSize: '12px',
                     fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                    color: 'var(--primary-teal)',
-                    border: '1px solid rgba(20, 184, 166, 0.3)'
+                    color: 'var(--primary-teal)'
                   }}>
                     {activeJob.selectedLine}
                   </span>
-                )}
-                <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
-              </h3>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                Configured Mode: <strong style={{ color: 'var(--primary-teal)' }}>{qcMode}</strong>
-              </span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => navigate('/operator/home')}
-              className="btn btn-secondary"
-              style={{
-                padding: '4px 10px',
-                fontSize: '11px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                borderRadius: 'var(--radius-md)'
-              }}
-            >
-              <ArrowLeft size={12} /> Back
-            </button>
-            <button
-              onClick={() => setShowPoSelector(true)}
-              className="btn btn-secondary"
-              style={{
-                padding: '4px 10px',
-                fontSize: '11px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                borderRadius: 'var(--radius-md)'
-              }}
-            >
-              <ArrowLeftRight size={12} /> Switch PO
-            </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircle2 size={14} color="var(--color-green)" />
-              <span style={{ fontSize: '11px', color: 'var(--color-green)', fontWeight: 700 }}>
-                Scanner Active
-              </span>
-            </div>
+                </>
+              )}
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} compact={true} noBox={true} />
+            </h3>
           </div>
         </div>
       </div>
 
-      {/* View Switcher: Live Scanning vs Line History */}
+      {/* View Switcher: Live Scanning vs Line History - Compact */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
+        gap: '4px',
         backgroundColor: 'var(--bg-surface-2)',
-        padding: '4px',
-        borderRadius: '10px',
+        padding: '3px',
+        borderRadius: '8px',
         width: 'fit-content'
       }}>
         <button
           type="button"
           onClick={() => setActiveViewTab('scan')}
           style={{
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '12px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
             color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
             border: 'none',
             transition: 'all 0.15s ease'
           }}
         >
-          <ScanLine size={14} /> Live Scan Station
+          Live Scan Station
         </button>
         <button
           type="button"
           onClick={() => setActiveViewTab('history')}
           style={{
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '12px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
             color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
             border: 'none',
             transition: 'all 0.15s ease'
           }}
         >
-          <Layers size={14} /> Line Records & Completed QRs
+          Line Records & Completed QRs
         </button>
       </div>
 
@@ -894,62 +864,50 @@ export const QCTestPage: React.FC = () => {
           operation="QC"
         />
       ) : (
-        /* Split Grid for Desktop */
-        <div className="desktop-split-7-5">
-          {/* Left Panel: Scanner & Controls */}
+        /* Centered Workflow Controls Panel (Matching Packing Station) */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
+          {/* Main Controls */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
           {/* PO Progress Card - Operator Work Primary */}
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-            {/* PRIMARY / LARGE: Operator Work */}
-            <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '8px 10px' }}>
+            {/* PRIMARY / COMPACT: Operator Work */}
+            <div style={{ padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                   MY PROGRESS — {poProgress.operatorStats.operatorName}
                 </span>
-                <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
-                  {Math.round((poProgress.operatorStats.passedCount / (targetPoQty || 1)) * 100)}%
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981' }}>
+                  Total Qty: {targetPoQty}
                 </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
-                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{poProgress.operatorStats.passedCount}</span>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: 0 }}>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
+                  <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{poProgress.operatorStats.passedCount}</span>
                 </div>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
-                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{poProgress.operatorStats.failedCount}</span>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                  <span style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444' }}>{poProgress.operatorStats.failedCount}</span>
                 </div>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
-                  <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
+                  <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                     {poProgress.operatorStats.passedCount + poProgress.operatorStats.failedCount}
                   </span>
                 </div>
               </div>
-              <ProgressBar current={poProgress.operatorStats.passedCount} total={targetPoQty} height={8} />
-            </div>
-
-            {/* SECONDARY / SMALL: PO Total Summary */}
-            <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
-              <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
-                <span>Target: <strong>{targetPoQty}</strong></span>
-                <span>Passed: <strong style={{ color: '#10B981' }}>{qcPassedQty}</strong></span>
-                <span>Remaining: <strong style={{ color: 'var(--primary-teal)' }}>{remainingQcQty}</strong></span>
-                <span>Overall: <strong>{Math.round((qcPassedQty / (targetPoQty || 1)) * 100)}%</strong></span>
-              </div>
             </div>
 
             {isQCComplete && (
-              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '10px', marginTop: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#10B981' }}>
+              <div style={{ padding: '8px 12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', borderRadius: '8px', marginTop: '6px', textAlign: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
                   ✅ Inspection Complete — {qcPassedQty}/{targetPoQty} passed
                 </span>
               </div>
             )}
           </div>
 
-          <ScannerInput onScan={handleScanCode} placeholder="Scan product QR barcode..." />
+          <ScannerInput onScan={handleScanCode} placeholder="Scan product QR barcode..." themeColor="blue" />
 
           {/* Initial State — No scanned product and Normal Step */}
           {!scannedItem && qcStep === 'NORMAL' ? (

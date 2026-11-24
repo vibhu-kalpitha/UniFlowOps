@@ -365,150 +365,122 @@ export const PreQCPage: React.FC = () => {
       <div className="card" style={styles.poCard}>
         <div className="op-top-banner">
           <div>
-            <span style={styles.cardSubTitle}>INLINE OPERATION</span>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span>
-                {formatPoDisplayName({
-                  poNumber: po.id,
-                  poName: po.poName,
-                  styleName: po.styleName
-                })}
-              </span>
-              {activeJob?.selectedLine && (
-                <span style={{
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                  color: 'var(--primary-teal)',
-                  border: '1px solid rgba(20, 184, 166, 0.3)'
-                }}>
-                  {activeJob.selectedLine}
-                </span>
+            <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {(po?.customer || (po as any)?.customer_name) && (
+                <span style={{ color: 'var(--primary-teal)' }}>{po?.customer || (po as any)?.customer_name}</span>
               )}
-              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
+              {(po?.customer || (po as any)?.customer_name) && <span style={{ color: 'var(--text-muted)' }}>•</span>}
+              <span>{po?.styleName || po?.styleCode || 'Style'}</span>
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <span>PO: <strong style={{ color: '#ffffff' }}>{po?.poNumber || (po as any)?.po_number || po?.id}</strong></span>
+              {((po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo) && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <span>SO: <strong style={{ color: '#ffffff' }}>{(po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo}</strong></span>
+                </>
+              )}
+              {activeJob?.selectedLine && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: 'var(--primary-teal)'
+                  }}>
+                    {activeJob.selectedLine}
+                  </span>
+                </>
+              )}
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} compact={true} noBox={true} />
             </h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Customer: {po.customer} • Map PO: {po.mapPo}
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => navigate('/operator/home')}
-              style={styles.changePoBtn}
-            >
-              <ArrowLeft size={14} /> Back
-            </button>
-            <button
-              onClick={() => setShowPoSelector(true)}
-              style={styles.changePoBtn}
-            >
-              <ArrowLeftRight size={14} /> Switch PO
-            </button>
           </div>
         </div>
 
         {/* MY OPERATOR PROGRESS */}
-        <div style={{ marginTop: '14px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            MY OPERATOR PROGRESS
-          </span>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Completed</span>
-              <span style={{ fontSize: '24px', fontWeight: 800, color: '#10B981', marginTop: '2px', display: 'block' }}>
+        <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              MY OPERATOR PROGRESS
+            </span>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981' }}>
+              Total Qty: {po.totalQuantity || 500}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Completed</span>
+              <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981', marginTop: '2px', display: 'block' }}>
                 {poProgress.myCompleted}
               </span>
             </div>
 
-            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Failed</span>
-              <span style={{ fontSize: '24px', fontWeight: 800, color: '#EF4444', marginTop: '2px', display: 'block' }}>
+            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Failed</span>
+              <span style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444', marginTop: '2px', display: 'block' }}>
                 {poProgress.myFailed}
               </span>
             </div>
 
-            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '12px 10px', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Total Processed</span>
-              <span style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'block' }}>
+            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Total Processed</span>
+              <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'block' }}>
                 {poProgress.myTotalProcessed}
               </span>
             </div>
           </div>
         </div>
-
-        {/* PO TOTAL — ALL OPERATORS */}
-        <div style={{ marginTop: '12px', padding: '10px 14px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-          <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            PO TOTAL — ALL OPERATORS
-          </span>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
-            <div>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Completed: </span>
-              <strong style={{ color: '#10B981', fontWeight: 800 }}>{poProgress.totalCompleted}</strong>
-            </div>
-            <div>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Failed: </span>
-              <strong style={{ color: '#EF4444', fontWeight: 800 }}>{poProgress.totalFailed}</strong>
-            </div>
-            <div>
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Processed: </span>
-              <strong style={{ color: 'var(--primary-teal)', fontWeight: 800 }}>{poProgress.totalProcessed}</strong>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* View Switcher: Live Scanning vs Line History */}
+      {/* View Switcher: Live Scanning vs Line History - Compact */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
+        gap: '4px',
         backgroundColor: 'var(--bg-surface-2)',
-        padding: '4px',
-        borderRadius: '10px',
+        padding: '3px',
+        borderRadius: '8px',
         width: 'fit-content'
       }}>
         <button
           type="button"
           onClick={() => setActiveViewTab('scan')}
           style={{
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '12px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
             color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
             border: 'none',
             transition: 'all 0.15s ease'
           }}
         >
-          <ScanLine size={14} /> Live Scan Station
+          Live Scan Station
         </button>
         <button
           type="button"
           onClick={() => setActiveViewTab('history')}
           style={{
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '12px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
             color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
             border: 'none',
             transition: 'all 0.15s ease'
           }}
         >
-          <Layers size={14} /> Line Records & Completed QRs
+          Line Records & Completed QRs
         </button>
       </div>
 
@@ -523,10 +495,10 @@ export const PreQCPage: React.FC = () => {
         <>
           {/* Barcode Scanner Input */}
           <div style={styles.scannerBox}>
-        <ScannerStatus showConnectButton={true} style={{ marginBottom: '10px' }} />
         <ScannerInput
           onScan={handleScanCode}
           placeholder="Scan barcode for Inline (e.g. PNFLSS0926001)..."
+          themeColor="blue"
         />
       </div>
 

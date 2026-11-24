@@ -9,13 +9,59 @@ const router = ExpressRouter();
 // ── Customer CRUD Endpoints ──────────────────────────────────────────
 const createCustomerSchema = z.object({
   name: z.string().min(1),
-  code: z.string().min(1),
+  code: z.string().optional(),
+  plant: z.string().optional(),
   contact_person: z.string().optional(),
   contactPerson: z.string().optional(),
   email: z.string().optional(),
   phone: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional()
+});
+
+const createPlantSchema = z.object({
+  code: z.string().min(1, 'Plant code is required').max(50),
+  name: z.string().min(1, 'Plant name is required').max(255)
+});
+
+// ── Plants Endpoints ──────────────────────────────────────────────
+router.get('/plants', authenticateToken, async (req, res, next) => {
+  try {
+    const plants = await db.prepare(`SELECT * FROM plants WHERE active = 1 ORDER BY name ASC`).all();
+    return res.json(plants);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/plants', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
+  try {
+    const { code, name } = createPlantSchema.parse(req.body);
+    const cleanCode = code.trim().toUpperCase();
+    const cleanName = name.trim();
+
+    const existing = await db.prepare(`SELECT * FROM plants WHERE UPPER(TRIM(code)) = ? OR LOWER(TRIM(name)) = LOWER(?)`).get(cleanCode, cleanName) as any;
+    if (existing) {
+      if (existing.active === 0) {
+        await db.prepare(`UPDATE plants SET active = 1, name = ?, updated_at = NOW(3) WHERE id = ?`).run(cleanName, existing.id);
+        const restored = await db.prepare(`SELECT * FROM plants WHERE id = ?`).get(existing.id);
+        return res.status(200).json(restored);
+      }
+      return res.status(409).json({ error: 'PLANT_EXISTS', message: `Plant with code "${cleanCode}" or name "${cleanName}" already exists.` });
+    }
+
+    const id = `plant-${Date.now()}`;
+    await db.prepare(`
+      INSERT INTO plants (id, code, name, active, created_at, updated_at)
+      VALUES (?, ?, ?, 1, NOW(3), NOW(3))
+    `).run(id, cleanCode, cleanName);
+
+    await auditLog(req.user!.id, 'CREATE_PLANT', 'plants', id, { code: cleanCode, name: cleanName });
+    const created = await db.prepare(`SELECT * FROM plants WHERE id = ?`).get(id);
+    return res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/customers', authenticateToken, async (req, res, next) => {
@@ -51,8 +97,10 @@ router.get('/admin/customers', authenticateToken, requireRole(['ADMIN', 'SUPERVI
 router.post('/customers', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const b = createCustomerSchema.parse(req.body);
-    const code = b.code.trim().toUpperCase();
     const name = b.name.trim();
+    let code = b.code && b.code.trim()
+      ? b.code.trim().toUpperCase()
+      : `CUST-${name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase() || Math.floor(1000 + Math.random() * 9000)}`;
     const existing = await db.prepare(`SELECT * FROM customers WHERE code = ? OR LOWER(name) = LOWER(?)`).get(code, name) as any;
     if (existing) {
       return res.status(409).json({ error: 'CUSTOMER_EXISTS', message: `Customer with name "${name}" or code "${code}" already exists`, customer: existing });
@@ -60,9 +108,9 @@ router.post('/customers', authenticateToken, requireRole(['ADMIN']), async (req:
 
     const id = `cust-${Date.now()}`;
     await db.prepare(`
-      INSERT INTO customers (id, name, code, contact_person, email, phone, address, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-    `).run(id, name, code, b.contact_person || b.contactPerson || null, b.email || null, b.phone || null, b.address || null, b.notes || null);
+      INSERT INTO customers (id, name, code, plant, contact_person, email, phone, address, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+    `).run(id, name, code, b.plant || null, b.contact_person || b.contactPerson || null, b.email || null, b.phone || null, b.address || null, b.notes || null);
 
     await auditLog(req.user!.id, 'CREATE_CUSTOMER', 'customers', id, { code, name });
     const created = await db.prepare(`SELECT * FROM customers WHERE id = ?`).get(id);
@@ -84,6 +132,7 @@ router.put('/customers/:id', authenticateToken, requireRole(['ADMIN']), async (r
       UPDATE customers SET
         name = COALESCE(?, name),
         code = COALESCE(?, code),
+        plant = COALESCE(?, plant),
         contact_person = COALESCE(?, contact_person),
         email = COALESCE(?, email),
         phone = COALESCE(?, phone),
@@ -91,7 +140,7 @@ router.put('/customers/:id', authenticateToken, requireRole(['ADMIN']), async (r
         notes = COALESCE(?, notes),
         updated_at = NOW(3)
       WHERE id = ?
-    `).run(b.name || null, b.code || null, b.contact_person || b.contactPerson || null, b.email || null, b.phone || null, b.address || null, b.notes || null, id);
+    `).run(b.name || null, b.code || null, b.plant !== undefined ? b.plant : null, b.contact_person || b.contactPerson || null, b.email || null, b.phone || null, b.address || null, b.notes || null, id);
 
     const updated = await db.prepare(`SELECT * FROM customers WHERE id = ?`).get(id);
     return res.json(updated);
@@ -154,6 +203,7 @@ router.get('/operators', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN'])
 const createStyleSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
+  plant: z.string().optional(),
   customer: z.string().optional(),
   customer_id: z.string().optional(),
   customerId: z.string().optional(),
@@ -164,7 +214,7 @@ const createStyleSchema = z.object({
 // POST /api/production/styles (SUPERVISOR / ADMIN)
 router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
-    const { code, name, customer, customer_id, customerId, season, notes } = createStyleSchema.parse(req.body);
+    const { code, name, plant, customer, customer_id, customerId, season, notes } = createStyleSchema.parse(req.body);
     const existing = await db.prepare(`SELECT * FROM styles WHERE code = ?`).get(code) as any;
     if (existing) {
       return res.status(409).json({ error: 'STYLE_EXISTS', message: `Style with code ${code} already exists`, style: existing });
@@ -183,9 +233,9 @@ router.post('/styles', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), 
 
     const id = `style-${Date.now()}`;
     await db.prepare(`
-      INSERT INTO styles (id, code, name, customer, customer_id, season, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-    `).run(id, code, name, resolvedCustomerName, resolvedCustomerId, season || null, notes || null);
+      INSERT INTO styles (id, code, name, plant, customer, customer_id, season, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+    `).run(id, code, name, plant || null, resolvedCustomerName, resolvedCustomerId, season || null, notes || null);
 
     await auditLog(req.user!.id, 'CREATE_STYLE', 'styles', id, { code, name });
 
@@ -280,6 +330,7 @@ const createSoSchema = z.object({
   productionOrderId: z.string().optional(),
   so_number: z.string().min(1),
   map_so: z.string().optional(),
+  plant: z.string().optional(),
   product: z.string().optional(),
   style_code: z.string().optional(),
   colour: z.string().optional(),
@@ -309,6 +360,7 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
         UPDATE sales_orders SET
           production_order_id = ?,
           map_so = ?,
+          plant = COALESCE(?, plant),
           product = COALESCE(?, product),
           style_code = COALESCE(?, style_code),
           colour = COALESCE(?, colour),
@@ -322,6 +374,7 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
       `).run(
         po.id,
         finalMapSo,
+        b.plant || null,
         b.product || po.style_code || 'Standard Garment',
         b.style_code || po.style_code || 'STD',
         b.colour || 'Default',
@@ -339,14 +392,15 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
     const id = `so-${Date.now()}`;
     await db.prepare(`
       INSERT INTO sales_orders (
-        id, production_order_id, so_number, map_so, product, style_code, colour,
+        id, production_order_id, so_number, map_so, plant, product, style_code, colour,
         size_range, order_quantity, line_id, shift_id, box_capacity, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CURRENT', NOW(3), NOW(3))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CURRENT', NOW(3), NOW(3))
     `).run(
       id,
       po.id,
       b.so_number.trim(),
       finalMapSo,
+      b.plant || null,
       b.product || po.style_code || 'Standard Garment',
       b.style_code || po.style_code || 'STD',
       b.colour || 'Default',
@@ -368,7 +422,7 @@ router.post('/sales-orders', authenticateToken, requireRole(['SUPERVISOR', 'ADMI
 router.put('/sales-orders/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
-    const { so_number, map_so, colour, order_quantity, box_capacity, remarks, notes } = req.body;
+    const { so_number, map_so, plant, colour, order_quantity, box_capacity, remarks, notes } = req.body;
     const existingSo = await db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(id) as any;
     if (!existingSo) {
       return res.status(404).json({ error: 'SO_NOT_FOUND', message: 'Sales Order not found' });
@@ -385,13 +439,14 @@ router.put('/sales-orders/:id', authenticateToken, requireRole(['SUPERVISOR', 'A
       UPDATE sales_orders
       SET so_number = COALESCE(?, so_number),
           map_so = ?,
+          plant = COALESCE(?, plant),
           colour = COALESCE(?, colour),
           order_quantity = COALESCE(?, order_quantity),
           box_capacity = COALESCE(?, box_capacity),
           remarks = COALESCE(?, remarks),
           updated_at = NOW(3)
       WHERE id = ?
-    `).run(so_number && String(so_number).trim() ? String(so_number).trim() : null, finalMapSo, colour || null, order_quantity || null, box_capacity || null, finalRemarks, id);
+    `).run(so_number && String(so_number).trim() ? String(so_number).trim() : null, finalMapSo, plant !== undefined ? plant : null, colour || null, order_quantity || null, box_capacity || null, finalRemarks, id);
     const updated = await db.prepare(`SELECT * FROM sales_orders WHERE id = ?`).get(id);
     return res.json(updated);
   } catch (err) {
@@ -1477,16 +1532,17 @@ router.delete('/styles/:id', authenticateToken, requireRole(['ADMIN']), deleteSt
 router.put('/styles/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
-    const { code, name, customer, notes } = req.body;
+    const { code, name, plant, customer, notes } = req.body;
     await db.prepare(`
       UPDATE styles
       SET code = COALESCE(?, code),
           name = COALESCE(?, name),
+          plant = COALESCE(?, plant),
           customer = COALESCE(?, customer),
           notes = COALESCE(?, notes),
           updated_at = NOW(3)
       WHERE id = ?
-    `).run(code || null, name || null, customer || null, notes || null, id);
+    `).run(code || null, name || null, plant !== undefined ? plant : null, customer || null, notes || null, id);
     const updated = await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(id);
     return res.json(updated);
   } catch (err) {
@@ -1496,16 +1552,17 @@ router.put('/styles/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']
 router.put('/admin/styles/:id', authenticateToken, requireRole(['SUPERVISOR', 'ADMIN']), async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
-    const { code, name, customer, notes } = req.body;
+    const { code, name, plant, customer, notes } = req.body;
     await db.prepare(`
       UPDATE styles
       SET code = COALESCE(?, code),
           name = COALESCE(?, name),
+          plant = COALESCE(?, plant),
           customer = COALESCE(?, customer),
           notes = COALESCE(?, notes),
           updated_at = NOW(3)
       WHERE id = ?
-    `).run(code || null, name || null, customer || null, notes || null, id);
+    `).run(code || null, name || null, plant !== undefined ? plant : null, customer || null, notes || null, id);
     const updated = await db.prepare(`SELECT * FROM styles WHERE id = ?`).get(id);
     return res.json(updated);
   } catch (err) {
@@ -2253,6 +2310,81 @@ router.get('/boxes', authenticateToken, async (req: AuthRequest, res, next) => {
     next(err);
   }
 });
+
+// PATCH /api/boxes/:id — Update box number / box code (Admin & Authorized users)
+const handleUpdateBoxNumber = async (req: AuthRequest, res: any, next: any) => {
+  try {
+    const boxId = req.params.id;
+    const { boxNumber, boxCode } = req.body || {};
+    const newBoxNumber = String(boxNumber || boxCode || '').trim();
+
+    if (!newBoxNumber) {
+      return res.status(400).json({ error: 'INVALID_BOX_NUMBER', message: 'Box number cannot be empty.' });
+    }
+
+    const box = await db.prepare(`SELECT * FROM boxes WHERE id = ? OR box_code = ? OR box_number = ?`).get(boxId, boxId, boxId) as any;
+    if (!box) {
+      return res.status(404).json({ error: 'BOX_NOT_FOUND', message: 'Box not found.' });
+    }
+
+    // Check if newBoxNumber already exists on a different box in the same PO
+    if (box.production_order_id) {
+      const existing = await db.prepare(`
+        SELECT id, box_code, box_number FROM boxes 
+        WHERE production_order_id = ? 
+          AND (UPPER(TRIM(box_code)) = ? OR UPPER(TRIM(box_number)) = ?) 
+          AND id != ?
+      `).get(box.production_order_id, newBoxNumber.toUpperCase(), newBoxNumber.toUpperCase(), box.id) as any;
+
+      if (existing) {
+        return res.status(400).json({
+          error: 'DUPLICATE_BOX_NUMBER',
+          message: `Box number '${newBoxNumber}' already exists for this Production Order.`
+        });
+      }
+    }
+
+    const oldBoxNumber = box.box_number || box.box_code;
+
+    await db.transaction(async (tx) => {
+      // 1. Update boxes table
+      await tx.prepare(`
+        UPDATE boxes 
+        SET box_number = ?, box_code = ?, updated_at = NOW(3) 
+        WHERE id = ?
+      `).run(newBoxNumber, newBoxNumber, box.id);
+
+      // 2. Normalize legacy records that may have stored box_code directly in box_id
+      if (oldBoxNumber && oldBoxNumber !== box.id) {
+        await tx.prepare(`UPDATE box_items SET box_id = ? WHERE box_id = ?`).run(box.id, oldBoxNumber).catch(() => {});
+        await tx.prepare(`UPDATE aql_inspections SET box_id = ? WHERE box_id = ?`).run(box.id, oldBoxNumber).catch(() => {});
+        await tx.prepare(`UPDATE box_transfers SET source_box_id = ? WHERE source_box_id = ?`).run(box.id, oldBoxNumber).catch(() => {});
+        await tx.prepare(`UPDATE box_transfers SET destination_box_id = ? WHERE destination_box_id = ?`).run(box.id, oldBoxNumber).catch(() => {});
+      }
+    });
+
+    await auditLog(req.user!.id, 'UPDATE_BOX_NUMBER', 'boxes', box.id, {
+      oldBoxNumber,
+      newBoxNumber,
+      poId: box.production_order_id
+    });
+
+    return res.json({
+      success: true,
+      message: `Box number updated from '${oldBoxNumber}' to '${newBoxNumber}' successfully.`,
+      box: {
+        ...box,
+        box_number: newBoxNumber,
+        box_code: newBoxNumber
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.patch('/boxes/:id', authenticateToken, handleUpdateBoxNumber);
+router.put('/boxes/:id', authenticateToken, handleUpdateBoxNumber);
 
 // DELETE /api/boxes/:id — Delete a box and release its packed items
 router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, next) => {

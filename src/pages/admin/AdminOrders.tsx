@@ -62,6 +62,7 @@ export const AdminOrders: React.FC = () => {
   const [stylesList, setStylesList] = useState<any[]>([]);
   const [supervisorsList, setSupervisorsList] = useState<any[]>([]);
   const [shiftsList, setShiftsList] = useState<any[]>([]);
+  const [plantsList, setPlantsList] = useState<any[]>([]);
 
   // 1. Edit Quantity Modal State
   const [qtyOrder, setQtyOrder] = useState<any | null>(null);
@@ -112,6 +113,7 @@ export const AdminOrders: React.FC = () => {
   const [newCustomerForm, setNewCustomerForm] = useState({
     name: '',
     code: '',
+    plant: '',
     notes: ''
   });
   const [savingCustomer, setSavingCustomer] = useState<boolean>(false);
@@ -122,6 +124,7 @@ export const AdminOrders: React.FC = () => {
   const [editCustomerForm, setEditCustomerForm] = useState({
     name: '',
     code: '',
+    plant: '',
     notes: ''
   });
   const [savingEditCustomer, setSavingEditCustomer] = useState<boolean>(false);
@@ -131,6 +134,7 @@ export const AdminOrders: React.FC = () => {
   const [editStyleForm, setEditStyleForm] = useState({
     code: '',
     name: '',
+    plant: '',
     customer: '',
     notes: ''
   });
@@ -141,6 +145,7 @@ export const AdminOrders: React.FC = () => {
   const [editPoForm, setEditPoForm] = useState({
     poNumber: '',
     poName: '',
+    plant: '',
     remarks: ''
   });
   const [savingEditPo, setSavingEditPo] = useState<boolean>(false);
@@ -150,6 +155,7 @@ export const AdminOrders: React.FC = () => {
   const [editSoForm, setEditSoForm] = useState({
     so_number: '',
     map_so: '',
+    plant: '',
     notes: ''
   });
   const [savingEditSo, setSavingEditSo] = useState<boolean>(false);
@@ -165,6 +171,7 @@ export const AdminOrders: React.FC = () => {
     production_order_id: '',
     so_number: '',
     map_so: '',
+    plant: '',
     product: '',
     style_code: '',
     colour: 'Default',
@@ -209,6 +216,7 @@ export const AdminOrders: React.FC = () => {
   const [newPoModalForm, setNewPoModalForm] = useState({
     poNumber: '',
     poName: '',
+    plant: '',
     notes: ''
   });
   const [savingPoInStep, setSavingPoInStep] = useState<boolean>(false);
@@ -218,6 +226,7 @@ export const AdminOrders: React.FC = () => {
   const [newSoModalForm, setNewSoModalForm] = useState({
     so_number: '',
     map_so: '',
+    plant: '',
     notes: ''
   });
   const [savingSoInStep, setSavingSoInStep] = useState<boolean>(false);
@@ -331,6 +340,7 @@ export const AdminOrders: React.FC = () => {
   const [newStyleForm, setNewStyleForm] = useState({
     code: '',
     name: '',
+    plant: '',
     customer: '',
     customerId: '',
     notes: ''
@@ -358,20 +368,25 @@ export const AdminOrders: React.FC = () => {
 
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCustomerForm.name.trim() || !newCustomerForm.code.trim()) {
-      showToast('Customer name and code are required', 'error');
+    if (!newCustomerForm.name.trim()) {
+      showToast('Customer name is required', 'error');
       return;
     }
     setSavingCustomer(true);
     try {
+      const payload = {
+        ...newCustomerForm,
+        name: newCustomerForm.name.trim(),
+        code: newCustomerForm.code.trim() ? newCustomerForm.code.trim().toUpperCase() : undefined
+      };
       const created: any = await apiFetch('/api/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCustomerForm)
+        body: JSON.stringify(payload)
       });
       showToast(`Customer "${newCustomerForm.name}" created successfully`, 'success');
       setShowAddCustomerModal(false);
-      setNewCustomerForm({ name: '', code: '', notes: '' });
+      setNewCustomerForm({ name: '', code: '', plant: '', notes: '' });
       fetchAdminCustomers();
       if (created && created.id) {
         setSelectedCustomerForNew(created);
@@ -459,6 +474,7 @@ export const AdminOrders: React.FC = () => {
         body: JSON.stringify({
           poNumber: editPoForm.poNumber.trim(),
           poName: editPoForm.poName.trim(),
+          plant: editPoForm.plant ? editPoForm.plant.trim() : null,
           remarks: editPoForm.remarks.trim()
         })
       });
@@ -546,6 +562,7 @@ export const AdminOrders: React.FC = () => {
         production_order_id: '',
         so_number: '',
         map_so: '',
+        plant: '',
         product: '',
         style_code: '',
         colour: 'Default',
@@ -589,6 +606,7 @@ export const AdminOrders: React.FC = () => {
       const payload: any = {
         code: newStyleForm.code.trim().toUpperCase(),
         name: newStyleForm.name.trim(),
+        plant: newStyleForm.plant ? newStyleForm.plant.trim() : undefined,
         customer: selectedCustomerForNew ? selectedCustomerForNew.name : newStyleForm.customer.trim(),
         customerId: selectedCustomerForNew ? selectedCustomerForNew.id : newStyleForm.customerId,
         notes: newStyleForm.notes.trim()
@@ -600,7 +618,7 @@ export const AdminOrders: React.FC = () => {
       });
       showToast(`Style "${newStyleForm.code}" created successfully`, 'success');
       setShowAddStyleModal(false);
-      setNewStyleForm({ code: '', name: '', customer: '', customerId: '', notes: '' });
+      setNewStyleForm({ code: '', name: '', plant: '', customer: '', customerId: '', notes: '' });
       fetchAdminStyles();
       fetchReferenceData();
       if (created && created.id) {
@@ -633,6 +651,7 @@ export const AdminOrders: React.FC = () => {
       id: `po-${Date.now()}`,
       poNumber: poNumberTrimmed,
       name: poNameTrimmed,
+      plant: newPoModalForm.plant ? newPoModalForm.plant.trim() : (currentUser?.plant || ''),
       customer: customerName,
       customer_id: selectedCustomerForNew?.id,
       style_id: selectedStyleForNew?.id,
@@ -650,10 +669,11 @@ export const AdminOrders: React.FC = () => {
       ...prev,
       poNumber: poNumberTrimmed,
       poName: poNameTrimmed,
+      plant: newPoModalForm.plant ? newPoModalForm.plant.trim() : (prev.plant || currentUser?.plant || ''),
       remarks: newPoModalForm.notes.trim()
     }));
     setShowAddPoModalInStep(false);
-    setNewPoModalForm({ poNumber: '', poName: '', notes: '' });
+    setNewPoModalForm({ poNumber: '', poName: '', plant: '', notes: '' });
     setSavingPoInStep(false);
     showToast(`Production Order "${poNumberTrimmed}" created successfully`, 'success');
   };
@@ -674,6 +694,7 @@ export const AdminOrders: React.FC = () => {
       id: `so-${Date.now()}`,
       so_number: soNumberTrimmed,
       map_so: mapSoTrimmed,
+      plant: newSoModalForm.plant ? newSoModalForm.plant.trim() : (selectedPoForNew?.plant || currentUser?.plant || ''),
       production_order_id: poId,
       po_number: poNum,
       customer: selectedCustomerForNew?.name || 'Factory Customer',
@@ -695,6 +716,7 @@ export const AdminOrders: React.FC = () => {
             production_order_id: selectedPoForNew.id,
             so_number: soNumberTrimmed,
             map_so: mapSoTrimmed,
+            plant: newSoModalForm.plant ? newSoModalForm.plant.trim() : undefined,
             product: newSo.product,
             style_code: newSo.style_code,
             colour: 'Standard',
@@ -716,7 +738,7 @@ export const AdminOrders: React.FC = () => {
       map_so: mapSoTrimmed
     }));
     setShowAddSoModalInStep(false);
-    setNewSoModalForm({ so_number: '', map_so: '', notes: '' });
+    setNewSoModalForm({ so_number: '', map_so: '', plant: '', notes: '' });
     setSavingSoInStep(false);
     showToast(`Sales Order "${soNumberTrimmed}" created successfully`, 'success');
   };
@@ -768,10 +790,11 @@ export const AdminOrders: React.FC = () => {
 
   const fetchReferenceData = async () => {
     try {
-      const [stylesData, usersData, shiftsData] = await Promise.allSettled([
+      const [stylesData, usersData, shiftsData, plantsData] = await Promise.allSettled([
         apiFetch('/api/styles'),
         apiFetch('/api/admin/users'),
-        apiFetch('/api/shifts')
+        apiFetch('/api/shifts'),
+        apiFetch('/api/plants')
       ]);
 
       if (stylesData.status === 'fulfilled' && Array.isArray(stylesData.value)) {
@@ -784,6 +807,9 @@ export const AdminOrders: React.FC = () => {
       }
       if (shiftsData.status === 'fulfilled' && Array.isArray(shiftsData.value)) {
         setShiftsList(shiftsData.value);
+      }
+      if (plantsData.status === 'fulfilled' && Array.isArray(plantsData.value)) {
+        setPlantsList(plantsData.value);
       }
     } catch (err) {
       console.warn('Failed to pre-fetch reference catalogs', err);
@@ -1152,40 +1178,6 @@ export const AdminOrders: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: '180px' }}>
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="btn btn-secondary"
-            style={{
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderRadius: 'var(--radius-md)',
-              cursor: 'pointer'
-            }}
-          >
-            <ArrowLeft size={15} /> Back
-          </button>
-          <div>
-            <h2 className="orders-header-title">
-              {activeTab === 'new'
-                ? 'Launch New Order (Customer ➔ Style ➔ PO ➔ SO)'
-                : 'Factory Production Orders & Multi-Tier Oversight'}
-            </h2>
-            {activeTab !== 'new' && (
-              <p className="orders-header-desc">
-                Live oversight across Customers, Styles, Production Orders, and Sales Orders with live status.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* ── Modern Primary Tabs Bar (Only 2 Tabs: Create New & Current) ── */}
       <div className="orders-primary-tabs">
         <button
@@ -1276,31 +1268,23 @@ export const AdminOrders: React.FC = () => {
           {/* ── STEP 1: CUSTOMER SELECTION OR CREATION ── */}
           {newStep === 'customer' && (
             <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', padding: '18px 16px', borderRadius: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Step 1 of 4 • Primary Client Entity
-                  </span>
-                  <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 0' }}>
-                    {canManageCustomers ? 'Select or Create Customer' : 'Select Customer'}
-                  </h3>
-                </div>
-                {canManageCustomers && (
+              {canManageCustomers && (
+                <div style={{ marginBottom: '14px' }}>
                   <button
                     type="button"
                     onClick={() => setShowAddCustomerModal(true)}
-                    className="btn btn-primary"
-                    style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    className="order-step-create-btn"
                   >
-                    <Plus size={15} /> + Create New Customer
+                    <Plus size={16} /> Create New Customer
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               {selectedCustomerForNew && (
                 <div style={{
-                  backgroundColor: 'rgba(20, 184, 166, 0.1)',
-                  border: '1.5px solid var(--primary-teal)',
+                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                  border: '1.5px solid #10B981',
+                  boxShadow: '0 0 16px rgba(16, 185, 129, 0.2)',
                   padding: '14px 18px',
                   borderRadius: '12px',
                   display: 'flex',
@@ -1311,18 +1295,31 @@ export const AdminOrders: React.FC = () => {
                   flexWrap: 'wrap'
                 }}>
                   <div>
-                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', display: 'block', letterSpacing: '0.04em' }}>
                       SELECTED ACTIVE CUSTOMER:
                     </span>
-                    <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>
-                      {selectedCustomerForNew.name} ({selectedCustomerForNew.code})
+                    <strong style={{ fontSize: '16px', color: '#ffffff', fontWeight: 800 }}>
+                      {selectedCustomerForNew.name}
                     </strong>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button
                       type="button"
                       onClick={() => setNewStep('style')}
-                      style={{ padding: '8px 16px', fontSize: '13px', fontWeight: 800, borderRadius: '8px', backgroundColor: 'var(--primary-teal)', border: 'none', color: '#041820', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      style={{
+                        padding: '9px 18px',
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        borderRadius: '8px',
+                        backgroundColor: '#10B981',
+                        border: 'none',
+                        color: '#041820',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 2px 10px rgba(16, 185, 129, 0.4)'
+                      }}
                     >
                       Proceed to Step 2: Style <ArrowRight size={15} />
                     </button>
@@ -1330,12 +1327,9 @@ export const AdminOrders: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  Or select from existing registered customers:
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Scrollable catalog ({customers.length} available)
+                  Current Customers:
                 </span>
               </div>
               <div style={{
@@ -1385,15 +1379,7 @@ export const AdminOrders: React.FC = () => {
           {/* ── STEP 2: STYLE SELECTION OR CREATION ── */}
           {newStep === 'style' && (
             <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', padding: '22px', borderRadius: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Step 2 of 4 • Garment Style & Design
-                  </span>
-                  <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>
-                    Select or Define Garment Style
-                  </h3>
-                </div>
+              <div style={{ marginBottom: '14px' }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -1406,10 +1392,9 @@ export const AdminOrders: React.FC = () => {
                     }
                     setShowAddStyleModal(true);
                   }}
-                  className="btn btn-primary"
-                  style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  className="order-step-create-btn"
                 >
-                  <Plus size={15} /> + Create New Style
+                  <Plus size={16} /> Create New Style
                 </button>
               </div>
 
@@ -1417,11 +1402,11 @@ export const AdminOrders: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
                   <div className="order-selected-entity-box">
                     <div>
-                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', display: 'block' }}>
                         SELECTED ACTIVE STYLE:
                       </span>
-                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
-                        {selectedStyleForNew.name} ({selectedStyleForNew.code})
+                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: '#ffffff' }}>
+                        {selectedStyleForNew.name}
                       </strong>
                     </div>
                   </div>
@@ -1487,12 +1472,9 @@ export const AdminOrders: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  Select from garment styles:
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Scrollable catalog ({adminStyles.filter(s => !selectedCustomerForNew || !s.customer_id || s.customer_id === selectedCustomerForNew.id || (s.customer && s.customer.toLowerCase() === selectedCustomerForNew.name.toLowerCase())).length} styles available)
+                  Current Styles:
                 </span>
               </div>
               <div style={{
@@ -1537,15 +1519,7 @@ export const AdminOrders: React.FC = () => {
           {/* ── STEP 3: PRODUCTION ORDER (PO) SPECIFICATION ── */}
           {newStep === 'po' && (
             <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', padding: '22px', borderRadius: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Step 3 of 4 • Production Order (PO) Details
-                  </span>
-                  <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>
-                    Select or Define Production Order (PO)
-                  </h3>
-                </div>
+              <div style={{ marginBottom: '14px' }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -1553,14 +1527,14 @@ export const AdminOrders: React.FC = () => {
                     setNewPoModalForm({
                       poNumber: freshPo,
                       poName: `${selectedStyleForNew?.name || 'Garment'} Production Run`,
+                      plant: currentUser?.plant || '',
                       notes: ''
                     });
                     setShowAddPoModalInStep(true);
                   }}
-                  className="btn btn-primary"
-                  style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  className="order-step-create-btn"
                 >
-                  <Plus size={15} /> + Create New PO
+                  <Plus size={16} /> Create New PO
                 </button>
               </div>
 
@@ -1568,10 +1542,10 @@ export const AdminOrders: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
                   <div className="order-selected-entity-box">
                     <div>
-                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', display: 'block' }}>
                         SELECTED ACTIVE PO:
                       </span>
-                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
+                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: '#ffffff' }}>
                         {selectedPoForNew.poNumber || selectedPoForNew.id} {selectedPoForNew.name || selectedPoForNew.poName ? `— ${selectedPoForNew.name || selectedPoForNew.poName}` : ''}
                       </strong>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
@@ -1641,21 +1615,9 @@ export const AdminOrders: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  Select from existing registered Production Orders:
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Scrollable catalog ({
-                    orders.filter(po => {
-                      const pathway = (po.orderPathway || po.order_pathway || '').toUpperCase();
-                      const num = String(po.poNumber || po.po_number || po.id || '');
-                      if (pathway === 'STYLE_DIRECT' || num.startsWith('STYLE-')) return false;
-
-                      if (!selectedStyleForNew) return true;
-                      return po.styleId === selectedStyleForNew.id || po.style_id === selectedStyleForNew.id || po.style_code === selectedStyleForNew.code || (po.style && (po.style.id === selectedStyleForNew.id || po.style.code === selectedStyleForNew.code));
-                    }).length
-                  } POs available)
+                  Current POs:
                 </span>
               </div>
               <div style={{
@@ -1721,29 +1683,21 @@ export const AdminOrders: React.FC = () => {
           {/* ── STEP 4: SALES ORDER (SO) SPECIFICATION ── */}
           {newStep === 'so' && (
             <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', padding: '22px', borderRadius: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Step 4 of 4 • Sales Order (SO) Specification
-                  </span>
-                  <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '4px 0 2px' }}>
-                    Select or Define Sales Order (SO)
-                  </h3>
-                </div>
+              <div style={{ marginBottom: '14px' }}>
                 <button
                   type="button"
                   onClick={() => {
                     setNewSoModalForm({
                       so_number: '',
                       map_so: '',
+                      plant: selectedPoForNew?.plant || currentUser?.plant || '',
                       notes: ''
                     });
                     setShowAddSoModalInStep(true);
                   }}
-                  className="btn btn-primary"
-                  style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  className="order-step-create-btn"
                 >
-                  <Plus size={15} /> + Create New SO
+                  <Plus size={16} /> Create New SO
                 </button>
               </div>
 
@@ -1751,10 +1705,10 @@ export const AdminOrders: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
                   <div className="order-selected-entity-box">
                     <div>
-                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', display: 'block' }}>
+                      <span className="order-selected-entity-label" style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', display: 'block' }}>
                         SELECTED ACTIVE SO:
                       </span>
-                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
+                      <strong className="order-selected-entity-val" style={{ fontSize: '15px', color: '#ffffff' }}>
                         {selectedSoForNew.so_number} {selectedSoForNew.map_so ? `— ${selectedSoForNew.map_so}` : ''}
                       </strong>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
@@ -1790,17 +1744,9 @@ export const AdminOrders: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ marginBottom: '8px' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  Select from existing registered Sales Orders (SO):
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Scrollable catalog ({
-                    salesOrders.filter(so => {
-                      if (!selectedPoForNew) return true;
-                      return so.production_order_id === selectedPoForNew.id || so.po_number === (selectedPoForNew.poNumber || selectedPoForNew.id);
-                    }).length
-                  } SOs available)
+                  Current SOs:
                 </span>
               </div>
               <div style={{
@@ -2031,6 +1977,20 @@ export const AdminOrders: React.FC = () => {
                             <h4 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0 4px' }}>
                               {c.name}
                             </h4>
+                            {c.plant && (
+                              <span style={{
+                                fontSize: '10px',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                color: '#60a5fa',
+                                fontWeight: 700,
+                                display: 'inline-block',
+                                marginBottom: '4px'
+                              }}>
+                                🏢 {c.plant}
+                              </span>
+                            )}
                           </div>
                           <span style={{
                             fontSize: '11px',
@@ -2068,6 +2028,7 @@ export const AdminOrders: React.FC = () => {
                               setEditCustomerForm({
                                 name: c.name || '',
                                 code: c.code || '',
+                                plant: c.plant || '',
                                 notes: c.notes || ''
                               });
                             }}
@@ -2359,6 +2320,7 @@ export const AdminOrders: React.FC = () => {
                         setEditPoForm({
                           poNumber: po.poNumber || po.po_number || '',
                           poName: po.poName || po.po_name || '',
+                          plant: po.plant || '',
                           remarks: po.remarks || po.notes || ''
                         });
                       }}
@@ -2555,6 +2517,20 @@ export const AdminOrders: React.FC = () => {
                           <h4 style={{ margin: '8px 0 0 0', fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
                             {s.name}
                           </h4>
+                          {s.plant && (
+                            <span style={{
+                              fontSize: '10px',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                              color: '#60a5fa',
+                              fontWeight: 700,
+                              display: 'inline-block',
+                              marginTop: '4px'
+                            }}>
+                              🏢 {s.plant}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -2620,6 +2596,7 @@ export const AdminOrders: React.FC = () => {
                             setEditStyleForm({
                               code: s.code || '',
                               name: s.name || '',
+                              plant: s.plant || '',
                               customer: s.customer || '',
                               notes: s.notes || ''
                             });
@@ -2801,8 +2778,9 @@ export const AdminOrders: React.FC = () => {
                       </div>
                     </div>
 
-                    {(so.line_name || so.shift_name) && (
+                    {(so.line_name || so.shift_name || so.plant) && (
                       <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {so.plant && <span style={{ color: '#60a5fa', fontWeight: 700 }}>🏢 {so.plant} </span>}
                         {so.line_name && <span>Line: {so.line_name} </span>}
                         {so.shift_name && <span>• Shift: {so.shift_name}</span>}
                       </div>
@@ -2857,6 +2835,7 @@ export const AdminOrders: React.FC = () => {
                           setEditSoForm({
                             so_number: so.so_number || '',
                             map_so: so.map_so || '',
+                            plant: so.plant || '',
                             notes: so.remarks || so.notes || ''
                           });
                         }}
@@ -3279,16 +3258,21 @@ export const AdminOrders: React.FC = () => {
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
                       Plant / Garment Location
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Biyagama, Katunayake"
+                    <select
                       value={fullForm.plant || ''}
                       onChange={e => {
                         setFullForm({ ...fullForm, plant: e.target.value });
                         setIsFullDirty(true);
                       }}
-                      style={styles.input}
-                    />
+                      style={styles.select}
+                    >
+                      <option value="">-- Select Plant --</option>
+                      {plantsList.map(p => (
+                        <option key={p.id || p.code} value={p.name}>
+                          {p.name} ({p.code})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
@@ -3969,6 +3953,24 @@ export const AdminOrders: React.FC = () => {
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={newStyleForm.plant || ''}
+                  onChange={e => setNewStyleForm({ ...newStyleForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
                   Notes / Specifications (Optional)
                 </label>
                 <textarea
@@ -4179,17 +4181,34 @@ export const AdminOrders: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    Customer Code *
+                    Customer Code (Optional)
                   </label>
                   <input
                     type="text"
-                    required
                     value={newCustomerForm.code}
                     onChange={e => setNewCustomerForm({ ...newCustomerForm, code: e.target.value.toUpperCase() })}
                     style={styles.input}
-                    placeholder="e.g. NIKE"
+                    placeholder="e.g. NIKE (Auto-generated if blank)"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={newCustomerForm.plant || ''}
+                  onChange={e => setNewCustomerForm({ ...newCustomerForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -4362,6 +4381,24 @@ export const AdminOrders: React.FC = () => {
                   {orders.map(o => (
                     <option key={o.id} value={o.id}>
                       {o.poNumber || o.po_number} — {o.styleName || o.style_name} ({o.customer || 'Factory'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={newSoForm.plant || ''}
+                  onChange={e => setNewSoForm({ ...newSoForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
                     </option>
                   ))}
                 </select>
@@ -4571,6 +4608,24 @@ export const AdminOrders: React.FC = () => {
 
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={newPoModalForm.plant || ''}
+                  onChange={e => setNewPoModalForm({ ...newPoModalForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                   Special Notes / Contract Terms
                 </label>
                 <textarea
@@ -4716,6 +4771,24 @@ export const AdminOrders: React.FC = () => {
 
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={newSoModalForm.plant || ''}
+                  onChange={e => setNewSoModalForm({ ...newSoModalForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                   Special Notes / Packaging Requirements
                 </label>
                 <textarea
@@ -4822,6 +4895,24 @@ export const AdminOrders: React.FC = () => {
                     placeholder="e.g. NIKE"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={editCustomerForm.plant || ''}
+                  onChange={e => setEditCustomerForm({ ...editCustomerForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -4942,6 +5033,24 @@ export const AdminOrders: React.FC = () => {
                   onChange={e => setEditStyleForm({ ...editStyleForm, customer: e.target.value })}
                   style={styles.input}
                 />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={editStyleForm.plant || ''}
+                  onChange={e => setEditStyleForm({ ...editStyleForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -5075,6 +5184,24 @@ export const AdminOrders: React.FC = () => {
                     style={{ ...styles.input, backgroundColor: 'var(--bg-surface-3)', cursor: 'not-allowed', opacity: 0.85, fontSize: '12px' }}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={editPoForm.plant || ''}
+                  onChange={e => setEditPoForm({ ...editPoForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -5220,6 +5347,24 @@ export const AdminOrders: React.FC = () => {
                     style={{ ...styles.input, backgroundColor: 'var(--bg-surface-3)', cursor: 'not-allowed', opacity: 0.85, fontSize: '12px' }}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Plant / Garment Location
+                </label>
+                <select
+                  value={editSoForm.plant || ''}
+                  onChange={e => setEditSoForm({ ...editSoForm, plant: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">-- Select Plant (Optional) --</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

@@ -14,6 +14,7 @@ import {
   FileText,
   Box,
   Trash2,
+  Edit2,
   Activity,
   Search,
   X,
@@ -139,6 +140,101 @@ export const AdminReports: React.FC = () => {
         showToast(`Box ${boxCode} deleted successfully.`, 'success');
       }
     });
+  };
+
+  // Edit Carton Box Number state and handlers
+  const [editingBox, setEditingBox] = useState<{
+    box: any;
+    currentNumber: string;
+    newNumber: string;
+  } | null>(null);
+  const [isSavingBoxEdit, setIsSavingBoxEdit] = useState<boolean>(false);
+
+  const handleOpenEditBox = (bx: any) => {
+    const currentNum = bx.box_code || bx.box_number || bx.boxCode || bx.boxNumber || '';
+    setEditingBox({
+      box: bx,
+      currentNumber: currentNum,
+      newNumber: currentNum
+    });
+  };
+
+  const updateLocalBoxNumber = (boxId: string, oldBoxCode: string, newNumber: string) => {
+    setOpLogsData((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        packingLogs: (prev.packingLogs || []).map((b: any) => {
+          const matches = b.id === boxId || b.box_id === boxId || b.box_code === oldBoxCode || b.box_number === oldBoxCode || b.boxCode === oldBoxCode;
+          if (!matches) return b;
+          return {
+            ...b,
+            box_code: newNumber,
+            box_number: newNumber,
+            boxCode: newNumber,
+            boxNumber: newNumber,
+          };
+        })
+      };
+    });
+    setAdminData((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        adminBoxes: Array.isArray(prev.adminBoxes) ? prev.adminBoxes.map((b: any) => {
+          const matches = b.id === boxId || b.box_id === boxId || b.box_code === oldBoxCode || b.box_number === oldBoxCode || b.boxCode === oldBoxCode;
+          if (!matches) return b;
+          return {
+            ...b,
+            box_code: newNumber,
+            box_number: newNumber,
+            boxCode: newNumber,
+            boxNumber: newNumber,
+          };
+        }) : []
+      };
+    });
+    setSelectedBoxModal((prev: any) => {
+      if (!prev) return prev;
+      const isCurrentModal = prev.id === boxId || prev.box_id === boxId || prev.box_code === oldBoxCode || prev.boxCode === oldBoxCode || prev.box_number === oldBoxCode;
+      if (!isCurrentModal) return prev;
+      return {
+        ...prev,
+        box_code: newNumber,
+        box_number: newNumber,
+        boxCode: newNumber,
+        boxNumber: newNumber,
+      };
+    });
+  };
+
+  const handleSaveBoxEdit = async () => {
+    if (!editingBox) return;
+    const targetBoxId = editingBox.box.id || editingBox.box.box_id || editingBox.currentNumber;
+    const trimmed = editingBox.newNumber.trim();
+    if (!trimmed) {
+      showToast('Box number cannot be empty.', 'error');
+      return;
+    }
+    if (trimmed === editingBox.currentNumber) {
+      setEditingBox(null);
+      return;
+    }
+
+    setIsSavingBoxEdit(true);
+    try {
+      const res = await apiFetch(`/api/boxes/${encodeURIComponent(targetBoxId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ boxNumber: trimmed, boxCode: trimmed })
+      });
+      updateLocalBoxNumber(targetBoxId, editingBox.currentNumber, trimmed);
+      showToast(res?.message || `Box number updated to "${trimmed}" successfully.`, 'success');
+      setEditingBox(null);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update box number.', 'error');
+    } finally {
+      setIsSavingBoxEdit(false);
+    }
   };
 
   // Item-wise delete from Box Content Detail modal
@@ -2135,33 +2231,91 @@ export const AdminReports: React.FC = () => {
       console.warn('Backend merged CSV export endpoint returned', response.status, '- attempting client-side fallback');
       const headers = [
         '#',
-        'QC QR Barcode',
-        'Box Code',
-        'Packing State',
-        'Box Status',
+        'Product QR Barcode',
         'Customer',
         'Style Name',
         'PO Number',
         'SO Name',
         'Line',
-        'Inspector',
-        'Result',
-        'Defect / Reason',
-        'QC Date & Time',
+        
+        // Inline (Pre-QC) Details
+        'Inline Pre-QC QR(s)',
+        'Inline Result',
+        'Inline Tests & Details',
+        'Inline Defect / Reason',
+        'Inline Inspector',
+        'Inline Date & Time',
+
+        // Endline (QC & Test) Details
+        'Endline QC Result',
+        'Endline Test Result',
+        'Endline Overall Result',
+        'Endline Tests & Details (Passed Tests)',
+        'Endline Defect / Reason',
+        'Endline QC Inspector',
+        'Endline Test Inspector',
+        'Endline Date & Time',
+
+        // Packing Details
+        'Packing State',
+        'Box Code',
+        'Box Status',
+        'Box Capacity',
+        'Box Current Fill',
         'Packed By',
-        'Capacity',
-        'Current Fill',
         'Packed Date & Time',
-        'Linked Pre-QC QR(s)',
-        'AQL Result',
-        'AQL Defect / Notes',
-        'AQL Inspector',
-        'AQL Date & Time',
+
+        // Normal AQL Details
+        'Normal AQL Result',
+        'Normal AQL Defect Notes',
+        'Normal AQL Inspector',
+        'Normal AQL Date & Time',
+
+        // Final AQL Details
         'Final AQL Result',
         'Final AQL Notes',
         'Final AQL Auditor',
-        'Final AQL Date & Time'
+        'Final AQL Date & Time',
+
+        // Box Transfer Details
+        'Box Transfer State',
+        'Transfer From Box',
+        'Transfer To Box',
+        'Transferred By',
+        'Transfer Date & Time',
+        'Transfer Remarks'
       ];
+
+      const formatTestDetailsFallback = (rawTestDetails: any, qcRes?: string, testRes?: string): string => {
+        const parts: string[] = [];
+        if (rawTestDetails) {
+          try {
+            const d = typeof rawTestDetails === 'string' ? JSON.parse(rawTestDetails) : rawTestDetails;
+            if (Array.isArray(d)) {
+              for (const item of d) {
+                if (typeof item === 'string') parts.push(item);
+                else if (item && typeof item === 'object') {
+                  const name = item.testName || item.name || item.title || 'Test';
+                  const res = item.result || item.status || (item.passed ? 'PASS' : 'FAIL') || 'PASS';
+                  parts.push(`${name}: ${res}`);
+                }
+              }
+            } else if (d && typeof d === 'object') {
+              for (const [k, v] of Object.entries(d)) {
+                const res = typeof v === 'string' ? v : (v as any)?.result || (v as any)?.status || 'PASS';
+                parts.push(`${k}: ${res}`);
+              }
+            }
+          } catch {
+            parts.push(String(rawTestDetails));
+          }
+        }
+        if (parts.length === 0) {
+          if (qcRes) parts.push(`QC: ${qcRes}`);
+          if (testRes) parts.push(`Test: ${testRes}`);
+        }
+        return parts.join('; ') || 'PASS';
+      };
 
       const toCsvField = (val: any): string => {
         if (val === null || val === undefined || val === '') return '';
@@ -2188,13 +2342,30 @@ export const AdminReports: React.FC = () => {
         const currentFill = isPacked ? (matchingBox.activeFilledCount || matchingBox.current_fill || (matchingBox.productQrs?.length || 0)) : '';
         const packedDateTime = isPacked ? formatSriLankaDateTime(matchingBox.packed_at || matchingBox.created_at) : '';
 
+        // Inline
         const preQcList = Array.isArray(qc.linked_pre_qc_qrs)
           ? qc.linked_pre_qc_qrs
           : typeof qc.linked_pre_qc_qrs === 'string' && qc.linked_pre_qc_qrs.trim().length > 0
           ? qc.linked_pre_qc_qrs.split(',').map((s: string) => s.trim())
           : [];
         const linkedPreQcs = preQcList.length > 0 ? preQcList.join('; ') : 'Direct / None';
+        const inlineResult = qc.inline_result || (preQcList.length > 0 ? 'PASS' : 'N/A');
+        const inlineTests = formatTestDetailsFallback(qc.inline_test_details, inlineResult);
+        const inlineDefect = qc.inline_failure_reason || '';
+        const inlineInspector = qc.inline_inspector_name || '';
+        const inlineDateTime = qc.inline_scanned_at ? formatSriLankaDateTime(qc.inline_scanned_at) : '';
 
+        // Endline
+        const endlineQcResult = qc.qc_result || qc.result || 'PASS';
+        const endlineTestResult = qc.test_result || 'PASS';
+        const endlineOverallResult = (endlineQcResult === 'FAIL' || endlineTestResult === 'FAIL') ? 'FAIL' : 'PASS';
+        const endlineTestsPassed = formatTestDetailsFallback(qc.test_details, endlineQcResult, endlineTestResult);
+        const endlineDefect = qc.failure_reason || qc.defect_reason || qc.test_failure_reason || '';
+        const endlineQcInspector = qc.inspector_name || 'QC Inspector';
+        const endlineTestInspector = qc.test_inspector_name || qc.inspector_name || '';
+        const qcDateTime = formatSriLankaDateTime(qc.scanned_at);
+
+        // AQL
         const matchingAql = isPacked ? filteredAqlLogs.find(a => (a.box_code === boxCode || a.box_id === matchingBox.id)) : null;
         const matchingFinalAql = isPacked ? filteredFinalAqlLogs.find(fa => (fa.box_code === boxCode || fa.box_id === matchingBox.id)) : null;
 
@@ -2208,34 +2379,70 @@ export const AdminReports: React.FC = () => {
         const finalAqlAuditor = isPacked ? (matchingFinalAql?.inspector_name || '') : '';
         const finalAqlDateTime = isPacked && matchingFinalAql ? formatSriLankaDateTime(matchingFinalAql.audited_at || matchingFinalAql.completed_at || matchingFinalAql.created_at) : '';
 
+        // Box Transfer
+        const matchingTransfer = isPacked ? filteredTransferLogs.find(t => (t.source_box_id === matchingBox.id || t.source_box_code === boxCode || t.destination_box_id === matchingBox.id || t.destination_box_code === boxCode)) : null;
+        const transferState = matchingTransfer ? 'TRANSFERRED' : 'NOT TRANSFERRED';
+        const transferFromBox = matchingTransfer ? (matchingTransfer.source_box_code || matchingTransfer.from_box || '') : '';
+        const transferToBox = matchingTransfer ? (matchingTransfer.destination_box_code || matchingTransfer.to_box || '') : '';
+        const transferredBy = matchingTransfer ? (matchingTransfer.transferred_by_name || matchingTransfer.operator_name || '') : '';
+        const transferDateTime = matchingTransfer ? formatSriLankaDateTime(matchingTransfer.transferred_at || matchingTransfer.created_at) : '';
+        const transferRemarks = matchingTransfer ? (matchingTransfer.remarks || '') : '';
+
         return [
           idx + 1,
           toCsvField(qr),
-          toCsvField(boxCode),
-          packingState,
-          boxStatus,
           toCsvField(qc.customer || matchingBox?.customer || ''),
           toCsvField(qc.style_name || matchingBox?.style_name || ''),
           toCsvField(qc.po_number || matchingBox?.po_number || 'No PO & SO'),
           toCsvField(qc.so_name || matchingBox?.so_name || 'No SO'),
           toCsvField(qc.line_name || matchingBox?.line_name || 'Line 1'),
-          toCsvField(qc.inspector_name || 'QC Inspector'),
-          qc.qc_result || qc.result || 'PASS',
-          toCsvField(qc.failure_reason || qc.defect_reason || ''),
-          toCsvField(formatSriLankaDateTime(qc.scanned_at)),
-          toCsvField(packedBy),
+
+          // Inline
+          toCsvField(linkedPreQcs),
+          toCsvField(inlineResult),
+          toCsvField(inlineTests),
+          toCsvField(inlineDefect),
+          toCsvField(inlineInspector),
+          toCsvField(inlineDateTime),
+
+          // Endline
+          toCsvField(endlineQcResult),
+          toCsvField(endlineTestResult),
+          toCsvField(endlineOverallResult),
+          toCsvField(endlineTestsPassed),
+          toCsvField(endlineDefect),
+          toCsvField(endlineQcInspector),
+          toCsvField(endlineTestInspector),
+          toCsvField(qcDateTime),
+
+          // Packing
+          packingState,
+          toCsvField(boxCode),
+          boxStatus,
           capacity,
           currentFill,
+          toCsvField(packedBy),
           toCsvField(packedDateTime),
-          toCsvField(linkedPreQcs),
+
+          // Normal AQL
           toCsvField(aqlResult),
           toCsvField(aqlDefectNotes),
           toCsvField(aqlInspector),
           toCsvField(aqlDateTime),
+
+          // Final AQL
           toCsvField(finalAqlResult),
           toCsvField(finalAqlNotes),
           toCsvField(finalAqlAuditor),
-          toCsvField(finalAqlDateTime)
+          toCsvField(finalAqlDateTime),
+
+          // Box Transfer
+          toCsvField(transferState),
+          toCsvField(transferFromBox),
+          toCsvField(transferToBox),
+          toCsvField(transferredBy),
+          toCsvField(transferDateTime),
+          toCsvField(transferRemarks)
         ];
       });
 
@@ -2259,53 +2466,20 @@ export const AdminReports: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Printable Header */}
-      <div className="admin-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ flex: '1 1 auto', minWidth: '220px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-            Executive Operations & Production Reports 📊
-          </h2>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
-            Descriptive Style & PO analysis covering Quality Inspection (QC), Carton Packing, AQL Sample Audits, and Box Transfers.
-          </p>
-        </div>
-      </div>
-
-      {/* Filter Bar with Time Period, Customer, Style, PO, SO, and Search */}
-      <div className="card no-print" style={{ backgroundColor: 'var(--bg-surface-1)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1.5px solid var(--border-color)', borderRadius: '12px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Filter size={16} color="var(--primary-teal)" />
-            <span style={{ fontSize: '13px', fontWeight: 800 }}>Audit & Operational Filters:</span>
+      {/* ── Overall Details (Production Order & Operation Detailed Audit Table) ──────── */}
+      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '16px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+              Overall Details
+            </h3>
           </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            {/* Time Range Presets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700 }}>PERIOD:</span>
-              <div style={styles.tabBar}>
-                {(['Today', 'Week', 'Month', 'All'] as const).map(tab => (
-                  <button
-                    key={tab}
-                    style={timeRange === tab ? styles.tabActive : styles.tabBtn}
-                    onClick={() => {
-                      setTimeRange(tab);
-                      setSelectedDateFrom('');
-                      setSelectedDateTo('');
-                    }}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Export Excel Button added inside Filter Box */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={handleExportExcel}
               className="btn btn-primary"
               style={{
-                padding: '7px 14px',
+                padding: '6px 12px',
                 fontSize: '12px',
                 fontWeight: 700,
                 display: 'inline-flex',
@@ -2316,166 +2490,12 @@ export const AdminReports: React.FC = () => {
                 borderRadius: '8px',
                 cursor: 'pointer'
               }}
+              title="Export Overall Production Details to Excel/CSV"
             >
-              <FileSpreadsheet size={15} /> Export Excel
+              <FileSpreadsheet size={14} /> Export Excel
             </button>
+            <StatusPill label={`${filteredOrders.length} Records`} variant="teal" />
           </div>
-        </div>
-
-        {/* Dropdown Filters Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px', alignItems: 'center' }}>
-          {/* Customer Filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Customer</label>
-            <select
-              value={selectedCustomerFilter}
-              onChange={e => setSelectedCustomerFilter(e.target.value)}
-              style={styles.selectFilter}
-            >
-              <option value="">All Customers ({availableCustomers.length})</option>
-              {availableCustomers.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Style Filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Style</label>
-            <select
-              value={selectedStyleFilter}
-              onChange={e => setSelectedStyleFilter(e.target.value)}
-              style={styles.selectFilter}
-            >
-              <option value="">All Styles ({availableStyles.length})</option>
-              {availableStyles.map(st => (
-                <option key={st} value={st}>{st}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* PO Filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>PO Name / Number</label>
-            <select
-              value={selectedPoFilter}
-              onChange={e => setSelectedPoFilter(e.target.value)}
-              style={styles.selectFilter}
-            >
-              <option value="">All POs ({availablePos.length})</option>
-              {availablePos.map(p => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* SO Filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>SO Name / Number</label>
-            <select
-              value={selectedSoFilter}
-              onChange={e => setSelectedSoFilter(e.target.value)}
-              style={styles.selectFilter}
-            >
-              <option value="">All SOs ({availableSos.length})</option>
-              {availableSos.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Date Range: From */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>From Date</label>
-            <input
-              type="date"
-              value={selectedDateFrom}
-              onChange={e => {
-                setSelectedDateFrom(e.target.value);
-                setTimeRange('All');
-              }}
-              style={{ ...styles.selectFilter, colorScheme: 'dark' }}
-            />
-          </div>
-
-          {/* Date Range: To */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>To Date</label>
-            <input
-              type="date"
-              value={selectedDateTo}
-              onChange={e => {
-                setSelectedDateTo(e.target.value);
-                setTimeRange('All');
-              }}
-              style={{ ...styles.selectFilter, colorScheme: 'dark' }}
-            />
-          </div>
-        </div>
-
-        {/* Search & Reset */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ position: 'relative', flex: '1', minWidth: '220px' }}>
-            <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input
-              type="text"
-              placeholder="Search Customer, Style, PO, SO in audit table..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '7px 10px 7px 32px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                backgroundColor: 'var(--bg-surface-2)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)'
-              }}
-            />
-          </div>
-
-          {(selectedCustomerFilter || selectedStyleFilter || selectedPoFilter || selectedSoFilter || selectedDateFrom || selectedDateTo || searchTerm) && (
-            <button
-              onClick={() => {
-                setSelectedCustomerFilter('');
-                setSelectedStyleFilter('');
-                setSelectedPoFilter('');
-                setSelectedSoFilter('');
-                setSelectedDateFrom('');
-                setSelectedDateTo('');
-                setSearchTerm('');
-              }}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                border: '1px solid rgba(239, 68, 68, 0.4)',
-                color: '#EF4444',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                height: '34px'
-              }}
-            >
-              <X size={14} /> Clear All Filters
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Production Order & Operation Detailed Audit Table (12 Key Fields) ──────── */}
-      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '16px', borderRadius: '14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>Production Order & Operation Detailed Audit Table</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-              Full hierarchical breakdown: Customer ➔ Style ➔ PO ➔ SO with active floor operational metrics.
-            </p>
-          </div>
-          <StatusPill label={`${filteredOrders.length} Records`} variant="teal" />
         </div>
 
         {filteredOrders.length === 0 ? (
@@ -2661,30 +2681,8 @@ export const AdminReports: React.FC = () => {
         )}
       </div>
 
-      {/* ── Section: Factory Operational Logs & Deep Inspection (From Dashboard) ── */}
+      {/* ── Section: Factory Operational Logs & Deep Inspection ── */}
       <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--primary-teal)',
-              boxShadow: '0 0 8px var(--primary-teal)',
-              display: 'inline-block'
-            }} />
-            <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              FACTORY OPERATIONAL DEEP INSPECTION LOGS
-            </span>
-          </div>
-          <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-            Operational Logs & Unit Records 📋
-          </h3>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Inspect live production orders, carton box contents & QR lists, defect rates, scrap logs, and system audit trails.
-          </p>
-        </div>
-
         {/* Master Cascade Selector Bar: Customer ➔ Style ➔ PO ➔ SO ➔ Line */}
         <div style={{
           backgroundColor: 'var(--bg-surface-2)',
@@ -2695,12 +2693,8 @@ export const AdminReports: React.FC = () => {
           flexDirection: 'column',
           gap: '12px'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary-teal)', fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              <Layers size={16} />
-              <span>Step 1: Order Cascade Selector (Customer ➔ Style ➔ PO ➔ SO)</span>
-            </div>
-            {(selectedCustomerFilter || selectedStyleFilter || selectedPoFilter || selectedSoFilter || selectedLineFilter) && (
+          {(selectedCustomerFilter || selectedStyleFilter || selectedPoFilter || selectedSoFilter || selectedLineFilter) && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
               <button
                 onClick={() => {
                   setSelectedCustomerFilter('');
@@ -2726,8 +2720,8 @@ export const AdminReports: React.FC = () => {
               >
                 <X size={12} /> Clear Filter Selection
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
             {/* 1. Customer Dropdown */}
@@ -3461,9 +3455,32 @@ export const AdminReports: React.FC = () => {
                             {idx + 1}
                           </td>
                           <td data-label="BOX IDENTIFIER" style={styles.td}>
-                            <strong style={{ color: 'var(--color-purple)' }}>
-                              {bx.box_code || bx.box_number || bx.boxCode || 'BOX-N/A'}
-                            </strong>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              <strong style={{ color: 'var(--color-purple)' }}>
+                                {bx.box_code || bx.box_number || bx.boxCode || 'BOX-N/A'}
+                              </strong>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditBox(bx)}
+                                style={{
+                                  background: 'rgba(56, 189, 248, 0.12)',
+                                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                                  borderRadius: '4px',
+                                  padding: '2px 5px',
+                                  cursor: 'pointer',
+                                  color: '#38BDF8',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  fontSize: '10px',
+                                  fontWeight: 700
+                                }}
+                                title="Edit this box number"
+                              >
+                                <Edit2 size={11} />
+                                Edit
+                              </button>
+                            </div>
                           </td>
                           <td data-label="CUSTOMER / STYLE" style={styles.td}>
                             <div>
@@ -3546,6 +3563,27 @@ export const AdminReports: React.FC = () => {
                           </td>
                           <td data-label="ACTION" style={styles.td}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditBox(bx)}
+                                className="btn btn-secondary"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  color: '#38BDF8',
+                                  borderColor: 'rgba(56, 189, 248, 0.4)',
+                                  backgroundColor: 'rgba(56, 189, 248, 0.1)'
+                                }}
+                                title="Edit this box number"
+                              >
+                                <Edit2 size={12} color="#38BDF8" />
+                                Edit Box
+                              </button>
                               <button
                                 onClick={() => setSelectedBoxModal({
                                   ...bx,
@@ -4320,9 +4358,32 @@ export const AdminReports: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.08em' }}>BOX CONTENT DETAIL</span>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Box {selectedBoxModal.boxCode || selectedBoxModal.boxNumber}
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    Box {selectedBoxModal.boxCode || selectedBoxModal.boxNumber}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditBox(selectedBoxModal)}
+                    style={{
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      border: '1px solid rgba(56, 189, 248, 0.4)',
+                      borderRadius: '6px',
+                      color: '#38BDF8',
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Edit Box Number"
+                  >
+                    <Edit2 size={12} />
+                    Edit
+                  </button>
+                </div>
               </div>
               <button
                 onClick={() => setSelectedBoxModal(null)}
@@ -4425,6 +4486,178 @@ export const AdminReports: React.FC = () => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Carton Box Number Modal ────────────────────────── */}
+      {editingBox && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10002,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '460px',
+            width: '100%',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                  color: '#38BDF8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Edit2 size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    Edit Carton Box Number
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Update the box identifier or barcode label
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSavingBoxEdit && setEditingBox(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{
+              padding: '12px',
+              backgroundColor: 'var(--bg-surface-2)',
+              borderRadius: '10px',
+              fontSize: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              border: '1px solid var(--border-color)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Current Box Number:</span>
+                <strong style={{ color: 'var(--color-purple)', fontFamily: 'monospace', fontSize: '13px' }}>
+                  {editingBox.currentNumber}
+                </strong>
+              </div>
+              {(editingBox.box.po_number || editingBox.box.poNumber || editingBox.box.po_name) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>PO Number:</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {editingBox.box.po_number || editingBox.box.poNumber || editingBox.box.po_name}
+                  </span>
+                </div>
+              )}
+              {(editingBox.box.style_name || editingBox.box.styleName) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Style:</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {editingBox.box.style_name || editingBox.box.styleName}
+                  </span>
+                </div>
+              )}
+              {editingBox.box.customer && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Customer:</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {editingBox.box.customer}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                New Box Number / Barcode *
+              </label>
+              <input
+                type="text"
+                value={editingBox.newNumber}
+                onChange={(e) => setEditingBox({ ...editingBox, newNumber: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveBoxEdit();
+                  }
+                }}
+                disabled={isSavingBoxEdit}
+                autoFocus
+                placeholder="Enter new box number (e.g. BX-001)..."
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  backgroundColor: 'var(--bg-surface-2)',
+                  border: '1.5px solid var(--primary-teal)',
+                  borderRadius: '8px',
+                  color: '#FFFFFF',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                ⚠️ This will rename the box in all packing logs, AQL records, and CSV exports.
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setEditingBox(null)}
+                disabled={isSavingBoxEdit}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveBoxEdit}
+                disabled={isSavingBoxEdit || !editingBox.newNumber.trim()}
+                className="btn btn-primary"
+                style={{
+                  padding: '8px 18px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  backgroundColor: '#0D9488',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: isSavingBoxEdit || !editingBox.newNumber.trim() ? 'not-allowed' : 'pointer',
+                  opacity: isSavingBoxEdit || !editingBox.newNumber.trim() ? 0.6 : 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isSavingBoxEdit ? <RefreshCw size={14} className="spin" /> : <Edit2 size={14} />}
+                {isSavingBoxEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
           </div>
         </div>
       )}

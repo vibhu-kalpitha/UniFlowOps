@@ -79,26 +79,6 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
         <h2 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc' }}>
           Select Production Line
         </h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
-          <span style={{ fontSize: '0.88rem', color: '#94a3b8' }}>
-            Production Order: <strong style={{ color: 'var(--primary-teal, #14b8a6)' }}>{formatPoDisplayName(selectedPoForLine)}</strong>
-          </span>
-          {selectedPoForLine.plant && (
-            <span style={{
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              padding: '2px 8px',
-              borderRadius: '12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.08)',
-              color: '#cbd5e1'
-            }}>
-              Plant: {selectedPoForLine.plant}
-            </span>
-          )}
-        </div>
-        <p style={{ margin: '8px 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
-          Please select your active line to start <strong>{operationName}</strong>:
-        </p>
       </div>
 
       {/* Grid of Assigned Lines */}
@@ -140,28 +120,9 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                   e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '10px',
-                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--primary-teal, #14b8a6)'
-                  }}>
-                    <Layers size={20} />
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f8fafc', display: 'block' }}>
-                      {line}
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
-                      Assigned Line
-                    </span>
-                  </div>
-                </div>
+                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f8fafc' }}>
+                  {line}
+                </span>
                 <button
                   className="btn btn-primary"
                   style={{
@@ -299,8 +260,9 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
         }}>
           {pos.map(po => {
             const isSelected = selectedPoId === po.id || selectedPoId === po.dbId;
-            const configsCount = po.productConfigurations?.length || 0;
-            const totalQty = po.totalQuantity || po.productConfigurations?.reduce((acc, c) => acc + (c.quantity || 0), 0) || 0;
+            const styleDisplay = po.styleName || po.styleCode || 'Standard Style';
+            const poNum = po.poNumber || (po as any).po_number || po.id;
+            const soNum = po.mapPo || (po as any).map_so;
 
             return (
               <div
@@ -315,9 +277,9 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                   transition: 'all 0.2s ease',
                   boxShadow: isSelected ? '0 4px 14px rgba(20, 184, 166, 0.2)' : '0 2px 6px rgba(0,0,0,0.2)',
                   display: 'flex',
-                  flexDirection: 'column',
+                  alignItems: 'center',
                   justifyContent: 'space-between',
-                  position: 'relative'
+                  gap: '14px'
                 }}
                 onMouseEnter={(e) => {
                   if (!isSelected) {
@@ -332,14 +294,14 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                   }
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{
                       fontSize: '1.05rem',
                       fontWeight: 800,
                       color: isSelected ? 'var(--primary-teal, #14b8a6)' : '#f8fafc'
                     }}>
-                      {formatPoDisplayName(po)}
+                      {styleDisplay}
                     </span>
                     {po.status && (
                       <span style={{
@@ -355,85 +317,49 @@ export const SelectPOForOperation: React.FC<SelectPOForOperationProps> = ({
                     )}
                   </div>
 
-                  <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginBottom: '10px' }}>
-                    Map PO: <strong style={{ color: '#e2e8f0' }}>{po.mapPo || 'N/A'}</strong>
-                    {po.customer && <span> • Customer: <strong style={{ color: '#e2e8f0' }}>{po.customer}</strong></span>}
-                    {(po.lineNumber || po.line_number) && (
-                      <span> • Lines: <strong style={{ color: '#c084fc' }}>{po.lineNumber || po.line_number}</strong></span>
-                    )}
-                  </div>
-
-                  <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    fontSize: '0.82rem',
-                    color: '#94a3b8',
-                    padding: '8px 0',
-                    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-                    marginBottom: '12px'
-                  }}>
-                    <div>
-                      <span>Configs: </span>
-                      <strong style={{ color: '#f8fafc' }}>{configsCount}</strong>
-                    </div>
-                    <div>
-                      <span>Total Qty: </span>
-                      <strong style={{ color: '#f8fafc' }}>{totalQty}</strong>
-                    </div>
-                    {po.qcTestMode && (
+                  <div style={{ fontSize: '0.86rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
+                    {po.customer && (
                       <div>
-                        <span>Mode: </span>
-                        <strong style={{ color: 'var(--primary-teal, #14b8a6)' }}>{po.qcTestMode}</strong>
+                        Customer: <strong style={{ color: 'var(--primary-teal, #14b8a6)' }}>{po.customer}</strong>
                       </div>
                     )}
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <span>PO: <strong style={{ color: '#e2e8f0' }}>{poNum}</strong></span>
+                      {soNum && (
+                        <span>SO: <strong style={{ color: '#e2e8f0' }}>{soNum}</strong></span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
-                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                    {(po.selectedOperations || ['QC Test', 'Packing', 'AQL Checker']).map((op, i) => (
-                      <span key={i} style={{
-                        fontSize: '0.68rem',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        backgroundColor: op === operationName ? 'var(--primary-teal, #14b8a6)' : 'rgba(255,255,255,0.08)',
-                        color: op === operationName ? '#ffffff' : '#94a3b8',
-                        fontWeight: op === operationName ? 700 : 400
-                      }}>
-                        {op}
-                      </span>
-                    ))}
-                  </div>
-
-                  <button
-                    className={isSelected ? 'btn btn-success' : 'btn btn-primary'}
-                    style={{
-                      padding: '8px 16px',
-                      fontSize: '0.85rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      borderRadius: '8px',
-                      backgroundColor: isSelected ? '#10b981' : 'var(--primary-teal, #14b8a6)',
-                      color: '#ffffff',
-                      border: 'none',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      minHeight: '44px'
-                    }}
-                  >
-                    {isSelected ? (
-                      <>
-                        <CheckCircle2 size={14} /> Active
-                      </>
-                    ) : (
-                      <>
-                        Select <ChevronRight size={14} />
-                      </>
-                    )}
-                  </button>
-                </div>
+                <button
+                  className={isSelected ? 'btn btn-success' : 'btn btn-primary'}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '0.85rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    borderRadius: '8px',
+                    backgroundColor: isSelected ? '#10b981' : 'var(--primary-teal, #14b8a6)',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    minHeight: '40px',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {isSelected ? (
+                    <>
+                      <CheckCircle2 size={14} /> Active
+                    </>
+                  ) : (
+                    <>
+                      Select <ChevronRight size={14} />
+                    </>
+                  )}
+                </button>
               </div>
             );
           })}

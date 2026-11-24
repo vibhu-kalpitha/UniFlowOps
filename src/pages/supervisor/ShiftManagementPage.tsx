@@ -126,35 +126,32 @@ export const ShiftManagementPage: React.FC = () => {
     }
   };
 
-  // Open Create Shift modal with auto-suggested next letter
+  // Open Group Creation modal
   const handleOpenCreateShift = () => {
-    const existingCodes = new Set(shifts.map(s => s.code.toUpperCase()));
-    const alphabet = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-    const nextCode = alphabet.find(c => !existingCodes.has(c)) || 'C';
-    setNewShiftCode(nextCode);
-    setNewShiftName(`Shift ${nextCode}`);
+    setNewShiftCode('');
+    setNewShiftName('');
     setShowCreateShiftModal(true);
   };
 
   const handleCreateShiftSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newShiftCode.trim() || !newShiftName.trim()) {
-      showToast('Please enter both shift code and name', 'warning');
+    if (!newShiftName.trim()) {
+      showToast('Please enter a group name', 'warning');
       return;
     }
     setCreatingShift(true);
     try {
       await apiFetch('/api/shifts', {
         method: 'POST',
-        body: JSON.stringify({ code: newShiftCode.trim(), name: newShiftName.trim() })
+        body: JSON.stringify({ name: newShiftName.trim() })
       });
-      showToast(`Shift group ${newShiftName.trim()} created successfully`, 'success');
+      showToast(`Group "${newShiftName.trim()}" created successfully`, 'success');
       setShowCreateShiftModal(false);
       setNewShiftCode('');
       setNewShiftName('');
       await loadData();
     } catch (err: any) {
-      showToast(err.message || 'Failed to create shift group', 'error');
+      showToast(err.message || 'Failed to create group', 'error');
     } finally {
       setCreatingShift(false);
     }
@@ -207,17 +204,8 @@ export const ShiftManagementPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-      {/* ── Page Header ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Users size={22} color="var(--primary-teal)" />
-            Shift Groups &amp; Operator Management
-          </h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Create custom Shift Groups (Shift A, Shift B, etc.) and assign operators. An operator can belong to multiple shifts.
-          </p>
-        </div>
+      {/* ── Page Header Actions ──────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <button
             onClick={loadData}
@@ -230,7 +218,7 @@ export const ShiftManagementPage: React.FC = () => {
             className="btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px', fontWeight: 700 }}
           >
-            <Plus size={15} /> Add Shift Group
+            <Plus size={15} /> Group Creation
           </button>
         </div>
       </div>
@@ -351,21 +339,6 @@ export const ShiftManagementPage: React.FC = () => {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{
-                    width: '42px',
-                    height: '42px',
-                    borderRadius: '12px',
-                    backgroundColor: colors.bg,
-                    border: `1.5px solid ${colors.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 900,
-                    fontSize: '18px',
-                    color: colors.text
-                  }}>
-                    {shift.code}
-                  </div>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
@@ -639,25 +612,6 @@ export const ShiftManagementPage: React.FC = () => {
         })}
       </div>
 
-      {/* ── Explanation Note ─────────────────────────────────────── */}
-      <div style={{
-        backgroundColor: 'rgba(22, 184, 174, 0.06)',
-        border: '1px solid rgba(22, 184, 174, 0.25)',
-        borderRadius: '14px',
-        padding: '14px 18px',
-        display: 'flex',
-        gap: '12px',
-        alignItems: 'flex-start'
-      }}>
-        <AlertCircle size={18} color="var(--primary-teal)" style={{ flexShrink: 0, marginTop: '2px' }} />
-        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '2px' }}>
-            Production Order Integration:
-          </strong>
-          When creating a Production Order (PO), you simply select the Shift Group(s) (e.g. <strong>Shift A</strong>, <strong>Shift B</strong>). All operators assigned to those selected shifts will automatically be authorized and will see the PO on their operator devices. An operator can belong to multiple shift groups without restriction.
-        </div>
-      </div>
-
       {/* ── Modal: Add New Shift Group ───────────────────────────── */}
       {showCreateShiftModal && (
         <div style={{
@@ -688,7 +642,7 @@ export const ShiftManagementPage: React.FC = () => {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                Create New Shift Group
+                Group Creation
               </h3>
               <button
                 onClick={() => setShowCreateShiftModal(false)}
@@ -701,33 +655,14 @@ export const ShiftManagementPage: React.FC = () => {
             <form onSubmit={handleCreateShiftSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                  Shift Code (e.g. C, D, E)
-                </label>
-                <input
-                  type="text"
-                  maxLength={5}
-                  value={newShiftCode}
-                  onChange={e => {
-                    const c = e.target.value.toUpperCase();
-                    setNewShiftCode(c);
-                    setNewShiftName(`Shift ${c}`);
-                  }}
-                  className="input-field"
-                  placeholder="e.g. C"
-                  required
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                  Shift Group Name
+                  Group Name
                 </label>
                 <input
                   type="text"
                   value={newShiftName}
                   onChange={e => setNewShiftName(e.target.value)}
                   className="input-field"
-                  placeholder="e.g. Shift C"
+                  placeholder="e.g. Group Alpha, Team Line 1"
                   required
                 />
               </div>
@@ -759,7 +694,7 @@ export const ShiftManagementPage: React.FC = () => {
                     cursor: creatingShift ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {creatingShift ? 'Creating…' : 'Create Shift Group'}
+                  {creatingShift ? 'Creating…' : '+ Create Group'}
                 </button>
               </div>
             </form>

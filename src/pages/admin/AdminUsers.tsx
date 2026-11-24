@@ -49,7 +49,58 @@ export const AdminUsers: React.FC = () => {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'Operator' | 'Supervisor' | 'Admin'>('Operator');
   const [lineId, setLineId] = useState('Line 04');
-  const [plant, setPlant] = useState('Biyagama');
+  const [plant, setPlant] = useState('');
+
+  // Plants State
+  interface PlantItem {
+    id: string;
+    code: string;
+    name: string;
+    active?: number;
+  }
+  const [plantsList, setPlantsList] = useState<PlantItem[]>([]);
+  const [showCreatePlantModal, setShowCreatePlantModal] = useState(false);
+  const [newPlantCode, setNewPlantCode] = useState('');
+  const [newPlantName, setNewPlantName] = useState('');
+  const [savingNewPlant, setSavingNewPlant] = useState(false);
+
+  const fetchPlants = async () => {
+    try {
+      const data = await apiFetch<PlantItem[]>('/api/plants');
+      if (Array.isArray(data) && data.length > 0) {
+        setPlantsList(data);
+        if (!plant && data[0]?.name) {
+          setPlant(data[0].name);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch plants:', err);
+    }
+  };
+
+  const handleCreatePlantSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPlantCode.trim() || !newPlantName.trim()) {
+      showToast('Please enter both plant code and plant name', 'warning');
+      return;
+    }
+    setSavingNewPlant(true);
+    try {
+      await apiFetch('/api/plants', {
+        method: 'POST',
+        body: JSON.stringify({ code: newPlantCode.trim(), name: newPlantName.trim() })
+      });
+      showToast(`Plant "${newPlantName.trim()} (${newPlantCode.trim().toUpperCase()})" created successfully!`, 'success');
+      setShowCreatePlantModal(false);
+      setNewPlantCode('');
+      setNewPlantName('');
+      await fetchPlants();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create plant', 'error');
+    } finally {
+      setSavingNewPlant(false);
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -83,10 +134,14 @@ export const AdminUsers: React.FC = () => {
 
   useEffect(() => {
     fetchUsers();
+    fetchPlants();
   }, []);
 
-  // Unique plants for dropdown
-  const uniquePlants = Array.from(new Set(users.map(u => u.plant).filter(Boolean))) as string[];
+  // Unique plants for dropdown: combine plantsList and any existing user plants
+  const uniquePlants = Array.from(new Set([
+    ...plantsList.map(p => p.name),
+    ...users.map(u => u.plant).filter(Boolean)
+  ])) as string[];
 
   // Filtered Users List
   const filteredUsers = users.filter(u => {
@@ -216,68 +271,106 @@ export const AdminUsers: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Header Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>User Management</h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Manage system access, roles, line assignments, and user credentials.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            className="btn-secondary"
-            onClick={fetchUsers}
-            disabled={loading}
-            style={{ padding: '8px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
-          </button>
-          <button
-            className="btn-primary"
-            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-            onClick={() => setShowAddModal(true)}
-          >
-            <Plus size={16} /> Add New User
-          </button>
-          <button
-            className="btn-secondary"
-            style={{ padding: '8px 16px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-            onClick={() => navigate('/supervisor/shifts')}
-          >
-            <Users size={16} color="var(--primary-teal)" /> Manage Shifts
-          </button>
-        </div>
+      {/* Top Action Buttons (Responsive for Desktop & Mobile) */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '10px',
+        alignItems: 'center',
+        width: '100%'
+      }}>
+        <button
+          className="btn-primary"
+          style={{
+            flex: '1 1 150px',
+            padding: '10px 18px',
+            fontSize: '13px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(20, 184, 166, 0.25)'
+          }}
+          onClick={() => setShowAddModal(true)}
+        >
+          <Plus size={16} /> Add New User
+        </button>
+        <button
+          className="btn-secondary"
+          style={{
+            flex: '1 1 150px',
+            padding: '10px 18px',
+            fontSize: '13px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            borderRadius: '12px',
+            cursor: 'pointer'
+          }}
+          onClick={() => navigate('/supervisor/shifts')}
+        >
+          <Users size={16} color="var(--primary-teal)" /> Manage Group
+        </button>
+        <button
+          className="btn-secondary"
+          style={{
+            flex: '1 1 150px',
+            padding: '10px 18px',
+            fontSize: '13px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            borderColor: 'rgba(20, 184, 166, 0.4)'
+          }}
+          onClick={() => setShowCreatePlantModal(true)}
+        >
+          <Building2 size={16} color="var(--primary-teal)" /> Create Plants
+        </button>
       </div>
 
       {/* KPI Stats Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
         <div style={styles.kpiCard}>
           <span style={styles.kpiLabel}>TOTAL USERS</span>
           <div style={styles.kpiVal}>{totalCount}</div>
-          <span style={styles.kpiSub}>Registered Accounts</span>
         </div>
         <div style={styles.kpiCardTeal}>
           <span style={styles.kpiLabelTeal}>OPERATORS</span>
           <div style={styles.kpiValTeal}>{operatorCount}</div>
-          <span style={styles.kpiSubTeal}>Line Scanning Staff</span>
         </div>
         <div style={styles.kpiCardBlue}>
           <span style={styles.kpiLabelBlue}>SUPERVISORS</span>
           <div style={styles.kpiValBlue}>{supervisorCount}</div>
-          <span style={styles.kpiSubBlue}>Line & Shift Leads</span>
         </div>
         <div style={styles.kpiCardPurple}>
           <span style={styles.kpiLabelPurple}>ADMINISTRATORS</span>
           <div style={styles.kpiValPurple}>{adminCount}</div>
-          <span style={styles.kpiSubPurple}>System Admins</span>
         </div>
       </div>
 
-      {/* Filter Tabs & Search Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', backgroundColor: 'var(--bg-surface-1)', padding: '12px 16px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
-        {/* Role Filter Tabs */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {/* Filter Tabs & Search Bar (Plant Filter moved UP beside the role tabs) */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '12px',
+        backgroundColor: 'var(--bg-surface-1)',
+        padding: '12px 16px',
+        borderRadius: '16px',
+        border: '1px solid var(--border-color)'
+      }}>
+        {/* Role Filter Tabs & Plant Select Group */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             style={roleFilter === 'All' ? styles.tabActive : styles.tabBtn}
             onClick={() => setRoleFilter('All')}
@@ -302,53 +395,59 @@ export const AdminUsers: React.FC = () => {
           >
             Admins ({adminCount})
           </button>
-        </div>
 
-        {/* Right Controls: Plant Filter + Search Input */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Plant Dropdown (Moved UP directly with role filters) */}
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: 'var(--bg-surface-2)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '10px',
+            padding: '5px 10px'
+          }}>
             <Building2 size={15} color="var(--primary-teal)" />
             <select
               value={plantFilter}
               onChange={e => setPlantFilter(e.target.value)}
               style={{
-                padding: '8px 12px',
-                borderRadius: '10px',
-                backgroundColor: 'var(--bg-surface-2)',
-                border: '1px solid var(--border-color)',
+                backgroundColor: 'transparent',
+                border: 'none',
                 color: 'var(--text-primary)',
-                fontSize: '13px',
+                fontSize: '12px',
+                fontWeight: 700,
                 outline: 'none',
                 cursor: 'pointer'
               }}
             >
-              <option value="All">All Plants</option>
+              <option value="All" style={{ backgroundColor: 'var(--bg-surface-1)', color: 'var(--text-primary)' }}>All Plants</option>
               {uniquePlants.map(p => (
-                <option key={p} value={p}>{p}</option>
+                <option key={p} value={p} style={{ backgroundColor: 'var(--bg-surface-1)', color: 'var(--text-primary)' }}>{p}</option>
               ))}
             </select>
           </div>
+        </div>
 
-          {/* Search Input */}
-          <div style={{ position: 'relative', minWidth: '220px' }}>
-            <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-            <input
-              type="text"
-              placeholder="Search name, username, plant..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                borderRadius: '10px',
-                backgroundColor: 'var(--bg-surface-2)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                fontSize: '13px',
-                outline: 'none'
-              }}
-            />
-          </div>
+        {/* Search Input */}
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: '200px' }}>
+          <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            type="text"
+            placeholder="Search name, username, plant..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 12px 8px 36px',
+              borderRadius: '10px',
+              backgroundColor: 'var(--bg-surface-2)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
         </div>
       </div>
 
@@ -592,22 +691,19 @@ export const AdminUsers: React.FC = () => {
 
               <div>
                 <label style={styles.label}>Plant / Garment Location</label>
-                <input
-                  type="text"
-                  list="plant-suggestions"
-                  className="input-field"
-                  placeholder="e.g. Biyagama, Katunayake"
+                <select
+                  className="input-field select-field"
                   value={plant}
                   onChange={e => setPlant(e.target.value)}
-                />
-                <datalist id="plant-suggestions">
-                  <option value="Biyagama" />
-                  <option value="Katunayake" />
-                  <option value="Mawathagama" />
-                  <option value="Avissawella" />
-                  <option value="Koggala" />
-                  <option value="Wathupitiwala" />
-                </datalist>
+                  style={{ backgroundColor: 'var(--bg-surface-2)', color: 'var(--text-primary)' }}
+                >
+                  <option value="">Select Plant...</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
                   Supervisors assigned to this plant will only see production orders and progress for this plant.
                 </span>
@@ -641,16 +737,20 @@ export const AdminUsers: React.FC = () => {
 
             <form onSubmit={handleUpdatePlantSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label style={styles.label}>Plant Name</label>
-                <input
-                  type="text"
-                  list="plant-suggestions"
-                  className="input-field"
-                  placeholder="e.g. Biyagama, Katunayake"
+                <label style={styles.label}>Select Plant</label>
+                <select
+                  className="input-field select-field"
                   value={editPlantValue}
                   onChange={e => setEditPlantValue(e.target.value)}
-                  autoFocus
-                />
+                  style={{ backgroundColor: 'var(--bg-surface-2)', color: 'var(--text-primary)' }}
+                >
+                  <option value="">No Plant Assigned</option>
+                  {plantsList.map(p => (
+                    <option key={p.id || p.code} value={p.name}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
@@ -669,6 +769,73 @@ export const AdminUsers: React.FC = () => {
                   disabled={savingPlant}
                 >
                   {savingPlant ? 'Saving...' : 'Save Plant'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Plants Modal */}
+      {showCreatePlantModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Building2 size={20} color="var(--primary-teal)" />
+                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>Create Plant</h3>
+              </div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setShowCreatePlantModal(false)}>
+                <X size={20} color="var(--text-secondary)" />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+              Add a new manufacturing plant / factory facility with an official plant code.
+            </p>
+
+            <form onSubmit={handleCreatePlantSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={styles.label}>Plant Code (e.g. 1010, BYG-01)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. 1010, BYG-01"
+                  value={newPlantCode}
+                  onChange={e => setNewPlantCode(e.target.value.toUpperCase())}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={styles.label}>Plant Name</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. Biyagama Plant, Katunayake Facility"
+                  value={newPlantName}
+                  onChange={e => setNewPlantName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setShowCreatePlantModal(false)}
+                  disabled={savingNewPlant}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={savingNewPlant}
+                >
+                  {savingNewPlant ? 'Creating...' : '+ Create Plant'}
                 </button>
               </div>
             </form>

@@ -246,30 +246,36 @@ export const BoxTransferPage: React.FC = () => {
       {/* Active PO Banner */}
       <div style={styles.banner}>
         <div className="op-top-banner" style={{ gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={18} color="var(--primary-teal)" />
-            <div>
-              <h3 style={{ fontSize: '14px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <span>Box Transfer Station • {formatPoDisplayName(po)}</span>
-                {activeJob?.selectedLine && (
+          <div>
+            <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {(po?.customer || (po as any)?.customer_name) && (
+                <span style={{ color: 'var(--primary-teal)' }}>{po?.customer || (po as any)?.customer_name}</span>
+              )}
+              {(po?.customer || (po as any)?.customer_name) && <span style={{ color: 'var(--text-muted)' }}>•</span>}
+              <span>{po?.styleName || po?.styleCode || 'Style'}</span>
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <span>PO: <strong style={{ color: '#ffffff' }}>{po?.poNumber || (po as any)?.po_number || po?.id}</strong></span>
+              {((po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo) && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <span>SO: <strong style={{ color: '#ffffff' }}>{(po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo}</strong></span>
+                </>
+              )}
+              {activeJob?.selectedLine && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
                   <span style={{
-                    fontSize: '11px',
+                    fontSize: '12px',
                     fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                    color: 'var(--primary-teal)',
-                    border: '1px solid rgba(20, 184, 166, 0.3)'
+                    color: 'var(--primary-teal)'
                   }}>
                     {activeJob.selectedLine}
                   </span>
-                )}
-                <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
-              </h3>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                Customer: {po?.customer || 'Standard'} • Map PO: {po?.mapPo || '—'}
-              </span>
-            </div>
+                </>
+              )}
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} compact={true} noBox={true} />
+            </h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <button

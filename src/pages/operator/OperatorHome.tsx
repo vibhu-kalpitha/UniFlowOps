@@ -175,41 +175,63 @@ export const OperatorHome: React.FC = () => {
     ? searchedProductBox.items.find(i => i.qr.toUpperCase() === searchQuery.trim().toUpperCase())
     : null;
 
+  const getDynamicGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning,';
+    if (hour < 17) return 'Good Afternoon,';
+    return 'Good Evening,';
+  };
+
+  const activeCustomer = po?.customer || fetchedPoDetails?.customer || '';
+  const activeStyle = po?.styleName || po?.styleCode || fetchedPoDetails?.styleName || 'Standard Style';
+  const activePoNum = po?.id || po?.poNumber || fetchedPoDetails?.poNumber || '';
+  const activePoName = po?.poName || fetchedPoDetails?.poName || '';
+  const activeSo = so?.mapSo || (so as any)?.map_so || (po as any)?.mapPo || (po as any)?.map_po || fetchedPoDetails?.soName || fetchedPoDetails?.mapPo || '';
+
+  // Parse structured username (e.g. UPLP52A -> Plant: UPLP, Line: 52, Shift: A)
+  const parseUsernameDetails = (raw?: string) => {
+    if (!raw) return null;
+    const clean = raw.trim().toUpperCase();
+    const match = clean.match(/^([A-Z]{2,})(\d+)([A-Z])$/);
+    if (!match) return null;
+    return {
+      plant: match[1],
+      line: match[2],
+      shift: match[3],
+    };
+  };
+
+  const parsedOperatorInfo = parseUsernameDetails(currentUser?.username || currentUser?.employeeNo);
+
   return (
     <div className="op-home-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Greeting Header */}
-      <div style={styles.greetingRow} className="op-home-greeting-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '42px',
-            height: '42px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--bg-surface-2)',
-            border: '2px solid var(--primary-teal)',
-            color: 'var(--primary-teal)',
-            fontWeight: 800,
-            fontSize: '15px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            {currentUser?.avatarInitials || currentUser?.name?.charAt(0) || 'OP'}
-          </div>
-          <div>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Good Morning,</span>
-            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>
+      <div style={{ ...styles.greetingRow, padding: '4px 0', border: 'none', background: 'transparent' }} className="op-home-greeting-bar">
+        <div>
+          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            {getDynamicGreeting()} Operator
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0' }}>
               {currentUser?.name || 'Operator'}
             </h2>
-            <span style={{ fontSize: '12px', color: 'var(--primary-teal)', fontWeight: 600 }}>
-              {(currentUser?.role || 'operator').toUpperCase()} • {currentUser?.lineId || 'Line 04'}
-            </span>
-          </div>
-        </div>
-
-        <div className="op-desktop-status-pill" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(24, 184, 121, 0.12)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(24, 184, 121, 0.3)' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#18B879' }}></span>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#18B879' }}>Shift A Active</span>
+            {parsedOperatorInfo && (
+              <span style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: 'rgba(20, 184, 166, 0.12)',
+                border: '1.5px solid rgba(20, 184, 166, 0.35)',
+                borderRadius: '8px',
+                padding: '2px 10px',
+              }}>
+                <span style={{ color: 'var(--primary-teal)' }}>Line {parsedOperatorInfo.line}</span>
+                <span style={{ opacity: 0.4 }}>•</span>
+                <span style={{ color: '#10B981' }}>Shift {parsedOperatorInfo.shift}</span>
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -251,71 +273,79 @@ export const OperatorHome: React.FC = () => {
 
           {/* Production Overview Card */}
           <div className="card" style={styles.poCard}>
-            {/* CURRENT PRODUCTION ORDER Banner */}
+            {/* Active Production Order Card (Compact Size) */}
             {(po || fetchedPoDetails) && (
               <div style={{
                 backgroundColor: 'var(--bg-surface-1)',
                 border: '1.5px solid var(--primary-teal)',
-                borderRadius: '12px',
-                padding: '12px 16px',
-                marginBottom: '16px',
+                borderRadius: '8px',
+                padding: '6px 10px',
+                marginBottom: '8px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '6px'
+                gap: '2px'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.05em' }}>
-                    CURRENT PRODUCTION ORDER
-                  </span>
+                {/* Top Row: Customer Name and Change PO Button */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                  {activeCustomer ? (
+                    <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--primary-teal, #14b8a6)', letterSpacing: '0.01em', lineHeight: 1.1 }}>
+                      {activeCustomer}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      Active Production Order
+                    </div>
+                  )}
                   <button
                     onClick={() => setPendingOperation({ name: 'Production Order', route: '#' })}
                     style={{
                       background: 'rgba(22, 184, 174, 0.15)',
                       border: '1px solid var(--primary-teal)',
-                      borderRadius: '8px',
+                      borderRadius: '6px',
                       color: 'var(--primary-teal)',
-                      fontSize: '13px',
+                      fontSize: '11px',
                       fontWeight: 700,
                       cursor: 'pointer',
-                      padding: '8px 14px',
-                      minHeight: '44px',
+                      padding: '2px 8px',
+                      minHeight: '24px',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0
                     }}
                   >
                     Change PO
                   </button>
                 </div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <span>
-                    {formatPoDisplayName({
-                      poNumber: po?.id || po?.poNumber || fetchedPoDetails?.poNumber,
-                      poName: po?.poName || fetchedPoDetails?.poName,
-                      styleName: po?.styleName || fetchedPoDetails?.styleName
-                    })}
-                  </span>
-                  {activeJob?.selectedLine && (
-                    <span style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '8px',
-                      backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                      color: 'var(--primary-teal)',
-                      border: '1px solid rgba(20, 184, 166, 0.3)'
-                    }}>
-                      {activeJob.selectedLine}
-                    </span>
+
+                {/* Second Row: Style, PO, SO, Line & Due Date in a single compact row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px 8px', flexWrap: 'wrap', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.3 }}>
+                  <span style={{ fontWeight: 700, color: '#ffffff' }}>{activeStyle}</span>
+                  <span style={{ opacity: 0.5 }}>•</span>
+                  <span>PO: <strong style={{ color: '#ffffff' }}>{activePoNum}</strong></span>
+                  {activeSo && (
+                    <>
+                      <span style={{ opacity: 0.5 }}>•</span>
+                      <span>SO: <strong style={{ color: '#ffffff' }}>{activeSo}</strong></span>
+                    </>
                   )}
-                  <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date || fetchedPoDetails?.dueDate} />
+                  {activeJob?.selectedLine && (
+                    <>
+                      <span style={{ opacity: 0.5 }}>•</span>
+                      <span style={{ fontWeight: 700, color: 'var(--primary-teal)' }}>
+                        {activeJob.selectedLine}
+                      </span>
+                    </>
+                  )}
+                  <span style={{ opacity: 0.5 }}>•</span>
+                  <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date || fetchedPoDetails?.dueDate} compact={true} noBox={true} />
                 </div>
               </div>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={styles.cardSubTitle}>PRODUCTION OVERVIEW</span>
-              <StatusPill label="LIVE DB DATA" variant="teal" />
             </div>
 
             {!(po || fetchedPoDetails) && (
@@ -389,11 +419,11 @@ export const OperatorHome: React.FC = () => {
               {(selectedOps.includes('Pre QC') || selectedOps.includes('Inline')) && (
                 <button
                   className="op-card-interactive"
-                  style={styles.opTileTeal}
+                  style={styles.opTileCyan}
                   onClick={() => handleOpClick('Inline', '/operator/pre-qc')}
                 >
-                  <div style={styles.opIconTeal}>
-                    <ScanLine size={26} color="var(--primary-teal)" />
+                  <div style={styles.opIconCyan}>
+                    <ScanLine size={26} color="#06B6D4" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>Inline</span>
@@ -408,11 +438,11 @@ export const OperatorHome: React.FC = () => {
               {(selectedOps.includes('QC Test') || selectedOps.includes('Endline') || selectedOps.includes('QC')) && (
                 <button
                   className="op-card-interactive"
-                  style={styles.opTileGreen}
+                  style={styles.opTileIndigo}
                   onClick={() => handleOpClick('Endline', '/operator/qc')}
                 >
-                  <div style={styles.opIconGreen}>
-                    <CheckCircle2 size={26} color="var(--color-green)" />
+                  <div style={styles.opIconIndigo}>
+                    <CheckCircle2 size={26} color="#818CF8" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>Endline</span>
@@ -431,7 +461,7 @@ export const OperatorHome: React.FC = () => {
                   onClick={() => handleOpClick('Packing', '/operator/packing')}
                 >
                   <div style={styles.opIconBlue}>
-                    <Package size={26} color="var(--color-blue)" />
+                    <Package size={26} color="#3B82F6" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>Packing</span>
@@ -450,7 +480,7 @@ export const OperatorHome: React.FC = () => {
                   onClick={() => handleOpClick('AQL Checker', '/operator/aql/box')}
                 >
                   <div style={styles.opIconPurple}>
-                    <Search size={26} color="var(--color-purple)" />
+                    <Search size={26} color="#A855F7" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>AQL Checker</span>
@@ -465,11 +495,11 @@ export const OperatorHome: React.FC = () => {
               {(selectedOps.includes('FINAL AQL') || selectedOps.includes('FINAL_AQL') || selectedOps.includes('Final AQL')) && (
                 <button
                   className="op-card-interactive"
-                  style={styles.opTileTeal}
+                  style={styles.opTileRose}
                   onClick={() => handleOpClick('FINAL AQL', '/operator/final-aql/box')}
                 >
-                  <div style={styles.opIconTeal}>
-                    <Search size={26} color="var(--primary-teal)" />
+                  <div style={styles.opIconRose}>
+                    <Search size={26} color="#FB7185" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>FINAL AQL</span>
@@ -488,7 +518,7 @@ export const OperatorHome: React.FC = () => {
                   onClick={() => handleOpClick('Box Transfer', '/operator/transfer')}
                 >
                   <div style={styles.opIconOrange}>
-                    <ArrowLeftRight size={26} color="var(--color-orange)" />
+                    <ArrowLeftRight size={26} color="#FB923C" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                     <span style={styles.opTitle}>Box Transfer</span>
@@ -566,7 +596,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   poCard: {
     backgroundColor: 'var(--bg-surface-2)',
-    borderColor: 'var(--border-light)'
+    borderColor: 'var(--border-light)',
+    padding: '8px 10px',
   },
   cardSubTitle: {
     fontSize: '11px',
@@ -583,92 +614,98 @@ const styles: Record<string, React.CSSProperties> = {
   metricsRow1: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))',
-    gap: '8px',
-    marginTop: '12px',
-    paddingTop: '12px',
+    gap: '6px',
+    marginTop: '8px',
+    paddingTop: '8px',
     borderTop: '1px solid var(--border-color)',
   },
   metricsRow2: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-    gap: '8px',
-    marginTop: '8px',
+    gap: '6px',
+    marginTop: '6px',
   },
   metricBoxGreen: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    border: '1px solid rgba(16, 185, 129, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    border: '1.5px solid rgba(16, 185, 129, 0.45)',
+    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.12)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxBlue: {
-    backgroundColor: 'rgba(59, 130, 246, 0.12)',
-    border: '1px solid rgba(59, 130, 246, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(59, 130, 246, 0.16)',
+    border: '1.5px solid rgba(59, 130, 246, 0.45)',
+    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.12)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxPurple: {
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
-    border: '1px solid rgba(139, 92, 246, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(139, 92, 246, 0.16)',
+    border: '1.5px solid rgba(139, 92, 246, 0.45)',
+    boxShadow: '0 2px 8px rgba(139, 92, 246, 0.12)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxAmber: {
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    border: '1px solid rgba(245, 158, 11, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+    border: '1.5px solid rgba(245, 158, 11, 0.45)',
+    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.12)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxDarkRed: {
-    backgroundColor: 'rgba(220, 38, 38, 0.12)',
-    border: '1px solid rgba(220, 38, 38, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(220, 38, 38, 0.16)',
+    border: '1.5px solid rgba(220, 38, 38, 0.45)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxRed: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(239, 68, 68, 0.16)',
+    border: '1.5px solid rgba(239, 68, 68, 0.45)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxEmerald: {
-    backgroundColor: 'rgba(5, 150, 105, 0.12)',
-    border: '1px solid rgba(5, 150, 105, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(5, 150, 105, 0.16)',
+    border: '1.5px solid rgba(5, 150, 105, 0.45)',
+    boxShadow: '0 2px 8px rgba(5, 150, 105, 0.12)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricBoxYellow: {
-    backgroundColor: 'rgba(217, 119, 6, 0.12)',
-    border: '1px solid rgba(217, 119, 6, 0.3)',
-    borderRadius: '12px',
-    padding: '10px 4px',
+    backgroundColor: 'rgba(217, 119, 6, 0.16)',
+    border: '1.5px solid rgba(217, 119, 6, 0.45)',
+    boxShadow: '0 2px 8px rgba(217, 119, 6, 0.12)',
+    borderRadius: '10px',
+    padding: '7px 4px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -685,110 +722,160 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: '1fr 1fr',
     gap: '12px'
   },
-  opTileTeal: {
+  opTileCyan: {
     height: '110px',
-    borderRadius: '18px',
-    backgroundColor: 'rgba(22, 184, 174, 0.08)',
-    border: '1px solid rgba(22, 184, 174, 0.25)',
+    borderRadius: '16px',
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
+    background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.20) 0%, rgba(6, 182, 212, 0.05) 100%)',
+    border: '1.5px solid rgba(6, 182, 212, 0.55)',
+    boxShadow: '0 4px 18px rgba(6, 182, 212, 0.20)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '10px'
+    gap: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
   },
-  opIconTeal: {
+  opIconCyan: {
     width: '48px',
     height: '48px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(22, 184, 174, 0.15)',
+    backgroundColor: 'rgba(6, 182, 212, 0.22)',
+    border: '1px solid rgba(6, 182, 212, 0.5)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
-  opTileGreen: {
+  opTileIndigo: {
     height: '110px',
-    borderRadius: '18px',
-    backgroundColor: 'rgba(24, 184, 121, 0.08)',
-    border: '1px solid rgba(24, 184, 121, 0.25)',
+    borderRadius: '16px',
+    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.20) 0%, rgba(99, 102, 241, 0.05) 100%)',
+    border: '1.5px solid rgba(99, 102, 241, 0.55)',
+    boxShadow: '0 4px 18px rgba(99, 102, 241, 0.20)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '10px'
+    gap: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
   },
-  opIconGreen: {
+  opIconIndigo: {
     width: '48px',
     height: '48px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(24, 184, 121, 0.15)',
+    backgroundColor: 'rgba(99, 102, 241, 0.22)',
+    border: '1px solid rgba(99, 102, 241, 0.5)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
   opTileBlue: {
     height: '110px',
-    borderRadius: '18px',
-    backgroundColor: 'rgba(67, 133, 245, 0.08)',
-    border: '1px solid rgba(67, 133, 245, 0.25)',
+    borderRadius: '16px',
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.20) 0%, rgba(59, 130, 246, 0.05) 100%)',
+    border: '1.5px solid rgba(59, 130, 246, 0.55)',
+    boxShadow: '0 4px 18px rgba(59, 130, 246, 0.20)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '10px'
+    gap: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
   },
   opIconBlue: {
     width: '48px',
     height: '48px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(67, 133, 245, 0.15)',
+    backgroundColor: 'rgba(59, 130, 246, 0.22)',
+    border: '1px solid rgba(59, 130, 246, 0.5)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
   opTilePurple: {
     height: '110px',
-    borderRadius: '18px',
-    backgroundColor: 'rgba(139, 92, 246, 0.08)',
-    border: '1px solid rgba(139, 92, 246, 0.25)',
+    borderRadius: '16px',
+    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+    background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.20) 0%, rgba(168, 85, 247, 0.05) 100%)',
+    border: '1.5px solid rgba(168, 85, 247, 0.55)',
+    boxShadow: '0 4px 18px rgba(168, 85, 247, 0.20)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '10px'
+    gap: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
   },
   opIconPurple: {
     width: '48px',
     height: '48px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    backgroundColor: 'rgba(168, 85, 247, 0.22)',
+    border: '1px solid rgba(168, 85, 247, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  opTileRose: {
+    height: '110px',
+    borderRadius: '16px',
+    backgroundColor: 'rgba(244, 63, 94, 0.12)',
+    background: 'linear-gradient(135deg, rgba(244, 63, 94, 0.20) 0%, rgba(244, 63, 94, 0.05) 100%)',
+    border: '1.5px solid rgba(244, 63, 94, 0.55)',
+    boxShadow: '0 4px 18px rgba(244, 63, 94, 0.20)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  },
+  opIconRose: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(244, 63, 94, 0.22)',
+    border: '1px solid rgba(244, 63, 94, 0.5)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
   opTileOrange: {
     height: '110px',
-    borderRadius: '18px',
-    backgroundColor: 'rgba(245, 158, 66, 0.08)',
-    border: '1px solid rgba(245, 158, 66, 0.25)',
+    borderRadius: '16px',
+    backgroundColor: 'rgba(249, 115, 22, 0.12)',
+    background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.20) 0%, rgba(249, 115, 22, 0.05) 100%)',
+    border: '1.5px solid rgba(249, 115, 22, 0.55)',
+    boxShadow: '0 4px 18px rgba(249, 115, 22, 0.20)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '10px'
+    gap: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
   },
   opIconOrange: {
     width: '48px',
     height: '48px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(245, 158, 66, 0.15)',
+    backgroundColor: 'rgba(249, 115, 22, 0.22)',
+    border: '1px solid rgba(249, 115, 22, 0.5)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
   },
   opTitle: {
-    fontSize: '14px',
-    fontWeight: 700,
-    color: 'var(--text-primary)'
+    fontSize: '15px',
+    fontWeight: 800,
+    color: '#FFFFFF'
   },
   progressRow: {
     display: 'flex',

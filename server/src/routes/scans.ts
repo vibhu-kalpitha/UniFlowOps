@@ -258,6 +258,69 @@ export async function validateProductForProductionOrder(poOrPoId: any, rawCode: 
   };
 }
 
+// Extract Garment Serial Number according to MAS Specification:
+// Format Type 1: [Customer/Style]-[Size]-[Serial Number] (e.g. PNFL-TM-003883838 -> 003883838)
+// Format Type 2: Numeric or Alphanumeric Serial Number (e.g. 0028333799, N38383838, 0R9493939 -> entire value)
+export function extractGarmentSerialNumber(rawCode: string): string {
+  if (!rawCode || typeof rawCode !== 'string') return '';
+  const trimmed = rawCode.trim().toUpperCase();
+  if (!trimmed) return '';
+
+  // 1. Hyphen-separated format (e.g. PNFL-TM-003883838, PNFL-SS-0001, STYLE-PO-001)
+  if (trimmed.includes('-')) {
+    const parts = trimmed.split('-');
+    const lastPart = parts[parts.length - 1].trim();
+    if (lastPart) {
+      return lastPart;
+    }
+  }
+
+  // 2. Format Type 2: Entire value is the serial number (e.g. 0028333799, N38383838, 0R9493939)
+  return trimmed;
+}
+
+// Global Serial Number Uniqueness Validator (MAS Rule 1.2 & Validation V004)
+// The serial number must be unique across the entire system regardless of Customer, Style, PO, Size.
+// If the same serial number is already registered under a different garment QR, reject.
+export async function validateGlobalSerialNumber(
+  rawCode: string,
+  currentPoId?: string
+): Promise<{ valid: boolean; serial?: string; error?: string; message?: string; existingItem?: any }> {
+  if (!rawCode) return { valid: true };
+  const code = rawCode.trim().toUpperCase();
+  const serial = extractGarmentSerialNumber(code);
+  if (!serial) return { valid: true };
+
+  try {
+    const existing = await db.prepare(`
+      SELECT iu.*, po.po_number, po.po_name, po.customer, s.name as style_name, s.code as style_code
+      FROM item_units iu
+      LEFT JOIN production_orders po ON po.id = iu.production_order_id
+      LEFT JOIN styles s ON s.id = po.style_id
+      WHERE (iu.serial_number = ? OR (iu.serial_number IS NULL AND UPPER(TRIM(iu.qr_code)) LIKE ?))
+        AND UPPER(TRIM(iu.qr_code)) != ?
+      LIMIT 1
+    `).get(serial, `%-` + serial, code) as any;
+
+    if (existing) {
+      const existingInfo = existing.qr_code || 'another garment';
+      const styleInfo = existing.style_name || existing.style_code || 'another style';
+      const poInfo = existing.po_number || existing.po_name || 'another PO';
+      return {
+        valid: false,
+        serial,
+        error: 'DUPLICATE_SERIAL_NUMBER',
+        message: `Duplicate Serial Number: Serial Number Already Exists. Serial '${serial}' is already registered on garment '${existingInfo}' (Style: ${styleInfo}, PO: ${poInfo}).`,
+        existingItem: existing
+      };
+    }
+  } catch (err: any) {
+    console.warn('Global serial validation check error:', err?.message);
+  }
+
+  return { valid: true, serial };
+}
+
 // Shared Backend Box QR Validation Engine (PO-Scoped)
 export async function validateBoxForProductionOrder(
   poOrPoId: any,
@@ -283,6 +346,35 @@ export async function validateBoxForProductionOrder(
   const code = rawBoxCode.trim().toUpperCase();
   if (!code) {
     return { valid: false, error: 'INVALID_BOX_QR', message: 'Box QR cannot be empty.' };
+  }
+
+  // Smart validation: reject if scanned code matches a product/garment QR code instead of a box barcode
+  const prodConfigs = await db.prepare(`
+    SELECT * FROM production_order_configs WHERE production_order_id = ?
+  `).all(po.id) as any[];
+
+  const isProductConfigMatch = prodConfigs.some((cfg: any) => {
+    const pfx = (cfg.product_qr_prefix || cfg.config_code || '').trim().toUpperCase();
+    return pfx && code.startsWith(pfx);
+  });
+
+  if (isProductConfigMatch) {
+    return {
+      valid: false,
+      error: 'IS_PRODUCT_QR',
+      message: `Scanned code '${code}' is a Product QR Code! Please scan a valid Box Barcode / Label.`
+    };
+  }
+
+  const existingItem = await db.prepare(`
+    SELECT id FROM item_units WHERE UPPER(TRIM(qr_code)) = ? LIMIT 1
+  `).get(code) as any;
+  if (existingItem) {
+    return {
+      valid: false,
+      error: 'IS_PRODUCT_QR',
+      message: `Scanned code '${code}' is already registered as a Garment/Product QR! Please scan a Box Barcode.`
+    };
   }
 
   const allowNoBoxPrefix = Boolean(po.allow_no_box_prefix || po.allowNoBoxPrefix);
@@ -633,6 +725,15 @@ router.post('/pre-qc/scan', authenticateToken, async (req: AuthRequest, res, nex
       return res.status(403).json({ error: 'OPERATION_DISABLED', message: `Pre QC operation is not enabled for Production Order ${po.po_number || po.id}.` });
     }
 
+    // Global serial uniqueness check (MAS Rule 1.2 & V004)
+    const serialCheck = await validateGlobalSerialNumber(code, po.id);
+    if (!serialCheck.valid) {
+      return res.status(400).json({
+        error: serialCheck.error,
+        message: serialCheck.message
+      });
+    }
+
     // Raw Pre-QC QR code — DO NOT validate against PO Product QR rules/ranges
     const item = await db.prepare(`
       SELECT * FROM item_units 
@@ -683,6 +784,15 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
       return res.status(404).json({ error: 'PO_NOT_FOUND', message: 'Production Order not found' });
     }
 
+    // Global serial uniqueness check (MAS Rule 1.2 & V004)
+    const serialCheck = await validateGlobalSerialNumber(code, po.id);
+    if (!serialCheck.valid) {
+      return res.status(400).json({
+        error: serialCheck.error,
+        message: serialCheck.message
+      });
+    }
+
     // Raw Pre-QC QR code — DO NOT validate against PO Product QR rules/ranges
     let item = await db.prepare(`
       SELECT * FROM item_units 
@@ -693,16 +803,20 @@ router.post('/pre-qc/record', authenticateToken, async (req: AuthRequest, res, n
     const preQcId = `preqc-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
     const testDetails = req.body.testDetails || req.body.test_details;
     const testDetailsJson = testDetails ? JSON.stringify(testDetails) : null;
+    const serialNum = serialCheck.serial || extractGarmentSerialNumber(code);
 
     if (!item) {
       const itemId = `item-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
       const initialStatus = result === 'PASS' ? 'PRE_QC_PASSED' : 'PRE_QC_FAILED';
       await db.prepare(`
-        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, NULL, 'L', ?, NOW(3), NOW(3))
-      `).run(itemId, code, po.id, initialStatus);
+        INSERT INTO item_units (id, qr_code, serial_number, production_order_id, product_config_id, size, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, NULL, 'L', ?, NOW(3), NOW(3))
+      `).run(itemId, code, serialNum, po.id, initialStatus);
 
       item = await db.prepare(`SELECT * FROM item_units WHERE id = ?`).get(itemId) as any;
+    } else if (!item.serial_number && serialNum) {
+      await db.prepare(`UPDATE item_units SET serial_number = ?, updated_at = NOW(3) WHERE id = ?`).run(serialNum, item.id);
+      item.serial_number = serialNum;
     }
 
     await db.prepare(`
@@ -1044,6 +1158,15 @@ router.post('/qc/scan', authenticateToken, async (req: AuthRequest, res, next) =
         error: rangeCheck.error,
         message: rangeCheck.message,
         expectedRange: (rangeCheck as any).expectedRange
+      });
+    }
+
+    // Global serial uniqueness check (MAS Rule 1.2 & V004)
+    const serialCheck = await validateGlobalSerialNumber(code, po.id);
+    if (!serialCheck.valid) {
+      return res.status(400).json({
+        error: serialCheck.error,
+        message: serialCheck.message
       });
     }
 
@@ -1580,6 +1703,16 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       });
     }
 
+    // Global serial uniqueness check (MAS Rule 1.2 & V004)
+    const serialCheck = await validateGlobalSerialNumber(itemQr, po.id);
+    if (!serialCheck.valid) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'QC_TEST', itemQr, 'REJECTED', serialCheck.error, serialCheck.message);
+      return res.status(400).json({
+        error: serialCheck.error,
+        message: serialCheck.message
+      });
+    }
+
     if (idempotencyKey) {
       const existing = await checkIdempotency(idempotencyKey, operatorId, 'QC_TEST', itemQr);
       if (existing && existing.result === 'ACCEPTED') {
@@ -1594,16 +1727,19 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
         AND UPPER(TRIM(qr_code)) = ?
     `).get(po.id, po.po_number, po.map_po, itemQr) as any;
 
+    const serialNum = serialCheck.serial || extractGarmentSerialNumber(itemQr);
+
     if (!item) {
       const itemId = `itm-${po.id}-${itemQr}`;
       await db.prepare(`
-        INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
-      `).run(itemId, itemQr, po.id, rangeCheck.config?.id || null, rangeCheck.config?.size || 'L');
-      item = { id: itemId, qr_code: itemQr, production_order_id: po.id, status: 'CREATED' };
+        INSERT INTO item_units (id, qr_code, serial_number, production_order_id, product_config_id, size, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
+      `).run(itemId, itemQr, serialNum, po.id, rangeCheck.config?.id || null, rangeCheck.config?.size || 'L');
+      item = { id: itemId, qr_code: itemQr, serial_number: serialNum, production_order_id: po.id, status: 'CREATED' };
     } else {
-      await db.prepare(`UPDATE item_units SET production_order_id = ?, product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, rangeCheck.config?.id || null, item.id);
+      await db.prepare(`UPDATE item_units SET serial_number = COALESCE(serial_number, ?), production_order_id = ?, product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(serialNum, po.id, rangeCheck.config?.id || null, item.id);
       item.production_order_id = po.id;
+      item.serial_number = item.serial_number || serialNum;
     }
 
     const existingQc = await db.prepare(`SELECT * FROM qc_results WHERE item_id = ?`).get(item.id) as any;
@@ -2243,6 +2379,18 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       });
     }
 
+    // Global serial uniqueness check (MAS Rule 1.2 & V004)
+    const serialCheck = await validateGlobalSerialNumber(itemQr, po.id);
+    if (!serialCheck.valid) {
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', serialCheck.error, serialCheck.message);
+      return res.status(400).json({
+        error: serialCheck.error,
+        message: serialCheck.message
+      });
+    }
+
+    const serialNum = serialCheck.serial || extractGarmentSerialNumber(itemQr);
+
     let item = await db.prepare(`
       SELECT * FROM item_units 
       WHERE (production_order_id = ? OR production_order_id = ? OR production_order_id = ?)
@@ -2256,19 +2404,20 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       `).get(itemQr.trim().toUpperCase()) as any;
 
       if (unassignedItem) {
-        await db.prepare(`UPDATE item_units SET production_order_id = ?, product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, configCheck.config?.id || null, unassignedItem.id);
-        item = { ...unassignedItem, production_order_id: po.id, product_config_id: configCheck.config?.id || null };
+        await db.prepare(`UPDATE item_units SET serial_number = COALESCE(serial_number, ?), production_order_id = ?, product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(serialNum, po.id, configCheck.config?.id || null, unassignedItem.id);
+        item = { ...unassignedItem, serial_number: serialNum, production_order_id: po.id, product_config_id: configCheck.config?.id || null };
       } else {
         const itemId = `itm-${po.id}-${itemQr.trim().toUpperCase()}`;
         await db.prepare(`
-          INSERT INTO item_units (id, qr_code, production_order_id, product_config_id, size, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
-        `).run(itemId, itemQr.trim().toUpperCase(), po.id, configCheck.config?.id || null, configCheck.config?.size || 'L');
-        item = { id: itemId, qr_code: itemQr.trim().toUpperCase(), production_order_id: po.id, product_config_id: configCheck.config?.id || null, status: 'CREATED' };
+          INSERT INTO item_units (id, qr_code, serial_number, production_order_id, product_config_id, size, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'CREATED', NOW(3), NOW(3))
+        `).run(itemId, itemQr.trim().toUpperCase(), serialNum, po.id, configCheck.config?.id || null, configCheck.config?.size || 'L');
+        item = { id: itemId, qr_code: itemQr.trim().toUpperCase(), serial_number: serialNum, production_order_id: po.id, product_config_id: configCheck.config?.id || null, status: 'CREATED' };
       }
     } else if (!item.product_config_id && configCheck.config?.id) {
-      await db.prepare(`UPDATE item_units SET product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(configCheck.config.id, item.id);
+      await db.prepare(`UPDATE item_units SET serial_number = COALESCE(serial_number, ?), product_config_id = ?, updated_at = NOW(3) WHERE id = ?`).run(serialNum, configCheck.config.id, item.id);
       item.product_config_id = configCheck.config.id;
+      item.serial_number = item.serial_number || serialNum;
     }
 
     // STEP 6.5 — VERIFY QC PASS IF QC TEST OPERATION IS REQUIRED ON THIS PO

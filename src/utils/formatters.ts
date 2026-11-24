@@ -62,6 +62,7 @@ export interface DueDateStatus {
   isToday: boolean;
   formattedDue: string;
   label: string;
+  shortLabel: string;
   bg: string;
   border: string;
   color: string;
@@ -102,6 +103,7 @@ function calculateDueDateStatus(y: number, m: number, day: number): DueDateStatu
       isToday: false,
       formattedDue,
       label: `🚨 ${overdueDays} Day${overdueDays > 1 ? 's' : ''} Overdue (Due: ${formattedDue})`,
+      shortLabel: `${overdueDays}d overdue`,
       bg: 'rgba(239, 68, 68, 0.15)',
       border: '1.5px solid #ef4444',
       color: '#ef4444'
@@ -113,6 +115,7 @@ function calculateDueDateStatus(y: number, m: number, day: number): DueDateStatu
       isToday: true,
       formattedDue,
       label: `⚠️ Due Today (${formattedDue})`,
+      shortLabel: `Due Today`,
       bg: 'rgba(245, 158, 11, 0.18)',
       border: '1.5px solid #f59e0b',
       color: '#f59e0b'
@@ -124,6 +127,7 @@ function calculateDueDateStatus(y: number, m: number, day: number): DueDateStatu
       isToday: false,
       formattedDue,
       label: `⏳ ${diffDays} Day${diffDays > 1 ? 's' : ''} Remaining (Due: ${formattedDue})`,
+      shortLabel: `${diffDays} remaining`,
       bg: 'rgba(20, 184, 166, 0.15)',
       border: '1px solid rgba(20, 184, 166, 0.4)',
       color: 'var(--primary-teal, #14b8a6)'

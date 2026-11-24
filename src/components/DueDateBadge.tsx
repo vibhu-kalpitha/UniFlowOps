@@ -5,11 +5,34 @@ interface DueDateBadgeProps {
   dueDate?: string | null;
   style?: React.CSSProperties;
   className?: string;
+  compact?: boolean;
+  noBox?: boolean;
 }
 
-export const DueDateBadge: React.FC<DueDateBadgeProps> = ({ dueDate, style, className }) => {
+export const DueDateBadge: React.FC<DueDateBadgeProps> = ({ dueDate, style, className, compact = false, noBox = false }) => {
   const status = getDueDateStatus(dueDate);
   if (!status) return null;
+
+  if (noBox) {
+    return (
+      <span
+        className={className}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          fontSize: '11px',
+          fontWeight: 700,
+          color: status.color,
+          letterSpacing: '0.02em',
+          ...style
+        }}
+        title={`PO Due Date: ${status.formattedDue}`}
+      >
+        {compact ? status.shortLabel : status.label}
+      </span>
+    );
+  }
 
   return (
     <span
@@ -31,7 +54,7 @@ export const DueDateBadge: React.FC<DueDateBadgeProps> = ({ dueDate, style, clas
       }}
       title={`PO Due Date: ${status.formattedDue}`}
     >
-      {status.label}
+      {compact ? status.shortLabel : status.label}
     </span>
   );
 };

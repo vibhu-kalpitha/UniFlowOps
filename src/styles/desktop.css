@@ -294,11 +294,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 24px;
-    background-color: #0B242D;
-    border: 1px solid #1E4650;
-    border-radius: 16px;
-    margin-bottom: 24px;
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    margin-bottom: 8px;
   }
 
   .op-ops-grid-2x2 {

@@ -697,15 +697,83 @@ button:disabled {
 }
 
 .order-selected-entity-box {
-  background-color: rgba(20, 184, 166, 0.08);
-  border: 1.5px solid var(--primary-teal);
-  padding: 10px 16px;
-  border-radius: 10px;
+  background-color: rgba(16, 185, 129, 0.12);
+  border: 1.5px solid #10B981;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+  padding: 12px 18px;
+  border-radius: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.order-selected-entity-label {
+  color: #10B981 !important;
+  font-weight: 800 !important;
+}
+
+.order-step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.order-step-create-btn {
+  width: auto !important;
+  min-height: 42px !important;
+  padding: 10px 22px !important;
+  font-size: 13.5px !important;
+  font-weight: 800 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  border-radius: 10px !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35) !important;
+  letter-spacing: 0.02em !important;
+  transition: all 0.2s ease !important;
+}
+
+.order-step-create-btn:hover {
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important;
+  box-shadow: 0 6px 20px rgba(14, 165, 233, 0.5) !important;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .order-step-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .order-step-create-btn {
+    width: 100% !important;
+    min-height: 44px !important;
+  }
+}
+
+.order-config-grid-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .order-config-grid-row {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
 }
 
 

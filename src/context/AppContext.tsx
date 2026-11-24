@@ -112,7 +112,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const handleUnauthorized = () => {
       logoutUser();
-      triggerExpiryToast();
+      const isAuthPage = typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname === '/');
+      if (!isAuthPage) {
+        triggerExpiryToast();
+      }
     };
     window.addEventListener('uniflow_unauthorized', handleUnauthorized);
     return () => {
@@ -153,12 +156,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setIsAuthenticated(true);
           } else {
             logoutUser();
-            triggerExpiryToast();
           }
         })
         .catch(() => {
           logoutUser();
-          triggerExpiryToast();
         })
         .finally(() => {
           setAuthLoading(false);

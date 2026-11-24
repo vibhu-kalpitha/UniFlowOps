@@ -88,7 +88,7 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
     });
 
     if (res.status === 401) {
-      if (!cleanEndpoint.includes('/auth/login')) {
+      if (!cleanEndpoint.includes('/auth/login') && !cleanEndpoint.includes('/auth/me')) {
         setStoredToken(null);
         localStorage.removeItem('uniflow_user');
         localStorage.removeItem('uniflow_role');

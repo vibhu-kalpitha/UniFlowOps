@@ -251,55 +251,34 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <div>
             <h3 style={{ fontSize: '13px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <span>{stageTitle} • {formatPoDisplayName(po)}</span>
-              {activeJob?.selectedLine && (
-                <span style={{
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(20, 184, 166, 0.15)',
-                  color: 'var(--primary-teal)',
-                  border: '1px solid rgba(20, 184, 166, 0.3)'
-                }}>
-                  {activeJob.selectedLine}
-                </span>
+              {(po?.customer || (po as any)?.customer_name) && (
+                <span style={{ color: 'var(--primary-teal)' }}>{po?.customer || (po as any)?.customer_name}</span>
               )}
-              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} />
+              {(po?.customer || (po as any)?.customer_name) && <span style={{ color: 'var(--text-muted)' }}>•</span>}
+              <span>{po?.styleName || po?.styleCode || 'Style'}</span>
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <span>PO: <strong style={{ color: '#ffffff' }}>{po?.poNumber || (po as any)?.po_number || po?.id}</strong></span>
+              {((po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo) && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <span>SO: <strong style={{ color: '#ffffff' }}>{(po as any)?.soNumber || (po as any)?.so_number || (po as any)?.mapSo || (po as any)?.map_so || (activeJob as any)?.salesOrder?.mapSo}</strong></span>
+                </>
+              )}
+              {activeJob?.selectedLine && (
+                <>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: 'var(--primary-teal)'
+                  }}>
+                    {activeJob.selectedLine}
+                  </span>
+                </>
+              )}
+              <span style={{ color: 'var(--text-muted)' }}>•</span>
+              <DueDateBadge dueDate={po?.dueDate || (po as any)?.due_date} compact={true} noBox={true} />
             </h3>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-              Scan packing box barcode to load items for inspection
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => navigate('/operator/home')}
-              className="btn btn-secondary"
-              style={{
-                padding: '4px 10px',
-                fontSize: '11px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                borderRadius: 'var(--radius-md)'
-              }}
-            >
-              <ArrowLeft size={12} /> Back
-            </button>
-            <button
-              onClick={() => setShowPoSelector(true)}
-              className="btn btn-secondary"
-              style={{
-                padding: '4px 10px',
-                fontSize: '11px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                borderRadius: 'var(--radius-md)'
-              }}
-            >
-              <ArrowLeftRight size={12} /> Switch PO
-            </button>
           </div>
         </div>
       </div>
@@ -322,55 +301,55 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
         </div>
       </div>
 
-      {/* View Switcher: Live Scanning vs Line History */}
+      {/* View Switcher: Live Scanning vs Line History - Compact */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
+        gap: '4px',
         backgroundColor: 'var(--bg-surface-2)',
-        padding: '4px',
-        borderRadius: '10px',
+        padding: '3px',
+        borderRadius: '8px',
         width: 'fit-content'
       }}>
         <button
           type="button"
           onClick={() => setActiveViewTab('scan')}
           style={{
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '12px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
             color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
             border: 'none',
             transition: 'all 0.15s ease'
           }}
         >
-          <ScanLine size={14} /> Live Scan Station
+          Live Scan Station
         </button>
         <button
           type="button"
           onClick={() => setActiveViewTab('history')}
           style={{
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '12px',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '4px',
             backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
             color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
             border: 'none',
             transition: 'all 0.15s ease'
           }}
         >
-          <Layers size={14} /> Line Records & Completed Audits
+          Line Records & Completed Audits
         </button>
       </div>
 
@@ -385,43 +364,32 @@ export const AQLBoxScanPage: React.FC<AQLBoxScanPageProps> = ({ isFinalAql = fal
         /* Main Workflow Panel */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
         {/* PO Progress Card - Operator Work Primary */}
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '14px' }}>
-          {/* PRIMARY / LARGE: Operator Work */}
-          <div style={{ marginBottom: '10px', padding: '12px', borderRadius: '12px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '8px 10px' }}>
+          {/* PRIMARY / COMPACT: Operator Work */}
+          <div style={{ padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                 MY {isFinalAql ? 'FINAL AQL' : 'AQL'} PROGRESS — {aqlProgress.operatorStats.operatorName}
               </span>
-              <span style={{ fontSize: '12px', fontWeight: 800, color: '#10B981' }}>
-                {Math.round((aqlProgress.operatorStats.passedCount / (targetSoQty || 1)) * 100)}%
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981' }}>
+                Total Qty: {targetSoQty}
               </span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
-                <span style={{ fontSize: '20px', fontWeight: 800, color: '#10B981' }}>{aqlProgress.operatorStats.passedCount}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: 0 }}>
+              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{aqlProgress.operatorStats.passedCount}</span>
               </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
-                <span style={{ fontSize: '20px', fontWeight: 800, color: '#EF4444' }}>{aqlProgress.operatorStats.failedCount}</span>
+              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444' }}>{aqlProgress.operatorStats.failedCount}</span>
               </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '10px 8px', borderRadius: '10px', textAlign: 'center' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
-                <span style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary-teal)' }}>
+              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                   {aqlProgress.operatorStats.passedCount + aqlProgress.operatorStats.failedCount}
                 </span>
               </div>
-            </div>
-            <ProgressBar current={aqlProgress.operatorStats.passedCount} total={targetSoQty} height={8} />
-          </div>
-
-          {/* SECONDARY / SMALL: PO Total Summary */}
-          <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-surface-2)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', flexWrap: 'wrap', gap: '6px' }}>
-            <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>PO TOTAL</span>
-            <div style={{ display: 'flex', gap: '12px', color: 'var(--text-primary)', fontWeight: 600, flexWrap: 'wrap' }}>
-              <span>Target: <strong>{targetSoQty}</strong></span>
-              <span>Passed: <strong style={{ color: '#10B981' }}>{aqlPassedQty}</strong></span>
-              <span>Overall: <strong>{Math.round((aqlPassedQty / (targetSoQty || 1)) * 100)}%</strong></span>
             </div>
           </div>
         </div>

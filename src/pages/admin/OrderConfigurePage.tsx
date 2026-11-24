@@ -88,6 +88,7 @@ export const OrderConfigurePage: React.FC = () => {
   const [supervisorSelectOpen, setSupervisorSelectOpen] = useState(false);
 
   const [plant, setPlant] = useState(() => currentUser?.plant || 'Biyagama');
+  const [plantsList, setPlantsList] = useState<any[]>([]);
   // No default 8 lines - start empty or populated from draft
   const [assignedLines, setAssignedLines] = useState<string[]>([]);
   const [customLineInput, setCustomLineInput] = useState('');
@@ -349,10 +350,15 @@ export const OrderConfigurePage: React.FC = () => {
 
   const fetchShiftsAndRoster = async () => {
     try {
-      const [shiftsRes, rosterRes] = await Promise.allSettled([
+      const [shiftsRes, rosterRes, plantsRes] = await Promise.allSettled([
         apiFetch<any[]>('/api/shifts'),
-        apiFetch<any[]>('/api/shifts/all-members')
+        apiFetch<any[]>('/api/shifts/all-members'),
+        apiFetch<any[]>('/api/plants')
       ]);
+
+      if (plantsRes.status === 'fulfilled' && Array.isArray(plantsRes.value) && plantsRes.value.length > 0) {
+        setPlantsList(plantsRes.value);
+      }
 
       let loadedShifts: ShiftItem[] = [];
       if (shiftsRes.status === 'fulfilled' && Array.isArray(shiftsRes.value) && shiftsRes.value.length > 0) {
@@ -766,99 +772,76 @@ export const OrderConfigurePage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
       
       {/* ── TOP ORDER CONTEXT HEADER BAR ──────────────────────────────────── */}
       <div style={{
         backgroundColor: 'var(--bg-surface-1)',
         border: '1px solid var(--border-color)',
-        borderRadius: '16px',
-        padding: '18px 22px',
+        borderRadius: '14px',
+        padding: '12px 18px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '14px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+        gap: '12px',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.12)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <button
-            type="button"
-            onClick={() => navigate(isEditMode ? '/admin/orders?tab=current' : '/admin/orders?tab=new')}
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-secondary)',
-              padding: '8px 12px',
-              borderRadius: '10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 700
-            }}
-          >
-            <ArrowLeft size={15} /> Back
-          </button>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{
-                backgroundColor: isEditMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(234, 179, 8, 0.15)',
-                color: isEditMode ? '#60a5fa' : '#eab308',
-                border: isEditMode ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(234, 179, 8, 0.4)',
-                fontSize: '11px',
-                fontWeight: 900,
-                padding: '3px 8px',
-                borderRadius: '6px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <Zap size={13} /> {isEditMode ? 'EDIT ORDER CONFIGURATIONS' : 'CONFIGURE ORDER FLOW'}
-              </span>
-              <strong style={{ fontSize: '18px', color: 'var(--text-primary)' }}>
-                {formatPoDisplay(draftOrder?.poNumber) || 'New Production Run'}
-              </strong>
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <span>Customer: <strong style={{ color: 'var(--primary-teal)' }}>{draftOrder?.customer || 'Client'}</strong></span>
-              <span>• Style: <strong style={{ color: 'var(--text-primary)' }}>{draftOrder?.styleName || 'Style'} ({draftOrder?.styleCode || 'Code'})</strong></span>
-              {draftOrder?.soNumber && <span>• SO: <strong style={{ color: '#60a5fa' }}>{draftOrder.soNumber}</strong></span>}
-            </div>
+        <div style={{ minWidth: '220px' }}>
+          <strong style={{ fontSize: '17px', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
+            {formatPoDisplay(draftOrder?.poNumber) || 'New Production Run'}
+          </strong>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span>Customer: <strong style={{ color: 'var(--primary-teal)' }}>{draftOrder?.customer || 'Client'}</strong></span>
+            <span>• Style: <strong style={{ color: 'var(--text-primary)' }}>{draftOrder?.styleName || 'Style'} ({draftOrder?.styleCode || 'Code'})</strong></span>
+            {draftOrder?.soNumber && <span>• SO: <strong style={{ color: '#60a5fa' }}>{draftOrder.soNumber}</strong></span>}
           </div>
         </div>
 
         {/* Tab Switcher */}
-        <div style={{ display: 'flex', gap: '6px', backgroundColor: 'var(--bg-surface-2)', padding: '4px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+          gap: '6px',
+          backgroundColor: 'var(--bg-surface-2)',
+          padding: '4px',
+          borderRadius: '12px',
+          border: '1px solid var(--border-color)',
+          width: '100%',
+          maxWidth: '520px'
+        }}>
           <button
             type="button"
             onClick={() => setActiveTab('general')}
             style={{
-              padding: '8px 16px',
+              padding: '8px 12px',
               borderRadius: '8px',
               fontSize: '12px',
               fontWeight: 800,
               cursor: 'pointer',
               border: 'none',
               backgroundColor: activeTab === 'general' ? 'var(--primary-teal)' : 'transparent',
-              color: activeTab === 'general' ? '#0f172a' : 'var(--text-secondary)'
+              color: activeTab === 'general' ? '#0f172a' : 'var(--text-secondary)',
+              textAlign: 'center',
+              whiteSpace: 'nowrap'
             }}
           >
-            1. Operations & Shifts
+            1. Operations & Groups
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('configs')}
             style={{
-              padding: '8px 16px',
+              padding: '8px 12px',
               borderRadius: '8px',
               fontSize: '12px',
               fontWeight: 800,
               cursor: 'pointer',
               border: 'none',
               backgroundColor: activeTab === 'configs' ? 'var(--primary-teal)' : 'transparent',
-              color: activeTab === 'configs' ? '#0f172a' : 'var(--text-secondary)'
+              color: activeTab === 'configs' ? '#0f172a' : 'var(--text-secondary)',
+              textAlign: 'center',
+              whiteSpace: 'nowrap'
             }}
           >
             2. Product & Box Configs
@@ -867,14 +850,16 @@ export const OrderConfigurePage: React.FC = () => {
             type="button"
             onClick={() => setActiveTab('review')}
             style={{
-              padding: '8px 16px',
+              padding: '8px 12px',
               borderRadius: '8px',
               fontSize: '12px',
               fontWeight: 800,
               cursor: 'pointer',
               border: 'none',
               backgroundColor: activeTab === 'review' ? '#eab308' : 'transparent',
-              color: activeTab === 'review' ? '#0f172a' : 'var(--text-secondary)'
+              color: activeTab === 'review' ? '#0f172a' : 'var(--text-secondary)',
+              textAlign: 'center',
+              whiteSpace: 'nowrap'
             }}
           >
             3. Review & Launch
@@ -960,8 +945,10 @@ export const OrderConfigurePage: React.FC = () => {
                   boxSizing: 'border-box'
                 }}
               >
-                {FACTORY_PLANTS.map(p => (
-                  <option key={p} value={p}>{p}</option>
+                {(plantsList.length > 0 ? plantsList : FACTORY_PLANTS.map(p => ({ id: p, name: p, code: p }))).map(p => (
+                  <option key={p.id || p.code || p.name} value={p.name}>
+                    {p.name} {p.code && p.code !== p.name ? `(${p.code})` : ''}
+                  </option>
                 ))}
               </select>
             </div>
@@ -1553,7 +1540,7 @@ export const OrderConfigurePage: React.FC = () => {
             ))}
           </div>
 
-          {/* 3. SHIFT GROUPS ALLOCATED TO THIS PO */}
+          {/* 3. GROUP SELECTION ALLOCATED TO THIS PO */}
           <div style={{
             backgroundColor: 'var(--bg-surface-1)',
             border: '1px solid var(--border-color)',
@@ -1568,7 +1555,7 @@ export const OrderConfigurePage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Users size={18} color="var(--primary-teal)" />
                   <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
-                    Shift Groups Allocated to this PO
+                    Group Selection
                   </strong>
                 </div>
               </div>
@@ -1586,37 +1573,46 @@ export const OrderConfigurePage: React.FC = () => {
                   cursor: 'pointer'
                 }}
               >
-                Manage Shifts ↗
+                Manage Groups ↗
               </button>
             </div>
 
-            {/* 4 Shift Cards (Shift A, Shift B, Shift C, Shift D) */}
+            {/* All Configured Groups (Shift A, Shift B, etc. + all newly created custom groups) */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
               gap: '12px'
             }}>
-              {[
-                { code: 'A', name: 'Shift A', color: '#10b981', border: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
-                { code: 'B', name: 'Shift B', color: '#3b82f6', border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)' },
-                { code: 'C', name: 'Shift C', color: '#a855f7', border: '#a855f7', bg: 'rgba(168, 85, 247, 0.12)' },
-                { code: 'D', name: 'Shift D', color: '#f59e0b', border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' }
-              ].map(card => {
-                const matchedShift = shiftsList.find(s => s.code?.toUpperCase() === card.code || s.name?.toUpperCase().includes(card.code));
-                const sId = matchedShift?.id || `shift-${card.code.toLowerCase()}`;
+              {(shiftsList.length > 0 ? shiftsList : [
+                { id: 'shift-a', code: 'A', name: 'Shift A' },
+                { id: 'shift-b', code: 'B', name: 'Shift B' },
+                { id: 'shift-c', code: 'C', name: 'Shift C' },
+                { id: 'shift-d', code: 'D', name: 'Shift D' }
+              ]).map((shift, idx) => {
+                const paletteList = [
+                  { color: '#10b981', border: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
+                  { color: '#3b82f6', border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)' },
+                  { color: '#a855f7', border: '#a855f7', bg: 'rgba(168, 85, 247, 0.12)' },
+                  { color: '#f59e0b', border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
+                  { color: '#ec4899', border: '#ec4899', bg: 'rgba(236, 72, 153, 0.12)' },
+                  { color: '#06b6d4', border: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)' },
+                  { color: '#84cc16', border: '#84cc16', bg: 'rgba(132, 204, 22, 0.12)' }
+                ];
+                const card = paletteList[idx % paletteList.length];
+                const sId = shift.id;
                 const isSelected = selectedShiftIds.includes(sId);
-                const rawCount = shiftStats[sId] ?? (matchedShift ? shiftStats[matchedShift.id] : undefined);
-                const opCount = rawCount && rawCount > 0 ? rawCount : (card.code === 'A' ? 4 : card.code === 'B' ? 3 : card.code === 'C' ? 2 : 1);
+                const rawCount = shiftStats[sId] ?? ((shift as any).members?.length);
+                const opCount = rawCount !== undefined ? rawCount : 0;
 
                 return (
                   <div
-                    key={card.code}
+                    key={sId || idx}
                     onClick={() => toggleShift(sId)}
                     style={{
                       padding: '14px 16px',
                       borderRadius: '12px',
                       backgroundColor: card.bg,
-                      border: `2px solid ${card.border}`,
+                      border: `2px solid ${isSelected ? card.border : 'rgba(255, 255, 255, 0.08)'}`,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1625,23 +1621,9 @@ export const OrderConfigurePage: React.FC = () => {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '8px',
-                        backgroundColor: card.color,
-                        color: '#0f172a',
-                        fontWeight: 900,
-                        fontSize: '18px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
-                        {card.code}
-                      </div>
                       <div>
                         <strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>
-                          {card.name}
+                          {shift.name}
                         </strong>
                         <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                           👥 {opCount} {opCount === 1 ? 'Operator' : 'Operators'}
@@ -1672,7 +1654,7 @@ export const OrderConfigurePage: React.FC = () => {
               color: 'var(--primary-teal)',
               fontWeight: 700
             }}>
-              ✓ {selectedShiftIds.length} Shift Groups Selected • {totalUniqueOperatorsAuthorized || 5} unique operators will be authorized for this PO
+              ✓ {selectedShiftIds.length} Groups Selected • {totalUniqueOperatorsAuthorized || 5} unique operators will be authorized for this PO
             </div>
           </div>
 
@@ -1838,12 +1820,9 @@ export const OrderConfigurePage: React.FC = () => {
                     backgroundColor: 'var(--bg-surface-2)',
                     border: '1px solid var(--border-color)',
                     borderRadius: '10px',
-                    padding: '10px 14px',
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr 1fr auto',
-                    gap: '12px',
-                    alignItems: 'center'
+                    padding: '10px 14px'
                   }}
+                  className="order-config-grid-row"
                 >
                   <div>
                     <label style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>
@@ -2058,12 +2037,9 @@ export const OrderConfigurePage: React.FC = () => {
                     backgroundColor: 'var(--bg-surface-2)',
                     border: '1px solid var(--border-color)',
                     borderRadius: '10px',
-                    padding: '10px 14px',
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr 1fr auto',
-                    gap: '12px',
-                    alignItems: 'center'
+                    padding: '10px 14px'
                   }}
+                  className="order-config-grid-row"
                 >
                   <div>
                     <label style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: '2px' }}>
@@ -2154,7 +2130,7 @@ export const OrderConfigurePage: React.FC = () => {
                 fontWeight: 700
               }}
             >
-              ← Back to Operations & Shifts
+              ← Back to Operations & Groups
             </button>
             <button
               type="button"

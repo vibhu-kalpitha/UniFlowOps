@@ -127,6 +127,7 @@ const CreatePOGeneralInner: React.FC = () => {
 
   // Selected PO allocations (operator+shift combos for THIS PO)
   const [poAllocations, setPoAllocations] = useState<PoAllocation[]>([]);
+  const [plantsList, setPlantsList] = useState<{ id: string; code: string; name: string }[]>([]);
 
   // Copy Previous PO state
   const [previousOrders, setPreviousOrders] = useState<ProductionOrder[]>([]);
@@ -136,12 +137,17 @@ const CreatePOGeneralInner: React.FC = () => {
 
   // Load styles, roster, shifts, and previous POs
   const loadData = useCallback(async () => {
-    const [stylesResult, rosterResult, posResult, shiftsResult] = await Promise.allSettled([
+    const [stylesResult, rosterResult, posResult, shiftsResult, plantsResult] = await Promise.allSettled([
       apiFetch<StyleItem[]>('/api/styles'),
       apiFetch<ShiftRosterRow[]>('/api/shifts/all-members'),
       apiFetch<ProductionOrder[]>('/api/production-orders'),
       apiFetch<ShiftItem[]>('/api/shifts'),
+      apiFetch<any[]>('/api/plants')
     ]);
+
+    if (plantsResult.status === 'fulfilled' && Array.isArray(plantsResult.value)) {
+      setPlantsList(plantsResult.value);
+    }
 
     if (stylesResult.status === 'fulfilled') {
       setStylesList(stylesResult.value);
@@ -865,23 +871,20 @@ const CreatePOGeneralInner: React.FC = () => {
           <div>
             <label style={styles.label}>Plant / Garment Location (Required)</label>
             <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                list="po-plant-suggestions"
-                className="input-field"
-                placeholder="e.g. Biyagama, Katunayake"
+              <select
+                className="input-field select-field"
                 value={plant}
                 onChange={e => setPlant(e.target.value)}
                 required
-              />
-              <datalist id="po-plant-suggestions">
-                <option value="Biyagama" />
-                <option value="Katunayake" />
-                <option value="Mawathagama" />
-                <option value="Avissawella" />
-                <option value="Koggala" />
-                <option value="Wathupitiwala" />
-              </datalist>
+                style={{ backgroundColor: 'var(--bg-surface-2)', color: 'var(--text-primary)' }}
+              >
+                <option value="">Select Plant...</option>
+                {plantsList.map(p => (
+                  <option key={p.id || p.code} value={p.name}>
+                    {p.name} ({p.code})
+                  </option>
+                ))}
+              </select>
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
               Supervisors assigned to this plant will monitor and manage this PO.
