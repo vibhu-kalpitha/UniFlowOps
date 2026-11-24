@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
-import { User, Lock, CheckSquare, Square } from 'lucide-react';
+import { User, Lock } from 'lucide-react';
 import '../../styles/tokens.css';
 
 export const LoginPage: React.FC = () => {
@@ -11,7 +11,6 @@ export const LoginPage: React.FC = () => {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(true);
   const [selectedRole, setSelectedRole] = useState<UserRole>('operator');
 
   useEffect(() => {
@@ -113,24 +112,6 @@ export const LoginPage: React.FC = () => {
               />
             </div>
 
-            <div style={styles.rowBetween}>
-              <button
-                type="button"
-                style={styles.checkboxBtn}
-                onClick={() => setRememberMe(!rememberMe)}
-              >
-                {rememberMe ? (
-                  <CheckSquare size={18} color="#22D3C5" />
-                ) : (
-                  <Square size={18} color="#8EABB0" />
-                )}
-                <span style={{ fontSize: '13px', color: '#ECF7F6', fontWeight: 500 }}>Remember me</span>
-              </button>
-              <span style={{ fontSize: '13px', color: '#22D3C5', cursor: 'pointer', fontWeight: 600 }}>
-                Forgot password?
-              </span>
-            </div>
-
             <button type="submit" style={styles.loginSubmitBtn}>
               Login
             </button>
@@ -162,7 +143,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    marginTop: '10px'
+    marginTop: '10px',
+    marginBottom: '36px'
   },
   hangerIconWrap: {
     marginBottom: '12px'
@@ -275,7 +257,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none',
     cursor: 'pointer',
     boxShadow: '0 4px 16px rgba(34, 211, 197, 0.35)',
-    marginTop: '6px'
+    marginTop: '10px'
   },
   footer: {
     textAlign: 'center',

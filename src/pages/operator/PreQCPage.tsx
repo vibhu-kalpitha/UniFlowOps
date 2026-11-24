@@ -398,7 +398,7 @@ export const PreQCPage: React.FC = () => {
         </div>
 
         {/* MY OPERATOR PROGRESS */}
-        <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+        <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(20, 184, 166, 0.04)', border: '1px solid rgba(20, 184, 166, 0.15)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               MY OPERATOR PROGRESS
@@ -408,21 +408,21 @@ export const PreQCPage: React.FC = () => {
             </span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+            <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
               <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Completed</span>
               <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981', marginTop: '2px', display: 'block' }}>
                 {poProgress.myCompleted}
               </span>
             </div>
 
-            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+            <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
               <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Failed</span>
               <span style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444', marginTop: '2px', display: 'block' }}>
                 {poProgress.myFailed}
               </span>
             </div>
 
-            <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+            <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
               <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Total Processed</span>
               <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px', display: 'block' }}>
                 {poProgress.myTotalProcessed}
@@ -454,9 +454,9 @@ export const PreQCPage: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
-            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
-            border: 'none',
+            backgroundColor: activeViewTab === 'scan' ? 'rgba(20, 184, 166, 0.2)' : 'transparent',
+            color: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'var(--text-secondary)',
+            border: activeViewTab === 'scan' ? '1px solid rgba(20, 184, 166, 0.45)' : '1px solid transparent',
             transition: 'all 0.15s ease'
           }}
         >
@@ -474,9 +474,9 @@ export const PreQCPage: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
-            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
-            border: 'none',
+            backgroundColor: activeViewTab === 'history' ? 'rgba(20, 184, 166, 0.2)' : 'transparent',
+            color: activeViewTab === 'history' ? 'var(--primary-teal)' : 'var(--text-secondary)',
+            border: activeViewTab === 'history' ? '1px solid rgba(20, 184, 166, 0.45)' : '1px solid transparent',
             transition: 'all 0.15s ease'
           }}
         >

@@ -17,7 +17,7 @@ export const SupervisorProfile: React.FC = () => {
   };
 
   return (
-    <div className="profile-desktop-grid">
+    <div className="profile-desktop-grid" style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
       {/* Left Column: Hero */}
       <div style={styles.profileHero}>
         <div style={styles.avatarBig}>
@@ -101,6 +101,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   menuCard: {
     backgroundColor: 'var(--bg-surface-1)',
+    borderRadius: '16px',
     margin: 0,
     padding: '14px'
   },

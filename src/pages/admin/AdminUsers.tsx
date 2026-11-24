@@ -299,25 +299,7 @@ export const AdminUsers: React.FC = () => {
           <Plus size={16} /> Add New User
         </button>
         <button
-          className="btn-secondary"
-          style={{
-            flex: '1 1 150px',
-            padding: '10px 18px',
-            fontSize: '13px',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            borderRadius: '12px',
-            cursor: 'pointer'
-          }}
-          onClick={() => navigate('/supervisor/shifts')}
-        >
-          <Users size={16} color="var(--primary-teal)" /> Manage Group
-        </button>
-        <button
-          className="btn-secondary"
+          type="button"
           style={{
             flex: '1 1 150px',
             padding: '10px 18px',
@@ -329,11 +311,38 @@ export const AdminUsers: React.FC = () => {
             gap: '8px',
             borderRadius: '12px',
             cursor: 'pointer',
-            borderColor: 'rgba(20, 184, 166, 0.4)'
+            backgroundColor: 'rgba(99, 102, 241, 0.14)',
+            border: '1.5px solid rgba(99, 102, 241, 0.5)',
+            color: '#A5B4FC',
+            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.15)',
+            transition: 'all 0.2s ease'
+          }}
+          onClick={() => navigate('/supervisor/shifts')}
+        >
+          <Users size={16} color="#A5B4FC" /> Manage Group
+        </button>
+        <button
+          type="button"
+          style={{
+            flex: '1 1 150px',
+            padding: '10px 18px',
+            fontSize: '13px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            backgroundColor: 'rgba(20, 184, 166, 0.14)',
+            border: '1.5px solid rgba(20, 184, 166, 0.5)',
+            color: '#5EEAD4',
+            boxShadow: '0 2px 8px rgba(20, 184, 166, 0.15)',
+            transition: 'all 0.2s ease'
           }}
           onClick={() => setShowCreatePlantModal(true)}
         >
-          <Building2 size={16} color="var(--primary-teal)" /> Create Plants
+          <Building2 size={16} color="#5EEAD4" /> Create Plants
         </button>
       </div>
 
@@ -949,42 +958,42 @@ const styles: Record<string, React.CSSProperties> = {
   kpiCard: {
     backgroundColor: 'var(--bg-surface-1)',
     border: '1px solid var(--border-color)',
-    borderRadius: '14px',
-    padding: '12px 14px'
+    borderRadius: '12px',
+    padding: '8px 12px'
   },
-  kpiLabel: { fontSize: '10px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' },
-  kpiVal: { fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' },
-  kpiSub: { fontSize: '11px', color: 'var(--text-muted)' },
+  kpiLabel: { fontSize: '9px', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' },
+  kpiVal: { fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' },
+  kpiSub: { fontSize: '10px', color: 'var(--text-muted)' },
 
   kpiCardTeal: {
     backgroundColor: 'rgba(22, 184, 174, 0.08)',
     border: '1px solid rgba(22, 184, 174, 0.3)',
-    borderRadius: '14px',
-    padding: '12px 14px'
+    borderRadius: '12px',
+    padding: '8px 12px'
   },
-  kpiLabelTeal: { fontSize: '10px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.05em' },
-  kpiValTeal: { fontSize: '22px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px' },
-  kpiSubTeal: { fontSize: '11px', color: 'var(--primary-teal)' },
+  kpiLabelTeal: { fontSize: '9px', fontWeight: 800, color: 'var(--primary-teal)', letterSpacing: '0.05em' },
+  kpiValTeal: { fontSize: '18px', fontWeight: 800, color: 'var(--primary-teal)', marginTop: '2px' },
+  kpiSubTeal: { fontSize: '10px', color: 'var(--primary-teal)' },
 
   kpiCardBlue: {
     backgroundColor: 'rgba(59, 130, 246, 0.08)',
     border: '1px solid rgba(59, 130, 246, 0.3)',
-    borderRadius: '14px',
-    padding: '12px 14px'
+    borderRadius: '12px',
+    padding: '8px 12px'
   },
-  kpiLabelBlue: { fontSize: '10px', fontWeight: 800, color: '#3B82F6', letterSpacing: '0.05em' },
-  kpiValBlue: { fontSize: '22px', fontWeight: 800, color: '#3B82F6', marginTop: '2px' },
-  kpiSubBlue: { fontSize: '11px', color: '#3B82F6' },
+  kpiLabelBlue: { fontSize: '9px', fontWeight: 800, color: '#3B82F6', letterSpacing: '0.05em' },
+  kpiValBlue: { fontSize: '18px', fontWeight: 800, color: '#3B82F6', marginTop: '2px' },
+  kpiSubBlue: { fontSize: '10px', color: '#3B82F6' },
 
   kpiCardPurple: {
     backgroundColor: 'rgba(139, 92, 246, 0.08)',
     border: '1px solid rgba(139, 92, 246, 0.3)',
-    borderRadius: '14px',
-    padding: '12px 14px'
+    borderRadius: '12px',
+    padding: '8px 12px'
   },
-  kpiLabelPurple: { fontSize: '10px', fontWeight: 800, color: '#8B5CF6', letterSpacing: '0.05em' },
-  kpiValPurple: { fontSize: '22px', fontWeight: 800, color: '#8B5CF6', marginTop: '2px' },
-  kpiSubPurple: { fontSize: '11px', color: '#8B5CF6' },
+  kpiLabelPurple: { fontSize: '9px', fontWeight: 800, color: '#8B5CF6', letterSpacing: '0.05em' },
+  kpiValPurple: { fontSize: '18px', fontWeight: 800, color: '#8B5CF6', marginTop: '2px' },
+  kpiSubPurple: { fontSize: '10px', color: '#8B5CF6' },
 
   tabBtn: {
     padding: '8px 14px',

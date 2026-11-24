@@ -2466,219 +2466,11 @@ export const AdminReports: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* ── Overall Details (Production Order & Operation Detailed Audit Table) ──────── */}
-      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '16px', borderRadius: '14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-              Overall Details
-            </h3>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={handleExportExcel}
-              className="btn btn-primary"
-              style={{
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                backgroundColor: '#059669',
-                borderColor: '#059669',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-              title="Export Overall Production Details to Excel/CSV"
-            >
-              <FileSpreadsheet size={14} /> Export Excel
-            </button>
-            <StatusPill label={`${filteredOrders.length} Records`} variant="teal" />
-          </div>
-        </div>
-
-        {filteredOrders.length === 0 ? (
-          <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            No audit records found matching the selected Customer, Style, PO, SO, or Time Period filters.
-          </div>
-        ) : (
-          <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
-            <table className="responsive-table" style={{ ...styles.table, minWidth: '1250px' }}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>CUSTOMER NAME</th>
-                  <th style={styles.th}>STYLE NAME</th>
-                  <th style={styles.th}>PO NAME</th>
-                  <th style={styles.th}>SO NAME</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>PLANNED QTY</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>PRE QC</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>QC</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>PACKING</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>AQL</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>FINAL AQL</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>TRANSFERS</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>SCRAP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(showAllOrders ? filteredOrders : filteredOrders.slice(0, 15)).map((p: any, idx: number) => {
-                  const isStyleDirect = p.orderPathway === 'STYLE_DIRECT' || p.poName === 'No PO & SO';
-                  const isStyleOnly = p.orderPathway === 'STYLE_ONLY';
-                  const isNoSo = p.soName === 'No SO' || isStyleDirect || isStyleOnly;
-
-                  return (
-                    <tr
-                      key={p.id || `${p.poId}-${p.soId}-${idx}`}
-                      style={{
-                        ...styles.tr,
-                        cursor: 'pointer',
-                        transition: 'background-color 0.15s ease'
-                      }}
-                      onClick={() => {
-                        if (p.customer) setSelectedCustomerFilter(p.customer);
-                        if (p.styleName) setSelectedStyleFilter(p.styleName);
-                        if (p.poName && p.poName !== 'No PO & SO') setSelectedPoFilter(p.poName);
-                        if (p.soName && p.soName !== 'No SO' && p.soName !== 'No PO & SO') setSelectedSoFilter(p.soName);
-                        showToast(`Focused on ${p.customer || 'Customer'} - ${p.styleName} (Unit Records below)`, 'info');
-                      }}
-                      title="Click to inspect operational unit records for this order"
-                    >
-                      {/* 1. Customer Name */}
-                      <td data-label="CUSTOMER NAME" style={styles.td}>
-                        <strong style={{ color: 'var(--text-primary)' }}>{p.customer || 'Factory Customer'}</strong>
-                      </td>
-
-                      {/* 2. Style Name */}
-                      <td data-label="STYLE NAME" style={styles.td}>
-                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.styleName || 'Standard Style'}</span>
-                      </td>
-
-                      {/* 3. PO Name */}
-                      <td data-label="PO NAME" style={styles.td}>
-                        {isStyleDirect || isStyleOnly ? (
-                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '11px' }}>No PO & SO</span>
-                        ) : (
-                          <strong style={{ color: 'var(--primary-teal)' }}>{p.poName || p.poNumber}</strong>
-                        )}
-                      </td>
-
-                      {/* 4. SO Name */}
-                      <td data-label="SO NAME" style={styles.td}>
-                        {isStyleDirect || isStyleOnly ? (
-                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '11px' }}>No PO & SO</span>
-                        ) : isNoSo ? (
-                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '11px' }}>No SO</span>
-                        ) : (
-                          <strong style={{ color: '#60a5fa' }}>{p.soName || p.soNumber}</strong>
-                        )}
-                      </td>
-
-                      {/* 5. Planned QTY */}
-                      <td data-label="PLANNED QTY" style={{ ...styles.td, textAlign: 'right' }}>
-                        <strong>{(p.plannedQty ?? p.targetQuantity ?? 0).toLocaleString()}</strong>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' }}>pcs</span>
-                      </td>
-
-                      {/* 6. Pre QC */}
-                      <td data-label="PRE QC" style={{ ...styles.td, textAlign: 'center' }}>
-                        <span style={{ color: '#38bdf8', fontWeight: 800 }}>{p.preQc ?? 0}</span>
-                      </td>
-
-                      {/* 7. QC */}
-                      <td data-label="QC" style={{ ...styles.td, textAlign: 'center' }}>
-                        <span style={{ color: '#10B981', fontWeight: 800 }}>{p.qc ?? p.qcPassed ?? 0}</span>
-                      </td>
-
-                      {/* 8. Packing */}
-                      <td data-label="PACKING" style={{ ...styles.td, textAlign: 'center' }}>
-                        <span style={{ color: '#818cf8', fontWeight: 800 }}>{p.packing ?? p.packedCount ?? 0}</span>
-                      </td>
-
-                      {/* 9. AQL */}
-                      <td data-label="AQL" style={{ ...styles.td, textAlign: 'center' }}>
-                        <StatusPill label={`${p.aql ?? p.aqlPassed ?? 0} Boxes`} variant={(p.aql ?? p.aqlPassed ?? 0) > 0 ? 'green' : 'muted'} />
-                      </td>
-
-                      {/* 10. Final AQL */}
-                      <td data-label="FINAL AQL" style={{ ...styles.td, textAlign: 'center' }}>
-                        <StatusPill label={`${p.finalAql ?? p.finalAqlPassed ?? 0} Boxes`} variant={(p.finalAql ?? p.finalAqlPassed ?? 0) > 0 ? 'green' : 'muted'} />
-                      </td>
-
-                      {/* 11. Transfers */}
-                      <td data-label="TRANSFERS" style={{ ...styles.td, textAlign: 'center' }}>
-                        <span style={{ color: '#c084fc', fontWeight: 800 }}>{p.transfers ?? p.boxTransfers ?? 0}</span>
-                      </td>
-
-                      {/* 12. Scrap */}
-                      <td data-label="SCRAP" style={{ ...styles.td, textAlign: 'center' }}>
-                        {(p.scrap ?? p.scrappedCount ?? 0) > 0 ? (
-                          <span style={{ color: '#EF4444', fontWeight: 800 }}>⚠️ {p.scrap ?? p.scrappedCount}</span>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>0</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {/* Table Summary Footer */}
-              <tfoot>
-                <tr style={{ ...styles.tr, backgroundColor: 'rgba(20, 184, 166, 0.08)', fontWeight: 800 }}>
-                  <td colSpan={4} style={{ ...styles.td, color: 'var(--primary-teal)', fontWeight: 800 }}>
-                    TOTAL SUMMARY ({filteredOrders.length} records):
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'right', color: 'var(--primary-teal)' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.plannedQty ?? p.targetQuantity ?? 0), 0).toLocaleString()} pcs
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: '#38bdf8' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.preQc ?? 0), 0)}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: '#10B981' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.qc ?? p.qcPassed ?? 0), 0)}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: '#818cf8' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.packing ?? p.packedCount ?? 0), 0)}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: 'var(--text-primary)' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.aql ?? p.aqlPassed ?? 0), 0)}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: 'var(--text-primary)' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.finalAql ?? p.finalAqlPassed ?? 0), 0)}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: '#c084fc' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.transfers ?? p.boxTransfers ?? 0), 0)}
-                  </td>
-                  <td style={{ ...styles.td, textAlign: 'center', color: '#EF4444' }}>
-                    {filteredOrders.reduce((s, p) => s + (p.scrap ?? p.scrappedCount ?? 0), 0)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-
-            {filteredOrders.length > 15 && (
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
-                <button
-                  onClick={() => setShowAllOrders(!showAllOrders)}
-                  className="btn btn-secondary"
-                  style={{
-                    padding: '8px 22px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid var(--primary-teal)',
-                    color: 'var(--primary-teal)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {showAllOrders
-                    ? '▲ Show Less (First 15 Rows)'
-                    : `▼ See More (${filteredOrders.length - 15} more records)`}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+      {/* ── Page Header / Title ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+        <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+          Reports
+        </h2>
       </div>
 
       {/* ── Section: Factory Operational Logs & Deep Inspection ── */}
@@ -2723,7 +2515,12 @@ export const AdminReports: React.FC = () => {
             </div>
           )}
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: '10px',
+            alignItems: 'end'
+          }}>
             {/* 1. Customer Dropdown */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '150px', flex: '1 1 auto' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>1. Customer</label>
@@ -2813,54 +2610,57 @@ export const AdminReports: React.FC = () => {
         </div>
 
 
-        {/* 7 Dedicated Tabs Switcher */}
+        {/* 7 Dedicated Tabs Switcher (Horizontally swipeable on mobile) */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
           gap: '8px',
           borderBottom: '1px solid var(--border-color)',
-          paddingBottom: '10px'
+          paddingBottom: '10px',
+          scrollbarWidth: 'thin'
         }}>
           <button
             onClick={() => setActiveLogTab('preqc')}
-            style={styles.logTabBtn(activeLogTab === 'preqc')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'preqc'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <CheckCircle2 size={14} /> Pre QC ({filteredPreQcLogs.length})
           </button>
           <button
             onClick={() => setActiveLogTab('qc')}
-            style={styles.logTabBtn(activeLogTab === 'qc')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'qc'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <ShieldCheck size={14} /> QC Details ({filteredQcLogs.length})
           </button>
           <button
             onClick={() => setActiveLogTab('packing')}
-            style={styles.logTabBtn(activeLogTab === 'packing')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'packing'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <Box size={14} /> Carton Packing ({filteredPackingLogs.length})
           </button>
           <button
             onClick={() => setActiveLogTab('aql')}
-            style={styles.logTabBtn(activeLogTab === 'aql')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'aql'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <ClipboardCheck size={14} /> AQL ({filteredAqlLogs.length})
           </button>
           <button
             onClick={() => setActiveLogTab('final_aql')}
-            style={styles.logTabBtn(activeLogTab === 'final_aql')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'final_aql'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <Layers size={14} /> Final AQL ({filteredFinalAqlLogs.length})
           </button>
           <button
             onClick={() => setActiveLogTab('transfers')}
-            style={styles.logTabBtn(activeLogTab === 'transfers')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'transfers'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <ArrowLeftRight size={14} /> Box Transfers ({filteredTransferLogs.length})
           </button>
           <button
             onClick={() => setActiveLogTab('scrapped')}
-            style={styles.logTabBtn(activeLogTab === 'scrapped')}
+            style={{ ...styles.logTabBtn(activeLogTab === 'scrapped'), flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <Trash2 size={14} /> Scrap Records ({filteredScrapped.length})
           </button>
@@ -4175,9 +3975,222 @@ export const AdminReports: React.FC = () => {
         )}
       </div>
 
+      {/* ── Overall Details (Production Order & Operation Detailed Audit Table) ──────── */}
+      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '16px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+              Overall Details
+            </h3>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={handleExportExcel}
+              className="btn btn-primary"
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: '#059669',
+                borderColor: '#059669',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
+              title="Export Overall Production Details to Excel/CSV"
+            >
+              <FileSpreadsheet size={14} /> Export Excel
+            </button>
+            <StatusPill label={`${filteredOrders.length} Records`} variant="teal" />
+          </div>
+        </div>
 
+        {filteredOrders.length === 0 ? (
+          <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            No audit records found matching the selected Customer, Style, PO, SO, or Time Period filters.
+          </div>
+        ) : (
+          <div className="table-responsive-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+            <table className="responsive-table" style={{ ...styles.table, minWidth: '1250px' }}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>CUSTOMER NAME</th>
+                  <th style={styles.th}>STYLE NAME</th>
+                  <th style={styles.th}>PO NAME</th>
+                  <th style={styles.th}>SO NAME</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>PLANNED QTY</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>PRE QC</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>QC</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>PACKING</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>AQL</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>FINAL AQL</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>TRANSFERS</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>SCRAP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(showAllOrders ? filteredOrders : filteredOrders.slice(0, 15)).map((p: any, idx: number) => {
+                  const isStyleDirect = p.orderPathway === 'STYLE_DIRECT' || p.poName === 'No PO & SO';
+                  const isStyleOnly = p.orderPathway === 'STYLE_ONLY';
+                  const isNoSo = p.soName === 'No SO' || isStyleDirect || isStyleOnly;
 
-      {/* ── Pre-QC Linked QRs Detail Modal ──────────────────────── */}
+                  return (
+                    <tr
+                      key={p.id || `${p.poId}-${p.soId}-${idx}`}
+                      style={{
+                        ...styles.tr,
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease'
+                      }}
+                      onClick={() => {
+                        if (p.customer) setSelectedCustomerFilter(p.customer);
+                        if (p.styleName) setSelectedStyleFilter(p.styleName);
+                        if (p.poName && p.poName !== 'No PO & SO') setSelectedPoFilter(p.poName);
+                        if (p.soName && p.soName !== 'No SO' && p.soName !== 'No PO & SO') setSelectedSoFilter(p.soName);
+                        showToast(`Focused on ${p.customer || 'Customer'} - ${p.styleName} (Unit Records below)`, 'info');
+                      }}
+                      title="Click to inspect operational unit records for this order"
+                    >
+                      {/* 1. Customer Name */}
+                      <td data-label="CUSTOMER NAME" style={styles.td}>
+                        <strong style={{ color: 'var(--text-primary)' }}>{p.customer || 'Factory Customer'}</strong>
+                      </td>
+
+                      {/* 2. Style Name */}
+                      <td data-label="STYLE NAME" style={styles.td}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.styleName || 'Standard Style'}</span>
+                      </td>
+
+                      {/* 3. PO Name */}
+                      <td data-label="PO NAME" style={styles.td}>
+                        {isStyleDirect || isStyleOnly ? (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '11px' }}>No PO & SO</span>
+                        ) : (
+                          <strong style={{ color: 'var(--primary-teal)' }}>{p.poName || p.poNumber}</strong>
+                        )}
+                      </td>
+
+                      {/* 4. SO Name */}
+                      <td data-label="SO NAME" style={styles.td}>
+                        {isStyleDirect || isStyleOnly ? (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '11px' }}>No PO & SO</span>
+                        ) : isNoSo ? (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '11px' }}>No SO</span>
+                        ) : (
+                          <strong style={{ color: '#60a5fa' }}>{p.soName || p.soNumber}</strong>
+                        )}
+                      </td>
+
+                      {/* 5. Planned QTY */}
+                      <td data-label="PLANNED QTY" style={{ ...styles.td, textAlign: 'right' }}>
+                        <strong>{(p.plannedQty ?? p.targetQuantity ?? 0).toLocaleString()}</strong>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' }}>pcs</span>
+                      </td>
+
+                      {/* 6. Pre QC */}
+                      <td data-label="PRE QC" style={{ ...styles.td, textAlign: 'center' }}>
+                        <span style={{ color: '#38bdf8', fontWeight: 800 }}>{p.preQc ?? 0}</span>
+                      </td>
+
+                      {/* 7. QC */}
+                      <td data-label="QC" style={{ ...styles.td, textAlign: 'center' }}>
+                        <span style={{ color: '#10B981', fontWeight: 800 }}>{p.qc ?? p.qcPassed ?? 0}</span>
+                      </td>
+
+                      {/* 8. Packing */}
+                      <td data-label="PACKING" style={{ ...styles.td, textAlign: 'center' }}>
+                        <span style={{ color: '#818cf8', fontWeight: 800 }}>{p.packing ?? p.packedCount ?? 0}</span>
+                      </td>
+
+                      {/* 9. AQL */}
+                      <td data-label="AQL" style={{ ...styles.td, textAlign: 'center' }}>
+                        <StatusPill label={`${p.aql ?? p.aqlPassed ?? 0} Boxes`} variant={(p.aql ?? p.aqlPassed ?? 0) > 0 ? 'green' : 'muted'} />
+                      </td>
+
+                      {/* 10. Final AQL */}
+                      <td data-label="FINAL AQL" style={{ ...styles.td, textAlign: 'center' }}>
+                        <StatusPill label={`${p.finalAql ?? p.finalAqlPassed ?? 0} Boxes`} variant={(p.finalAql ?? p.finalAqlPassed ?? 0) > 0 ? 'green' : 'muted'} />
+                      </td>
+
+                      {/* 11. Transfers */}
+                      <td data-label="TRANSFERS" style={{ ...styles.td, textAlign: 'center' }}>
+                        <span style={{ color: '#c084fc', fontWeight: 800 }}>{p.transfers ?? p.boxTransfers ?? 0}</span>
+                      </td>
+
+                      {/* 12. Scrap */}
+                      <td data-label="SCRAP" style={{ ...styles.td, textAlign: 'center' }}>
+                        {(p.scrap ?? p.scrappedCount ?? 0) > 0 ? (
+                          <span style={{ color: '#EF4444', fontWeight: 800 }}>⚠️ {p.scrap ?? p.scrappedCount}</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>0</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {/* Table Summary Footer */}
+              <tfoot>
+                <tr style={{ ...styles.tr, backgroundColor: 'rgba(20, 184, 166, 0.08)', fontWeight: 800 }}>
+                  <td colSpan={4} style={{ ...styles.td, color: 'var(--primary-teal)', fontWeight: 800 }}>
+                    TOTAL SUMMARY ({filteredOrders.length} records):
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'right', color: 'var(--primary-teal)' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.plannedQty ?? p.targetQuantity ?? 0), 0).toLocaleString()} pcs
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: '#38bdf8' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.preQc ?? 0), 0)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: '#10B981' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.qc ?? p.qcPassed ?? 0), 0)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: '#818cf8' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.packing ?? p.packedCount ?? 0), 0)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: 'var(--text-primary)' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.aql ?? p.aqlPassed ?? 0), 0)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: 'var(--text-primary)' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.finalAql ?? p.finalAqlPassed ?? 0), 0)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: '#c084fc' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.transfers ?? p.boxTransfers ?? 0), 0)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'center', color: '#EF4444' }}>
+                    {filteredOrders.reduce((s, p) => s + (p.scrap ?? p.scrappedCount ?? 0), 0)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+
+            {filteredOrders.length > 15 && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                <button
+                  onClick={() => setShowAllOrders(!showAllOrders)}
+                  className="btn btn-secondary"
+                  style={{
+                    padding: '8px 22px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    border: '1px solid var(--primary-teal)',
+                    color: 'var(--primary-teal)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {showAllOrders
+                    ? '▲ Show Less (First 15 Rows)'
+                    : `▼ See More (${filteredOrders.length - 15} more records)`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+            {/* ── Pre-QC Linked QRs Detail Modal ──────────────────────── */}
       {selectedPreQcModal && (
         <div style={{
           position: 'fixed',
@@ -4820,7 +4833,9 @@ const styles: Record<string, any> = {
     border: '1px solid var(--border-color)',
     color: 'var(--text-primary)',
     fontWeight: 600,
-    outline: 'none'
+    outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box'
   },
   statBox: (bg: string, border: string) => ({
     backgroundColor: 'var(--bg-surface-2)',

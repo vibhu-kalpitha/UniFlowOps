@@ -249,6 +249,14 @@ button:disabled {
   padding-right: 36px;
 }
 
+/* Profile Grid Responsive Base */
+.profile-desktop-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
 /* Common Card */
 .card {
   background-color: var(--bg-surface-1);

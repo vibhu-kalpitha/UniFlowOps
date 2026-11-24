@@ -826,9 +826,9 @@ export const QCTestPage: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
-            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
-            border: 'none',
+            backgroundColor: activeViewTab === 'scan' ? 'rgba(20, 184, 166, 0.2)' : 'transparent',
+            color: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'var(--text-secondary)',
+            border: activeViewTab === 'scan' ? '1px solid rgba(20, 184, 166, 0.45)' : '1px solid transparent',
             transition: 'all 0.15s ease'
           }}
         >
@@ -846,9 +846,9 @@ export const QCTestPage: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
-            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
-            border: 'none',
+            backgroundColor: activeViewTab === 'history' ? 'rgba(20, 184, 166, 0.2)' : 'transparent',
+            color: activeViewTab === 'history' ? 'var(--primary-teal)' : 'var(--text-secondary)',
+            border: activeViewTab === 'history' ? '1px solid rgba(20, 184, 166, 0.45)' : '1px solid transparent',
             transition: 'all 0.15s ease'
           }}
         >
@@ -869,9 +869,9 @@ export const QCTestPage: React.FC = () => {
           {/* Main Controls */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} className="workflow-controls-panel">
           {/* PO Progress Card - Operator Work Primary */}
-          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '8px 10px' }}>
+          <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid rgba(255, 255, 255, 0.08)', margin: 0, padding: '8px 10px', boxShadow: 'none' }}>
             {/* PRIMARY / COMPACT: Operator Work */}
-            <div style={{ padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(22, 184, 174, 0.08)', border: '1px solid rgba(22, 184, 174, 0.2)' }}>
+            <div style={{ padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(22, 184, 174, 0.04)', border: '1px solid rgba(22, 184, 174, 0.15)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                   MY PROGRESS — {poProgress.operatorStats.operatorName}
@@ -881,15 +881,15 @@ export const QCTestPage: React.FC = () => {
                 </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: 0 }}>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                   <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Passed</span>
                   <span style={{ fontSize: '16px', fontWeight: 800, color: '#10B981' }}>{poProgress.operatorStats.passedCount}</span>
                 </div>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                   <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
                   <span style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444' }}>{poProgress.operatorStats.failedCount}</span>
                 </div>
-                <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                   <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
                   <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-teal)' }}>
                     {poProgress.operatorStats.passedCount + poProgress.operatorStats.failedCount}

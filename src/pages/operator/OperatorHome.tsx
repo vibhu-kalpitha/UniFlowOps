@@ -276,8 +276,8 @@ export const OperatorHome: React.FC = () => {
             {/* Active Production Order Card (Compact Size) */}
             {(po || fetchedPoDetails) && (
               <div style={{
-                backgroundColor: 'var(--bg-surface-1)',
-                border: '1.5px solid var(--primary-teal)',
+                backgroundColor: 'rgba(20, 184, 166, 0.04)',
+                border: '1px solid rgba(20, 184, 166, 0.28)',
                 borderRadius: '8px',
                 padding: '6px 10px',
                 marginBottom: '8px',
@@ -595,8 +595,9 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-primary)'
   },
   poCard: {
-    backgroundColor: 'var(--bg-surface-2)',
-    borderColor: 'var(--border-light)',
+    backgroundColor: 'var(--bg-surface-1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    boxShadow: 'none',
     padding: '8px 10px',
   },
   cardSubTitle: {
@@ -626,9 +627,8 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '6px',
   },
   metricBoxGreen: {
-    backgroundColor: 'rgba(16, 185, 129, 0.16)',
-    border: '1.5px solid rgba(16, 185, 129, 0.45)',
-    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.12)',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    border: '1px solid rgba(16, 185, 129, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',
@@ -637,9 +637,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   metricBoxBlue: {
-    backgroundColor: 'rgba(59, 130, 246, 0.16)',
-    border: '1.5px solid rgba(59, 130, 246, 0.45)',
-    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.12)',
+    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+    border: '1px solid rgba(59, 130, 246, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',
@@ -648,9 +647,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   metricBoxPurple: {
-    backgroundColor: 'rgba(139, 92, 246, 0.16)',
-    border: '1.5px solid rgba(139, 92, 246, 0.45)',
-    boxShadow: '0 2px 8px rgba(139, 92, 246, 0.12)',
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    border: '1px solid rgba(139, 92, 246, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',
@@ -659,9 +657,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   metricBoxAmber: {
-    backgroundColor: 'rgba(245, 158, 11, 0.16)',
-    border: '1.5px solid rgba(245, 158, 11, 0.45)',
-    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.12)',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    border: '1px solid rgba(245, 158, 11, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',
@@ -670,8 +667,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   metricBoxDarkRed: {
-    backgroundColor: 'rgba(220, 38, 38, 0.16)',
-    border: '1.5px solid rgba(220, 38, 38, 0.45)',
+    backgroundColor: 'rgba(220, 38, 38, 0.08)',
+    border: '1px solid rgba(220, 38, 38, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',
@@ -680,8 +677,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   metricBoxRed: {
-    backgroundColor: 'rgba(239, 68, 68, 0.16)',
-    border: '1.5px solid rgba(239, 68, 68, 0.45)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    border: '1px solid rgba(239, 68, 68, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',
@@ -690,9 +687,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   metricBoxEmerald: {
-    backgroundColor: 'rgba(5, 150, 105, 0.16)',
-    border: '1.5px solid rgba(5, 150, 105, 0.45)',
-    boxShadow: '0 2px 8px rgba(5, 150, 105, 0.12)',
+    backgroundColor: 'rgba(5, 150, 105, 0.08)',
+    border: '1px solid rgba(5, 150, 105, 0.25)',
     borderRadius: '10px',
     padding: '7px 4px',
     display: 'flex',

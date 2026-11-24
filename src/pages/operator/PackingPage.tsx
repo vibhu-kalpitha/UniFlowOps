@@ -445,9 +445,9 @@ export const PackingPage: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            backgroundColor: activeViewTab === 'scan' ? 'var(--primary-teal)' : 'transparent',
-            color: activeViewTab === 'scan' ? '#041820' : 'var(--text-secondary)',
-            border: 'none',
+            backgroundColor: activeViewTab === 'scan' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+            color: activeViewTab === 'scan' ? '#3B82F6' : 'var(--text-secondary)',
+            border: activeViewTab === 'scan' ? '1px solid rgba(59, 130, 246, 0.45)' : '1px solid transparent',
             transition: 'all 0.15s ease'
           }}
         >
@@ -465,9 +465,9 @@ export const PackingPage: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
-            backgroundColor: activeViewTab === 'history' ? 'var(--primary-teal)' : 'transparent',
-            color: activeViewTab === 'history' ? '#041820' : 'var(--text-secondary)',
-            border: 'none',
+            backgroundColor: activeViewTab === 'history' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+            color: activeViewTab === 'history' ? '#3B82F6' : 'var(--text-secondary)',
+            border: activeViewTab === 'history' ? '1px solid rgba(59, 130, 246, 0.45)' : '1px solid transparent',
             transition: 'all 0.15s ease'
           }}
         >
@@ -486,9 +486,9 @@ export const PackingPage: React.FC = () => {
         /* Workflow Controls Panel */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '820px', margin: '0 auto', width: '100%' }}>
         {/* PO Packing Progress & Operator Metrics - Operator Primary */}
-        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid var(--border-color)', margin: 0, padding: '8px 10px' }}>
+        <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1px solid rgba(255, 255, 255, 0.08)', margin: 0, padding: '8px 10px', boxShadow: 'none' }}>
           {/* PRIMARY / COMPACT: Operator Work */}
-          <div style={{ padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+          <div style={{ padding: '6px 10px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.04)', border: '1px solid rgba(59, 130, 246, 0.15)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <span style={{ fontSize: '11px', fontWeight: 800, color: '#3B82F6' }}>
                 MY PACKING PROGRESS — {packProgress.operatorStats.operatorName}
@@ -498,15 +498,15 @@ export const PackingPage: React.FC = () => {
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: 0 }}>
-              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                 <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Packed</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: '#3B82F6' }}>{packProgress.operatorStats.packedCount}</span>
               </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                 <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Failed</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: '#EF4444' }}>{packProgress.operatorStats.failCount}</span>
               </div>
-              <div style={{ backgroundColor: 'var(--bg-surface-1)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', padding: '4px 6px', borderRadius: '8px', textAlign: 'center', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                 <span style={{ fontSize: '9px', color: 'var(--text-secondary)', display: 'block', fontWeight: 600 }}>My Processed</span>
                 <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-blue)' }}>
                   {packProgress.operatorStats.packedCount + packProgress.operatorStats.failCount}
