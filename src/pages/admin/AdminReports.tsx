@@ -2474,16 +2474,16 @@ export const AdminReports: React.FC = () => {
       </div>
 
       {/* ── Section: Factory Operational Logs & Deep Inspection ── */}
-      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div className="card" style={{ backgroundColor: 'var(--bg-surface-1)', border: '1.5px solid var(--border-color)', margin: 0, padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {/* Master Cascade Selector Bar: Customer ➔ Style ➔ PO ➔ SO ➔ Line */}
         <div style={{
           backgroundColor: 'var(--bg-surface-2)',
           border: '1px solid var(--border-color)',
           borderRadius: '14px',
-          padding: '14px 18px',
+          padding: '12px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '12px'
+          gap: '10px'
         }}>
           {(selectedCustomerFilter || selectedStyleFilter || selectedPoFilter || selectedSoFilter || selectedLineFilter) && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -2519,10 +2519,11 @@ export const AdminReports: React.FC = () => {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
             gap: '10px',
-            alignItems: 'end'
+            alignItems: 'end',
+            width: '100%'
           }}>
             {/* 1. Customer Dropdown */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '150px', flex: '1 1 auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>1. Customer</label>
               <select
                 value={selectedCustomerFilter}
@@ -2541,7 +2542,7 @@ export const AdminReports: React.FC = () => {
             </div>
 
             {/* 2. Style Dropdown */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '160px', flex: '1 1 auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>2. Style Name</label>
               <select
                 value={selectedStyleFilter}
@@ -2560,7 +2561,7 @@ export const AdminReports: React.FC = () => {
             </div>
 
             {/* 3. PO Dropdown */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '160px', flex: '1 1 auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>3. Production Order (PO)</label>
               <select
                 value={selectedPoFilter}
@@ -2578,7 +2579,7 @@ export const AdminReports: React.FC = () => {
             </div>
 
             {/* 4. SO Dropdown */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '150px', flex: '1 1 auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>4. Sales Order (SO)</label>
               <select
                 value={selectedSoFilter}
@@ -2593,7 +2594,7 @@ export const AdminReports: React.FC = () => {
             </div>
 
             {/* 5. Production Line */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '120px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%' }}>
               <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Line</label>
               <select
                 value={selectedLineFilter}
@@ -4835,7 +4836,12 @@ const styles: Record<string, any> = {
     fontWeight: 600,
     outline: 'none',
     width: '100%',
-    boxSizing: 'border-box'
+    minWidth: 0,
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden'
   },
   statBox: (bg: string, border: string) => ({
     backgroundColor: 'var(--bg-surface-2)',
