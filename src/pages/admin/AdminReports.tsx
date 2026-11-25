@@ -2177,8 +2177,8 @@ export const AdminReports: React.FC = () => {
   const matchesInspectionFilters = (item: any) => {
     const itemCustomer = (item.customer || '').toLowerCase();
     const itemStyle = (item.style_name || item.styleName || item.name || '').toLowerCase();
-    const itemPo = (item.po_number || item.poNumber || item.po_name || '').toLowerCase();
-    const itemSo = (item.so_number || item.soNumber || item.so_name || '').toLowerCase();
+    const itemPoCombined = `${item.po_number || ''} ${item.poNumber || ''} ${item.po_name || ''} ${item.poName || ''}`.toLowerCase();
+    const itemSoCombined = `${item.so_number || ''} ${item.soNumber || ''} ${item.so_name || ''} ${item.soName || ''}`.toLowerCase();
     const itemLine = (item.line_name || item.lineName || item.line || item.line_number || '').toLowerCase();
     const rawDate = item.scanned_at || item.created_at || item.started_at || item.completed_at || item.removed_at || item.packed_at || item.transferred_at || '';
     
@@ -2195,8 +2195,8 @@ export const AdminReports: React.FC = () => {
 
     if (selectedCustomerFilter && itemCustomer && !itemCustomer.includes(selectedCustomerFilter.toLowerCase())) return false;
     if (selectedStyleFilter && itemStyle && !itemStyle.includes(selectedStyleFilter.toLowerCase())) return false;
-    if (selectedPoFilter && itemPo && !itemPo.includes(selectedPoFilter.toLowerCase())) return false;
-    if (selectedSoFilter && itemSo && !itemSo.includes(selectedSoFilter.toLowerCase())) return false;
+    if (selectedPoFilter && itemPoCombined.trim() && !itemPoCombined.includes(selectedPoFilter.toLowerCase())) return false;
+    if (selectedSoFilter && itemSoCombined.trim() && !itemSoCombined.includes(selectedSoFilter.toLowerCase())) return false;
     if (selectedLineFilter && (!itemLine || !itemLine.includes(selectedLineFilter.toLowerCase()))) return false;
     if (selectedSizeFilter) {
       const sizes = getItemSizes(item);
@@ -2806,7 +2806,7 @@ export const AdminReports: React.FC = () => {
           flexDirection: 'column',
           gap: '10px'
         }}>
-          {(selectedCustomerFilter || selectedStyleFilter || selectedPoFilter || selectedSoFilter || selectedLineFilter) && (
+          {(selectedCustomerFilter || selectedStyleFilter || selectedPoFilter || selectedSoFilter || selectedLineFilter || selectedSizeFilter) && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
               <button
                 onClick={() => {
@@ -2815,6 +2815,7 @@ export const AdminReports: React.FC = () => {
                   setSelectedPoFilter('');
                   setSelectedSoFilter('');
                   setSelectedLineFilter('');
+                  setSelectedSizeFilter('');
                   setTabSearchTerm('');
                 }}
                 style={{

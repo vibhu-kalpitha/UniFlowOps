@@ -1391,8 +1391,8 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     `;
     const preQcParams: any[] = [];
     if (poId && poId.trim()) {
-      preQcQuery += ` AND (po.id = ? OR po.po_number = ?)`;
-      preQcParams.push(poId.trim(), poId.trim());
+      preQcQuery += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      preQcParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (styleName && styleName.trim()) {
       preQcQuery += ` AND (s.name = ? OR s.code = ?)`;
@@ -1436,8 +1436,8 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     `;
     const qcParams: any[] = [];
     if (poId && poId.trim()) {
-      qcQuery += ` AND (po.id = ? OR po.po_number = ?)`;
-      qcParams.push(poId.trim(), poId.trim());
+      qcQuery += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      qcParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (styleName && styleName.trim()) {
       qcQuery += ` AND (s.name = ? OR s.code = ?)`;
@@ -1489,8 +1489,8 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     `;
     const packingParams: any[] = [];
     if (poId && poId.trim()) {
-      packingQuery += ` AND (po.id = ? OR po.po_number = ?)`;
-      packingParams.push(poId.trim(), poId.trim());
+      packingQuery += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      packingParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (styleName && styleName.trim()) {
       packingQuery += ` AND (s.name = ? OR s.code = ?)`;
@@ -1553,8 +1553,8 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     `;
     const aqlParams: any[] = [];
     if (poId && poId.trim()) {
-      aqlQuery += ` AND (po.id = ? OR po.po_number = ?)`;
-      aqlParams.push(poId.trim(), poId.trim());
+      aqlQuery += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      aqlParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (styleName && styleName.trim()) {
       aqlQuery += ` AND (s.name = ? OR s.code = ?)`;
@@ -1602,8 +1602,8 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     `;
     const trfParams: any[] = [];
     if (poId && poId.trim()) {
-      transferQuery += ` AND (po.id = ? OR po.po_number = ?)`;
-      trfParams.push(poId.trim(), poId.trim());
+      transferQuery += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      trfParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (styleName && styleName.trim()) {
       transferQuery += ` AND (s.name = ? OR s.code = ?)`;
@@ -1640,8 +1640,8 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
     `;
     const scrapParams: any[] = [];
     if (poId && poId.trim()) {
-      scrapQuery += ` AND (po.id = ? OR po.po_number = ?)`;
-      scrapParams.push(poId.trim(), poId.trim());
+      scrapQuery += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      scrapParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (styleName && styleName.trim()) {
       scrapQuery += ` AND (s.name = ? OR s.code = ?)`;
@@ -1766,7 +1766,7 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
         s.name as style_name,
         COALESCE(NULLIF(TRIM(po.po_number), ''), NULLIF(TRIM(po.po_name), ''), 'No PO & SO') as po_number,
         COALESCE(NULLIF(TRIM(so.so_number), ''), 'No SO') as so_name,
-        COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+        COALESCE(NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
         COALESCE(NULLIF(TRIM(qc_u.full_name), ''), NULLIF(TRIM(test_u.full_name), ''), 'QC Inspector') as inspector_name,
         COALESCE(NULLIF(TRIM(qr.qc_result), ''), NULLIF(TRIM(qr.test_result), ''), 'PASS') as result,
         COALESCE(qr.failure_reason, '') as failure_reason,
@@ -1854,7 +1854,7 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
       LEFT JOIN styles s ON s.id = po.style_id
       LEFT JOIN users qc_u ON qc_u.id = qr.operator_id
       LEFT JOIN users test_u ON test_u.id = qr.test_operator_id
-      LEFT JOIN users pack_u ON (pack_u.id = bi.packed_by OR pack_u.id = b.packed_by)
+      LEFT JOIN users pack_u ON (pack_u.id = bi.packed_by OR pack_u.username = bi.packed_by)
       WHERE (qr.id IS NOT NULL OR bi.id IS NOT NULL)
       ${buildDateFilter('COALESCE(qr.scanned_at, bi.packed_at, b.created_at)')}
     `;
@@ -1872,8 +1872,8 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
     }
 
     if (poId && poId.trim()) {
-      fromWhereClause += ` AND (po.id = ? OR po.po_number = ?)`;
-      mergedParams.push(poId.trim(), poId.trim());
+      fromWhereClause += ` AND (po.id = ? OR po.po_number = ? OR po.po_name = ?)`;
+      mergedParams.push(poId.trim(), poId.trim(), poId.trim());
     }
     if (soId && soId.trim()) {
       fromWhereClause += ` AND (so.id = ? OR so.so_number = ?)`;
@@ -1884,8 +1884,8 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
       mergedParams.push(styleName.trim(), styleName.trim());
     }
     if (customer && customer.trim()) {
-      fromWhereClause += ` AND po.customer = ?`;
-      mergedParams.push(customer.trim());
+      fromWhereClause += ` AND LOWER(TRIM(po.customer)) LIKE LOWER(?)`;
+      mergedParams.push(`%${customer.trim()}%`);
     }
     if (size && size.trim()) {
       const sz = size.trim().toUpperCase();
