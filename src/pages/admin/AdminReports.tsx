@@ -30,7 +30,8 @@ import { ProgressBar } from '../../components/ProgressBar';
 import '../../styles/tokens.css';
 
 export const AdminReports: React.FC = () => {
-  const { showToast } = useApp();
+  const { showToast, currentRole } = useApp();
+  const isAdmin = currentRole === 'admin';
   const [timeRange, setTimeRange] = useState<'Today' | 'Week' | 'Month' | 'All'>('All');
   const [reportData, setReportData] = useState<any>(null);
   const [adminData, setAdminData] = useState<any>(null);
@@ -42,10 +43,23 @@ export const AdminReports: React.FC = () => {
   const [selectedDateFrom, setSelectedDateFrom] = useState<string>('');
   const [selectedDateTo, setSelectedDateTo] = useState<string>('');
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('');
+  const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>('');
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>('');
 
-  // Operational inspection tabs state: preqc, qc, packing, aql, final_aql, transfers, scrapped
-  const [activeLogTab, setActiveLogTab] = useState<'preqc' | 'qc' | 'packing' | 'aql' | 'final_aql' | 'transfers' | 'scrapped'>('preqc');
+  // Per-tab All / Pass / Fail filter state
+  const [tabResultFilters, setTabResultFilters] = useState<Record<string, 'ALL' | 'PASS' | 'FAIL'>>({
+    all: 'ALL',
+    preqc: 'ALL',
+    qc: 'ALL',
+    packing: 'ALL',
+    aql: 'ALL',
+    final_aql: 'ALL',
+    transfers: 'ALL',
+    scrapped: 'ALL'
+  });
+
+  // Operational inspection tabs state: all, preqc, qc, packing, aql, final_aql, transfers, scrapped
+  const [activeLogTab, setActiveLogTab] = useState<'all' | 'preqc' | 'qc' | 'packing' | 'aql' | 'final_aql' | 'transfers' | 'scrapped'>('preqc');
   const [tabTimeRange, setTabTimeRange] = useState<'All' | 'Today' | 'Weekly' | 'Monthly'>('All');
   const [tabDateFrom, setTabDateFrom] = useState<string>('');
   const [tabDateTo, setTabDateTo] = useState<string>('');
@@ -59,6 +73,32 @@ export const AdminReports: React.FC = () => {
     styleName?: string;
     preQcs: string[];
   } | null>(null);
+
+  // Pagination: first 50 per tab + unlimited "View More" (+50 each click)
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({
+    preqc: 50,
+    qc: 50,
+    packing: 50,
+    aql: 50,
+    final_aql: 50,
+    transfers: 50,
+    scrapped: 50
+  });
+
+  // "All" Merged Preview tab state (server-paginated 50 at a time, unlimited View More)
+  const [allMergedRows, setAllMergedRows] = useState<any[]>([]);
+  const [allMergedTotal, setAllMergedTotal] = useState<number>(0);
+  const [allMergedLoading, setAllMergedLoading] = useState<boolean>(false);
+  const [allMergedLoadingMore, setAllMergedLoadingMore] = useState<boolean>(false);
+
+  // Admin edit Product QR / Serial Number state
+  const [editingItemQr, setEditingItemQr] = useState<{
+    itemId: string;
+    currentQr: string;
+    newQr: string;
+    sourceTab: string;
+  } | null>(null);
+  const [isSavingItemQr, setIsSavingItemQr] = useState<boolean>(false);
 
   // Format any timestamp strictly in Sri Lanka Time (Asia/Colombo, UTC+5:30)
   const formatSriLankaDateTime = (val?: string | Date | null): string => {
@@ -174,6 +214,16 @@ export const AdminReports: React.FC = () => {
             boxCode: newNumber,
             boxNumber: newNumber,
           };
+        }),
+        aqlLogs: (prev.aqlLogs || []).map((a: any) => {
+          const matches = a.box_id === boxId || a.box_code === oldBoxCode || a.box_number === oldBoxCode;
+          if (!matches) return a;
+          return { ...a, box_code: newNumber, box_number: newNumber };
+        }),
+        finalAqlLogs: (prev.finalAqlLogs || []).map((a: any) => {
+          const matches = a.box_id === boxId || a.box_code === oldBoxCode || a.box_number === oldBoxCode;
+          if (!matches) return a;
+          return { ...a, box_code: newNumber, box_number: newNumber };
         })
       };
     });
@@ -234,6 +284,181 @@ export const AdminReports: React.FC = () => {
       showToast(err?.message || 'Failed to update box number.', 'error');
     } finally {
       setIsSavingBoxEdit(false);
+    }
+  };
+
+  // Pagination helper: increment visible count by 50 (no cap)
+  const handleViewMore = (tabKey: string) => {
+    setVisibleCounts(prev => ({
+      ...prev,
+      [tabKey]: (prev[tabKey] || 50) + 50
+    }));
+  };
+
+  const renderViewMoreFooter = (tabKey: string, totalCount: number) => {
+    const shown = Math.min(visibleCounts[tabKey] || 50, totalCount);
+    if (totalCount === 0) return null;
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '10px',
+        padding: '12px 16px',
+        backgroundColor: 'var(--bg-surface-2)',
+        borderTop: '1px solid var(--border-color)',
+        borderBottomLeftRadius: '10px',
+        borderBottomRightRadius: '10px'
+      }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>
+          Showing <strong style={{ color: 'var(--text-primary)' }}>{shown}</strong> of <strong style={{ color: 'var(--primary-teal)' }}>{totalCount}</strong> records
+        </span>
+        {shown < totalCount && (
+          <button
+            type="button"
+            onClick={() => handleViewMore(tabKey)}
+            style={{
+              padding: '7px 16px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(20, 184, 166, 0.15)',
+              border: '1px solid var(--primary-teal)',
+              color: 'var(--primary-teal)',
+              fontSize: '12px',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            View More (+{Math.min(50, totalCount - shown)})
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  // Fetch "All" Merged Product-to-Box Preview (50 rows at a time, unlimited View More)
+  const fetchAllMergedPreview = async (offset = 0, append = false) => {
+    if (append) setAllMergedLoadingMore(true);
+    else setAllMergedLoading(true);
+    try {
+      const qParams = new URLSearchParams();
+      if (tabTimeRange && tabTimeRange !== 'All') {
+        qParams.set('range', tabTimeRange.toLowerCase());
+      } else if (timeRange.toLowerCase() !== 'all') {
+        qParams.set('range', timeRange.toLowerCase());
+      } else {
+        qParams.set('range', 'all');
+      }
+
+      const effectiveDateFrom = tabDateFrom || selectedDateFrom;
+      const effectiveDateTo = tabDateTo || selectedDateTo;
+      if (effectiveDateFrom) qParams.set('startDate', effectiveDateFrom);
+      if (effectiveDateTo) qParams.set('endDate', effectiveDateTo);
+
+      if (selectedPoFilter) qParams.set('poId', selectedPoFilter);
+      if (selectedSoFilter) qParams.set('soId', selectedSoFilter);
+      if (selectedStyleFilter) qParams.set('styleName', selectedStyleFilter);
+      if (selectedCustomerFilter) qParams.set('customer', selectedCustomerFilter);
+      if (selectedSizeFilter) qParams.set('size', selectedSizeFilter);
+      if (tabResultFilters.all && tabResultFilters.all !== 'ALL') qParams.set('resultFilter', tabResultFilters.all);
+      if (tabSearchTerm && tabSearchTerm.trim()) qParams.set('search', tabSearchTerm.trim());
+
+      qParams.set('format', 'json');
+      qParams.set('limit', '50');
+      qParams.set('offset', String(offset));
+
+      const res = await apiFetch<{ total: number; limit: number; offset: number; rows: any[] }>(
+        `/api/reports/product-box-merged-export?${qParams.toString()}`
+      );
+      if (res && Array.isArray(res.rows)) {
+        setAllMergedTotal(res.total || 0);
+        setAllMergedRows(prev => append ? [...prev, ...res.rows] : res.rows);
+      } else if (!append) {
+        setAllMergedRows([]);
+        setAllMergedTotal(0);
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch merged preview:', err);
+      if (!append) {
+        setAllMergedRows([]);
+        setAllMergedTotal(0);
+      }
+    } finally {
+      setAllMergedLoading(false);
+      setAllMergedLoadingMore(false);
+    }
+  };
+
+  // Admin Edit Product QR / Serial Number (Pre QC, QC, AQL, Final AQL, All)
+  const handleOpenEditItemQr = (itemId: string, currentQr: string, sourceTab: string) => {
+    if (!itemId && !currentQr) {
+      showToast('Item identifier not found.', 'error');
+      return;
+    }
+    setEditingItemQr({
+      itemId: itemId || currentQr,
+      currentQr: currentQr || '',
+      newQr: currentQr || '',
+      sourceTab
+    });
+  };
+
+  const handleSaveItemQr = async () => {
+    if (!editingItemQr) return;
+    const trimmed = editingItemQr.newQr.trim().toUpperCase();
+    if (!trimmed) {
+      showToast('Serial / QR code cannot be empty.', 'error');
+      return;
+    }
+    if (trimmed === editingItemQr.currentQr.trim().toUpperCase()) {
+      setEditingItemQr(null);
+      return;
+    }
+
+    setIsSavingItemQr(true);
+    try {
+      const res = await apiFetch(`/api/items/${encodeURIComponent(editingItemQr.itemId)}/qr`, {
+        method: 'PATCH',
+        body: JSON.stringify({ newQr: trimmed })
+      });
+
+      const oldQr = editingItemQr.currentQr.trim().toUpperCase();
+      // Update local states immediately
+      setOpLogsData((prev: any) => {
+        if (!prev) return prev;
+        const matchId = (row: any) =>
+          row.item_id === editingItemQr.itemId ||
+          (row.item_qr || '').toUpperCase() === oldQr ||
+          (row.qr_code || '').toUpperCase() === oldQr;
+
+        return {
+          ...prev,
+          preQcLogs: (prev.preQcLogs || []).map((r: any) =>
+            matchId(r) ? { ...r, item_qr: trimmed, qr_code: trimmed } : r
+          ),
+          qcLogs: (prev.qcLogs || []).map((r: any) =>
+            matchId(r) ? { ...r, item_qr: trimmed, qr_code: trimmed } : r
+          )
+        };
+      });
+
+      setAllMergedRows(prev =>
+        prev.map(r =>
+          (r.itemId === editingItemQr.itemId || (r.qcQrBarcode || '').toUpperCase() === oldQr)
+            ? { ...r, qcQrBarcode: trimmed }
+            : r
+        )
+      );
+
+      showToast(res?.message || `QR / Serial updated to "${trimmed}" successfully.`, 'success');
+      setEditingItemQr(null);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update QR / Serial Number.', 'error');
+    } finally {
+      setIsSavingItemQr(false);
     }
   };
 
@@ -1749,7 +1974,22 @@ export const AdminReports: React.FC = () => {
 
   useEffect(() => {
     fetchReports();
+    setVisibleCounts({
+      preqc: 50,
+      qc: 50,
+      packing: 50,
+      aql: 50,
+      final_aql: 50,
+      transfers: 50,
+      scrapped: 50
+    });
   }, [timeRange, selectedDateFrom, selectedDateTo, selectedCustomerFilter, selectedStyleFilter, selectedPoFilter]);
+
+  useEffect(() => {
+    if (activeLogTab === 'all') {
+      fetchAllMergedPreview(0, false);
+    }
+  }, [activeLogTab, timeRange, tabTimeRange, selectedDateFrom, selectedDateTo, tabDateFrom, tabDateTo, selectedCustomerFilter, selectedStyleFilter, selectedPoFilter, selectedSoFilter, selectedSizeFilter, tabResultFilters.all, tabSearchTerm]);
 
   // Prioritize real database records when connected on VM; fallback smoothly if empty or local DB disconnected
   const rawPoBreakdown: any[] = (reportData?.poBreakdown && reportData.poBreakdown.length > 0)
@@ -1883,6 +2123,56 @@ export const AdminReports: React.FC = () => {
 
   const availableLines: string[] = adminData?.filter?.availableLines || ['Line 1', 'Line 2', 'Line 3', 'Line 4'];
 
+  // Extract size from barcodes like "PNFL-SS-111" -> "SS"
+  const extractSizeFromQr = (qr?: string | null): string => {
+    if (!qr || typeof qr !== 'string') return '';
+    const trimmed = qr.trim().toUpperCase();
+    const parts = trimmed.split('-');
+    if (parts.length >= 3 && parts[1]) {
+      return parts[1].trim();
+    }
+    return '';
+  };
+
+  const getItemSizes = (item: any): string[] => {
+    const sizes = new Set<string>();
+    const addSize = (val?: string | null) => {
+      if (val && typeof val === 'string' && val.trim()) {
+        sizes.add(val.trim().toUpperCase());
+      }
+    };
+    const addFromQr = (qr?: string | null) => {
+      const s = extractSizeFromQr(qr);
+      if (s) sizes.add(s);
+    };
+
+    addSize(item.item_size || item.size);
+    addFromQr(item.item_qr || item.qr_code || item.qcQrBarcode);
+    addFromQr(item.assigned_qc_qr);
+
+    if (Array.isArray(item.productQrs)) {
+      item.productQrs.forEach((q: string) => addFromQr(q));
+    }
+    const qrsStr = item.packed_qrs_str || item.box_qrs_str;
+    if (typeof qrsStr === 'string' && qrsStr.trim()) {
+      qrsStr.split(',').forEach((q: string) => addFromQr(q));
+    }
+
+    return Array.from(sizes);
+  };
+
+  const availableSizes: string[] = Array.from(
+    new Set([
+      ...rawPreQcLogs.flatMap(getItemSizes),
+      ...rawQcLogs.flatMap(getItemSizes),
+      ...rawPackingLogs.flatMap(getItemSizes),
+      ...rawAqlLogs.flatMap(getItemSizes),
+      ...rawFinalAqlLogs.flatMap(getItemSizes),
+      ...rawTransferLogs.flatMap(getItemSizes),
+      ...rawScrapped.flatMap(getItemSizes)
+    ].filter(Boolean))
+  ).sort();
+
   // Inspection section multi-attribute filter helper
   const matchesInspectionFilters = (item: any) => {
     const itemCustomer = (item.customer || '').toLowerCase();
@@ -1908,6 +2198,10 @@ export const AdminReports: React.FC = () => {
     if (selectedPoFilter && itemPo && !itemPo.includes(selectedPoFilter.toLowerCase())) return false;
     if (selectedSoFilter && itemSo && !itemSo.includes(selectedSoFilter.toLowerCase())) return false;
     if (selectedLineFilter && (!itemLine || !itemLine.includes(selectedLineFilter.toLowerCase()))) return false;
+    if (selectedSizeFilter) {
+      const sizes = getItemSizes(item);
+      if (!sizes.includes(selectedSizeFilter.toUpperCase())) return false;
+    }
     
     // Tab time range filtering (Today, Weekly, Monthly, All)
     if (tabTimeRange !== 'All' && itemDate) {
@@ -1946,11 +2240,36 @@ export const AdminReports: React.FC = () => {
     return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
   });
 
-  const filteredPreQcLogs = sortByLatest(rawPreQcLogs.filter(matchesInspectionFilters));
-  const filteredQcLogs = sortByLatest(rawQcLogs.filter(matchesInspectionFilters));
-  const filteredPackingLogs = sortByLatest(rawPackingLogs.filter(matchesInspectionFilters));
-  const filteredAqlLogs = sortByLatest(rawAqlLogs.filter(matchesInspectionFilters));
-  const filteredFinalAqlLogs = sortByLatest(rawFinalAqlLogs.filter(matchesInspectionFilters));
+  const matchesResultFilter = (item: any, tabKey: string): boolean => {
+    const rf = tabResultFilters[tabKey] || 'ALL';
+    if (rf === 'ALL') return true;
+    if (tabKey === 'preqc') {
+      const res = (item.pre_qc_result || 'PASS').toUpperCase();
+      return rf === 'PASS' ? res === 'PASS' : res === 'FAIL';
+    }
+    if (tabKey === 'qc') {
+      const qcRes = (item.qc_result || 'PASS').toUpperCase();
+      const testRes = (item.test_result || 'PASS').toUpperCase();
+      const isFail = qcRes === 'FAIL' || testRes === 'FAIL';
+      return rf === 'PASS' ? !isFail : isFail;
+    }
+    if (tabKey === 'packing') {
+      const st = (item.box_status || item.status || '').toUpperCase();
+      const isComplete = st === 'COMPLETED' || st === 'COMPLETE' || st === 'PASSED' || st === 'PASS';
+      return rf === 'PASS' ? isComplete : !isComplete;
+    }
+    if (tabKey === 'aql' || tabKey === 'final_aql') {
+      const res = (item.result || 'PASS').toUpperCase();
+      return rf === 'PASS' ? res.includes('PASS') : res.includes('FAIL');
+    }
+    return true;
+  };
+
+  const filteredPreQcLogs = sortByLatest(rawPreQcLogs.filter(item => matchesInspectionFilters(item) && matchesResultFilter(item, 'preqc')));
+  const filteredQcLogs = sortByLatest(rawQcLogs.filter(item => matchesInspectionFilters(item) && matchesResultFilter(item, 'qc')));
+  const filteredPackingLogs = sortByLatest(rawPackingLogs.filter(item => matchesInspectionFilters(item) && matchesResultFilter(item, 'packing')));
+  const filteredAqlLogs = sortByLatest(rawAqlLogs.filter(item => matchesInspectionFilters(item) && matchesResultFilter(item, 'aql')));
+  const filteredFinalAqlLogs = sortByLatest(rawFinalAqlLogs.filter(item => matchesInspectionFilters(item) && matchesResultFilter(item, 'final_aql')));
   const filteredTransferLogs = sortByLatest(rawTransferLogs.filter(matchesInspectionFilters));
   const filteredScrapped = sortByLatest(rawScrapped.filter(matchesInspectionFilters));
 
@@ -2203,6 +2522,8 @@ export const AdminReports: React.FC = () => {
       if (selectedSoFilter) qParams.set('soId', selectedSoFilter);
       if (selectedStyleFilter) qParams.set('styleName', selectedStyleFilter);
       if (selectedCustomerFilter) qParams.set('customer', selectedCustomerFilter);
+      if (selectedSizeFilter) qParams.set('size', selectedSizeFilter);
+      if (tabResultFilters.all && tabResultFilters.all !== 'ALL') qParams.set('resultFilter', tabResultFilters.all);
       if (tabSearchTerm && tabSearchTerm.trim()) qParams.set('search', tabSearchTerm.trim());
 
       const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
@@ -2607,11 +2928,26 @@ export const AdminReports: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            {/* 6. Size Dropdown (extracted from e.g. PNFL-SS-111 -> SS) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%' }}>
+              <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Size</label>
+              <select
+                value={selectedSizeFilter}
+                onChange={e => setSelectedSizeFilter(e.target.value)}
+                style={styles.selectFilter}
+              >
+                <option value="">All Sizes ({availableSizes.length})</option>
+                {availableSizes.map(sz => (
+                  <option key={sz} value={sz}>{sz}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
 
-        {/* 7 Dedicated Tabs Switcher (Horizontally swipeable on mobile) */}
+        {/* 8 Dedicated Tabs Switcher (Horizontally swipeable on mobile) */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -2623,36 +2959,64 @@ export const AdminReports: React.FC = () => {
           paddingBottom: '10px',
           scrollbarWidth: 'thin'
         }}>
-          <button
-            onClick={() => setActiveLogTab('preqc')}
-            style={{ ...styles.logTabBtn(activeLogTab === 'preqc'), flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            <CheckCircle2 size={14} /> Pre QC ({filteredPreQcLogs.length})
-          </button>
-          <button
-            onClick={() => setActiveLogTab('qc')}
-            style={{ ...styles.logTabBtn(activeLogTab === 'qc'), flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            <ShieldCheck size={14} /> QC Details ({filteredQcLogs.length})
-          </button>
-          <button
-            onClick={() => setActiveLogTab('packing')}
-            style={{ ...styles.logTabBtn(activeLogTab === 'packing'), flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            <Box size={14} /> Carton Packing ({filteredPackingLogs.length})
-          </button>
-          <button
-            onClick={() => setActiveLogTab('aql')}
-            style={{ ...styles.logTabBtn(activeLogTab === 'aql'), flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            <ClipboardCheck size={14} /> AQL ({filteredAqlLogs.length})
-          </button>
-          <button
-            onClick={() => setActiveLogTab('final_aql')}
-            style={{ ...styles.logTabBtn(activeLogTab === 'final_aql'), flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            <Layers size={14} /> Final AQL ({filteredFinalAqlLogs.length})
-          </button>
+          {[
+            { key: 'all', label: `All${allMergedTotal > 0 ? ` (${allMergedTotal})` : ''}`, icon: <FileSpreadsheet size={14} />, hasResultDropdown: true },
+            { key: 'preqc', label: `Inline (${filteredPreQcLogs.length})`, icon: <CheckCircle2 size={14} />, hasResultDropdown: true },
+            { key: 'qc', label: `Endline (${filteredQcLogs.length})`, icon: <ShieldCheck size={14} />, hasResultDropdown: true },
+            { key: 'packing', label: `Carton Packing (${filteredPackingLogs.length})`, icon: <Box size={14} />, hasResultDropdown: true },
+            { key: 'aql', label: `AQL (${filteredAqlLogs.length})`, icon: <ClipboardCheck size={14} />, hasResultDropdown: true },
+            { key: 'final_aql', label: `Final AQL (${filteredFinalAqlLogs.length})`, icon: <Layers size={14} />, hasResultDropdown: true }
+          ].map(tab => {
+            const isActive = activeLogTab === tab.key;
+            const currentRes = tabResultFilters[tab.key] || 'ALL';
+            return (
+              <div
+                key={tab.key}
+                onClick={() => setActiveLogTab(tab.key as any)}
+                style={{
+                  ...styles.logTabBtn(isActive),
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  padding: '6px 10px'
+                }}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+                {tab.hasResultDropdown && (
+                  <select
+                    value={currentRes}
+                    onClick={e => {
+                      e.stopPropagation();
+                      setActiveLogTab(tab.key as any);
+                    }}
+                    onChange={e => {
+                      e.stopPropagation();
+                      const val = e.target.value as 'ALL' | 'PASS' | 'FAIL';
+                      setActiveLogTab(tab.key as any);
+                      setTabResultFilters(prev => ({ ...prev, [tab.key]: val }));
+                    }}
+                    title="Filter by All / Pass / Fail"
+                    style={{
+                      marginLeft: '4px',
+                      padding: '2px 4px',
+                      borderRadius: '5px',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      border: isActive ? '1px solid rgba(0,0,0,0.35)' : '1px solid rgba(234, 179, 8, 0.45)',
+                      backgroundColor: isActive ? 'rgba(0,0,0,0.18)' : 'rgba(15, 23, 42, 0.85)',
+                      color: isActive ? '#000000' : (currentRes === 'PASS' ? '#10B981' : currentRes === 'FAIL' ? '#EF4444' : '#FDE047'),
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="ALL" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>All</option>
+                    <option value="PASS" style={{ backgroundColor: '#0f172a', color: '#10B981' }}>Pass</option>
+                    <option value="FAIL" style={{ backgroundColor: '#0f172a', color: '#EF4444' }}>Fail</option>
+                  </select>
+                )}
+              </div>
+            );
+          })}
           <button
             onClick={() => setActiveLogTab('transfers')}
             style={{ ...styles.logTabBtn(activeLogTab === 'transfers'), flexShrink: 0, whiteSpace: 'nowrap' }}
@@ -2828,6 +3192,173 @@ export const AdminReports: React.FC = () => {
           </div>
         </div>
 
+        {/* TAB 0: ALL (Full Merged Product-to-Box Preview matching CSV Export) */}
+        {activeLogTab === 'all' && (
+          <div>
+            {allMergedLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                <RefreshCw className="spin" size={24} color="var(--primary-teal)" />
+                <span>Loading full merged records (first 50)...</span>
+              </div>
+            ) : allMergedRows.length === 0 ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No merged records found matching current filters.
+              </div>
+            ) : (
+              <div>
+                <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                  <table className="responsive-table" style={{ ...styles.table, minWidth: '2400px' }}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>#</th>
+                        <th style={styles.th}>QC QR BARCODE</th>
+                        <th style={styles.th}>BOX CODE</th>
+                        <th style={styles.th}>PACKING STATE</th>
+                        <th style={styles.th}>BOX STATUS</th>
+                        <th style={styles.th}>CUSTOMER</th>
+                        <th style={styles.th}>STYLE NAME</th>
+                        <th style={styles.th}>PO NUMBER</th>
+                        <th style={styles.th}>SO NAME</th>
+                        <th style={styles.th}>LINE</th>
+                        <th style={styles.th}>INSPECTOR</th>
+                        <th style={styles.th}>RESULT</th>
+                        <th style={styles.th}>DEFECT / REASON</th>
+                        <th style={styles.th}>QC DATE & TIME</th>
+                        <th style={styles.th}>PACKED BY</th>
+                        <th style={styles.th}>CAPACITY</th>
+                        <th style={styles.th}>CURRENT FILL</th>
+                        <th style={styles.th}>PACKED DATE & TIME</th>
+                        <th style={styles.th}>LINKED PRE-QC QR(S)</th>
+                        <th style={styles.th}>AQL RESULT</th>
+                        <th style={styles.th}>AQL DEFECT / NOTES</th>
+                        <th style={styles.th}>AQL INSPECTOR</th>
+                        <th style={styles.th}>AQL DATE & TIME</th>
+                        <th style={styles.th}>FINAL AQL RESULT</th>
+                        <th style={styles.th}>FINAL AQL NOTES</th>
+                        <th style={styles.th}>FINAL AQL AUDITOR</th>
+                        <th style={styles.th}>FINAL AQL DATE & TIME</th>
+                        {isAdmin && <th style={styles.th}>ACTION</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allMergedRows.map((r: any, idx: number) => (
+                        <tr key={`${r.itemId || r.qcQrBarcode}-${idx}`} style={styles.tr}>
+                          <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>{r.rowNumber || idx + 1}</td>
+                          <td data-label="QC QR BARCODE" style={styles.td}>
+                            <strong style={{ color: 'var(--primary-teal)', fontFamily: 'monospace' }}>{r.qcQrBarcode}</strong>
+                          </td>
+                          <td data-label="BOX CODE" style={styles.td}>
+                            <strong style={{ color: r.packingState === 'PACKED' ? '#FDE047' : 'var(--text-muted)', fontFamily: 'monospace' }}>{r.boxCode}</strong>
+                          </td>
+                          <td data-label="PACKING STATE" style={styles.td}>
+                            <StatusPill label={r.packingState} variant={r.packingState === 'PACKED' ? 'green' : 'muted'} />
+                          </td>
+                          <td data-label="BOX STATUS" style={styles.td}>{r.boxStatus || '—'}</td>
+                          <td data-label="CUSTOMER" style={styles.td}>{r.customer || '—'}</td>
+                          <td data-label="STYLE NAME" style={styles.td}>{r.styleName || '—'}</td>
+                          <td data-label="PO NUMBER" style={styles.td}>{r.poNumber}</td>
+                          <td data-label="SO NAME" style={styles.td}>{r.soName}</td>
+                          <td data-label="LINE" style={styles.td}>{r.line}</td>
+                          <td data-label="INSPECTOR" style={styles.td}>{r.inspector}</td>
+                          <td data-label="RESULT" style={styles.td}>
+                            <StatusPill label={r.result} variant={r.result === 'PASS' ? 'green' : 'red'} />
+                          </td>
+                          <td data-label="DEFECT / REASON" style={styles.td}>{r.defectReason || '—'}</td>
+                          <td data-label="QC DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.qcDateTime || '—'}</span></td>
+                          <td data-label="PACKED BY" style={styles.td}>{r.packedBy || '—'}</td>
+                          <td data-label="CAPACITY" style={styles.td}>{r.capacity !== '' ? r.capacity : '—'}</td>
+                          <td data-label="CURRENT FILL" style={styles.td}>{r.currentFill !== '' ? r.currentFill : '—'}</td>
+                          <td data-label="PACKED DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.packedDateTime || '—'}</span></td>
+                          <td data-label="LINKED PRE-QC QR(S)" style={styles.td}><span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{r.linkedPreQcs}</span></td>
+                          <td data-label="AQL RESULT" style={styles.td}>
+                            {r.aqlResult ? (
+                              <StatusPill label={r.aqlResult} variant={r.aqlResult === 'PASS' || r.aqlResult === 'PASSED' ? 'green' : r.aqlResult === 'FAIL' || r.aqlResult === 'FAILED' ? 'red' : 'amber'} />
+                            ) : '—'}
+                          </td>
+                          <td data-label="AQL DEFECT / NOTES" style={styles.td}>{r.aqlDefectNotes || '—'}</td>
+                          <td data-label="AQL INSPECTOR" style={styles.td}>{r.aqlInspector || '—'}</td>
+                          <td data-label="AQL DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.aqlDateTime || '—'}</span></td>
+                          <td data-label="FINAL AQL RESULT" style={styles.td}>
+                            {r.finalAqlResult ? (
+                              <StatusPill label={r.finalAqlResult} variant={r.finalAqlResult === 'PASS' || r.finalAqlResult === 'PASSED' ? 'green' : r.finalAqlResult === 'FAIL' || r.finalAqlResult === 'FAILED' ? 'red' : 'amber'} />
+                            ) : '—'}
+                          </td>
+                          <td data-label="FINAL AQL NOTES" style={styles.td}>{r.finalAqlNotes || '—'}</td>
+                          <td data-label="FINAL AQL AUDITOR" style={styles.td}>{r.finalAqlAuditor || '—'}</td>
+                          <td data-label="FINAL AQL DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.finalAqlDateTime || '—'}</span></td>
+                          {isAdmin && (
+                            <td data-label="ACTION" style={styles.td}>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditItemQr(r.itemId, r.qcQrBarcode, 'all')}
+                                title="Edit Serial / QR Barcode"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                  border: '1px solid #3B82F6',
+                                  color: '#60A5FA',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Edit2 size={12} />
+                                Edit
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                  padding: '12px 16px',
+                  backgroundColor: 'var(--bg-surface-2)',
+                  borderTop: '1px solid var(--border-color)',
+                  borderBottomLeftRadius: '10px',
+                  borderBottomRightRadius: '10px'
+                }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                    Showing <strong style={{ color: 'var(--text-primary)' }}>{allMergedRows.length}</strong> of <strong style={{ color: 'var(--primary-teal)' }}>{allMergedTotal}</strong> records
+                  </span>
+                  {allMergedRows.length < allMergedTotal && (
+                    <button
+                      type="button"
+                      disabled={allMergedLoadingMore}
+                      onClick={() => fetchAllMergedPreview(allMergedRows.length, true)}
+                      style={{
+                        padding: '7px 16px',
+                        borderRadius: '8px',
+                        backgroundColor: 'rgba(20, 184, 166, 0.15)',
+                        border: '1px solid var(--primary-teal)',
+                        color: 'var(--primary-teal)',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        cursor: allMergedLoadingMore ? 'wait' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      {allMergedLoadingMore ? 'Loading...' : `View More (+${Math.min(50, allMergedTotal - allMergedRows.length)})`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* TAB 1: PRE QC (With Pre-QC to QC Assignment Link) */}
         {activeLogTab === 'preqc' && (
           <div>
@@ -2836,6 +3367,7 @@ export const AdminReports: React.FC = () => {
                 No Pre-QC records found matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -2855,7 +3387,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPreQcLogs.map((pq: any, idx: number) => (
+                    {filteredPreQcLogs.slice(0, visibleCounts.preqc || 50).map((pq: any, idx: number) => (
                       <tr key={pq.id || idx} style={styles.tr}>
                         <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>
                           {idx + 1}
@@ -2967,32 +3499,59 @@ export const AdminReports: React.FC = () => {
                           </span>
                         </td>
                         <td data-label="ACTION" style={styles.td}>
-                          <button
-                            onClick={() => handleDeletePreQcLog(pq)}
-                            title="Delete this Pre-QC record"
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                              border: '1px solid #EF4444',
-                              color: '#EF4444',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <Trash2 size={12} />
-                            Delete
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditItemQr(pq.item_id, pq.item_qr, 'preqc')}
+                                title="Edit Serial / QR Barcode"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                  border: '1px solid #3B82F6',
+                                  color: '#60A5FA',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Edit2 size={12} />
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeletePreQcLog(pq)}
+                              title="Delete this Pre-QC record"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid #EF4444',
+                                color: '#EF4444',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('preqc', filteredPreQcLogs.length)}
+              </>
             )}
           </div>
         )}
@@ -3005,6 +3564,7 @@ export const AdminReports: React.FC = () => {
                 No QC inspection records found matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -3024,7 +3584,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredQcLogs.map((qc: any, idx: number) => {
+                    {filteredQcLogs.slice(0, visibleCounts.qc || 50).map((qc: any, idx: number) => {
                       const preQcList = Array.isArray(qc.linked_pre_qc_qrs)
                         ? qc.linked_pre_qc_qrs
                         : typeof qc.linked_pre_qc_qrs === 'string' && qc.linked_pre_qc_qrs.trim().length > 0
@@ -3148,26 +3708,51 @@ export const AdminReports: React.FC = () => {
                             </span>
                           </td>
                           <td data-label="ACTION" style={styles.td}>
-                            <button
-                              onClick={() => handleDeleteQcLog(qc)}
-                              title="Delete this QC record"
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: '6px',
-                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                border: '1px solid #EF4444',
-                                color: '#EF4444',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}
-                            >
-                              <Trash2 size={12} />
-                              Delete
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditItemQr(qc.item_id, qc.item_qr, 'qc')}
+                                  title="Edit Serial / QR Barcode"
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                    border: '1px solid #3B82F6',
+                                    color: '#60A5FA',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                >
+                                  <Edit2 size={12} />
+                                  Edit
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeleteQcLog(qc)}
+                                title="Delete this QC record"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                  border: '1px solid #EF4444',
+                                  color: '#EF4444',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Trash2 size={12} />
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -3175,6 +3760,8 @@ export const AdminReports: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('qc', filteredQcLogs.length)}
+              </>
             )}
           </div>
         )}
@@ -3182,54 +3769,12 @@ export const AdminReports: React.FC = () => {
         {/* TAB 3: CARTON PACKING */}
         {activeLogTab === 'packing' && (
           <div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '10px',
-              padding: '10px 14px',
-              backgroundColor: 'var(--bg-surface-2)',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              flexWrap: 'wrap',
-              gap: '8px'
-            }}>
-              <div>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Carton Packing Logs &amp; Fill Verification
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>
-                  Click &quot;View Items&quot; under Capacity &amp; Fill to view and remove individual garments from a box.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleExportMergedProductBoxCsv}
-                className="btn btn-primary"
-                style={{
-                  padding: '5px 12px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  borderRadius: '6px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  backgroundColor: '#0D9488',
-                  color: '#ffffff',
-                  border: 'none',
-                  cursor: 'pointer'
-                }}
-                title="Download full merged Product-to-Box CSV with AQL & Final AQL"
-              >
-                <FileSpreadsheet size={13} /> Export Merged Product &amp; Box CSV
-              </button>
-            </div>
-
             {filteredPackingLogs.length === 0 ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
                 No carton packing records found matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -3248,7 +3793,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPackingLogs.map((bx: any, idx: number) => {
+                    {filteredPackingLogs.slice(0, visibleCounts.packing || 50).map((bx: any, idx: number) => {
                       const packedCount = bx.productQrs?.length || bx.items?.length || bx.activeFilledCount || bx.current_fill || 0;
                       return (
                         <tr key={bx.id || idx} style={styles.tr}>
@@ -3441,6 +3986,8 @@ export const AdminReports: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('packing', filteredPackingLogs.length)}
+              </>
             )}
           </div>
         )}
@@ -3453,6 +4000,7 @@ export const AdminReports: React.FC = () => {
                 No AQL inspection records found matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -3473,7 +4021,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAqlLogs.map((aql: any, idx: number) => (
+                    {filteredAqlLogs.slice(0, visibleCounts.aql || 50).map((aql: any, idx: number) => (
                       <tr key={aql.id || idx} style={styles.tr}>
                         <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>
                           {idx + 1}
@@ -3544,32 +4092,64 @@ export const AdminReports: React.FC = () => {
                           </span>
                         </td>
                         <td data-label="ACTION" style={styles.td}>
-                          <button
-                            onClick={() => handleDeleteAqlLog(aql)}
-                            title="Delete this AQL inspection log"
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                              border: '1px solid #EF4444',
-                              color: '#EF4444',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <Trash2 size={12} />
-                            Delete
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditBox({
+                                  id: aql.box_id,
+                                  box_id: aql.box_id,
+                                  box_code: aql.box_code,
+                                  box_number: aql.box_number
+                                })}
+                                title="Edit Box / Serial Number"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                  border: '1px solid #3B82F6',
+                                  color: '#60A5FA',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Edit2 size={12} />
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteAqlLog(aql)}
+                              title="Delete this AQL inspection log"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid #EF4444',
+                                color: '#EF4444',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('aql', filteredAqlLogs.length)}
+              </>
             )}
           </div>
         )}
@@ -3582,6 +4162,7 @@ export const AdminReports: React.FC = () => {
                 No Final AQL records found matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -3602,7 +4183,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredFinalAqlLogs.map((faql: any, idx: number) => (
+                    {filteredFinalAqlLogs.slice(0, visibleCounts.final_aql || 50).map((faql: any, idx: number) => (
                       <tr key={faql.id || idx} style={styles.tr}>
                         <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>
                           {idx + 1}
@@ -3681,32 +4262,64 @@ export const AdminReports: React.FC = () => {
                           </span>
                         </td>
                         <td data-label="ACTION" style={styles.td}>
-                          <button
-                            onClick={() => handleDeleteAqlLog(faql)}
-                            title="Delete this Final AQL record"
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                              border: '1px solid #EF4444',
-                              color: '#EF4444',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <Trash2 size={12} />
-                            Delete
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditBox({
+                                  id: faql.box_id,
+                                  box_id: faql.box_id,
+                                  box_code: faql.box_code,
+                                  box_number: faql.box_number
+                                })}
+                                title="Edit Box / Serial Number"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                  border: '1px solid #3B82F6',
+                                  color: '#60A5FA',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Edit2 size={12} />
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteAqlLog(faql)}
+                              title="Delete this Final AQL record"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid #EF4444',
+                                color: '#EF4444',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('final_aql', filteredFinalAqlLogs.length)}
+              </>
             )}
           </div>
         )}
@@ -3719,6 +4332,7 @@ export const AdminReports: React.FC = () => {
                 No box transfer records found matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -3739,7 +4353,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTransferLogs.map((tr: any, idx: number) => (
+                    {filteredTransferLogs.slice(0, visibleCounts.transfers || 50).map((tr: any, idx: number) => (
                       <tr key={tr.id || idx} style={styles.tr}>
                         <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>
                           {idx + 1}
@@ -3851,6 +4465,8 @@ export const AdminReports: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('transfers', filteredTransferLogs.length)}
+              </>
             )}
           </div>
         )}
@@ -3873,6 +4489,7 @@ export const AdminReports: React.FC = () => {
                 No permanently removed garments logged matching current filters.
               </div>
             ) : (
+              <>
               <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
                 <table className="responsive-table" style={{ ...styles.table, minWidth: '950px' }}>
                   <thead>
@@ -3891,7 +4508,7 @@ export const AdminReports: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredScrapped.map((item: any, idx: number) => (
+                    {filteredScrapped.slice(0, visibleCounts.scrapped || 50).map((item: any, idx: number) => (
                       <tr key={item.id || idx} style={styles.tr}>
                         <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>
                           {idx + 1}
@@ -3971,6 +4588,8 @@ export const AdminReports: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {renderViewMoreFooter('scrapped', filteredScrapped.length)}
+              </>
             )}
           </div>
         )}
@@ -4500,6 +5119,142 @@ export const AdminReports: React.FC = () => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Product QR / Serial Number Modal ────────────────── */}
+      {editingItemQr && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10002,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface-1)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '460px',
+            width: '100%',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                  color: '#60A5FA',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Edit2 size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    Edit Serial / QR Barcode
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Update garment QR &amp; serial number across records
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingItemQr(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  Current QR / Serial
+                </label>
+                <div style={{
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'monospace',
+                  fontSize: '13px',
+                  fontWeight: 700
+                }}>
+                  {editingItemQr.currentQr}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--primary-teal)', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  New QR / Serial Number
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={editingItemQr.newQr}
+                  onChange={e => setEditingItemQr(prev => prev ? { ...prev, newQr: e.target.value.toUpperCase() } : null)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !isSavingItemQr) handleSaveItemQr(); }}
+                  placeholder="Enter new QR / Serial..."
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--bg-surface-2)',
+                    border: '1.5px solid var(--primary-teal)',
+                    color: '#ffffff',
+                    fontFamily: 'monospace',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                disabled={isSavingItemQr}
+                onClick={() => setEditingItemQr(null)}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: 700 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSavingItemQr || !editingItemQr.newQr.trim()}
+                onClick={handleSaveItemQr}
+                className="btn btn-primary"
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '10px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  backgroundColor: '#3B82F6',
+                  color: '#ffffff',
+                  border: 'none',
+                  cursor: isSavingItemQr ? 'wait' : 'pointer'
+                }}
+              >
+                {isSavingItemQr ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
           </div>
         </div>
       )}

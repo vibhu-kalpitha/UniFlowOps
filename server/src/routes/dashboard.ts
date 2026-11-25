@@ -1337,15 +1337,20 @@ router.get('/reports/production', authenticateToken, async (req: AuthRequest, re
 // GET /api/reports/operational-logs — Deep Stage Logs & Unit Records per PO/SO
 router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
-    const { poId, soId, styleName, customer, range = 'all', startDate, endDate, search } = req.query as {
+    const { poId, soId, styleName, customer, size, resultFilter, range = 'all', startDate, endDate, search, format, limit, offset } = req.query as {
       poId?: string;
       soId?: string;
       styleName?: string;
       customer?: string;
+      size?: string;
+      resultFilter?: string;
       range?: string;
       startDate?: string;
       endDate?: string;
       search?: string;
+      format?: string;
+      limit?: string;
+      offset?: string;
     };
 
     // Helper for date filtering across operations
@@ -1367,7 +1372,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
 
     // 1. Pre-QC Logs with Assigned QC QR and SO
     let preQcQuery = `
-      SELECT pq.id, pq.item_id, iu.qr_code as item_qr, pq.pre_qc_result, pq.test_details, pq.failure_reason, pq.scanned_at,
+      SELECT pq.id, pq.item_id, iu.qr_code as item_qr, iu.size as item_size, pq.pre_qc_result, pq.test_details, pq.failure_reason, pq.scanned_at,
              po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
              COALESCE(NULLIF(TRIM(pq.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
              u.full_name as operator_name,
@@ -1410,7 +1415,7 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
 
     // 2. QC Inspection Logs with linked Pre-QC QRs, SO, and real Inspector Name
     let qcQuery = `
-      SELECT qr.id, qr.item_id, iu.qr_code as item_qr, qr.qc_result, qr.test_result, qr.test_details, qr.failure_reason, qr.scanned_at,
+      SELECT qr.id, qr.item_id, iu.qr_code as item_qr, iu.size as item_size, qr.qc_result, qr.test_result, qr.test_details, qr.failure_reason, qr.scanned_at,
              po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
              COALESCE(NULLIF(TRIM(qr.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
              COALESCE(u.full_name, test_u.full_name, 'QC Inspector') as inspector_name,
@@ -1531,7 +1536,13 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
              po.id as po_id, po.po_number, po.po_name, so.so_number as so_name, po.customer, s.name as style_name,
              COALESCE(NULLIF(TRIM(ai.line_number), ''), NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
              COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'AQL Auditor') as inspector_name,
-             (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count
+             (SELECT COUNT(*) FROM aql_samples WHERE inspection_id = ai.id) as sampled_count,
+             (
+               SELECT GROUP_CONCAT(DISTINCT iu2.qr_code SEPARATOR ',')
+               FROM box_items bi3
+               JOIN item_units iu2 ON iu2.id = bi3.item_id
+               WHERE bi3.box_id = b.id AND bi3.active = 1
+             ) as box_qrs_str
       FROM aql_inspections ai
       LEFT JOIN boxes b ON b.id = ai.box_id
       LEFT JOIN production_orders po ON (po.id = ai.production_order_id OR po.id = b.production_order_id)
@@ -1573,7 +1584,13 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
              COALESCE(db.box_code, db.box_number) as dest_box_code,
              COALESCE(NULLIF(TRIM(u.full_name), ''), NULLIF(TRIM(u.username), ''), 'Supervisor') as transferred_by_name,
              po.po_number, po.po_name, so.so_number as so_name, s.name as style_name, po.customer,
-             COALESCE(NULLIF(TRIM(sb.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name
+             COALESCE(NULLIF(TRIM(sb.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
+             (
+               SELECT GROUP_CONCAT(DISTINCT iu2.qr_code SEPARATOR ',')
+               FROM box_items bi3
+               JOIN item_units iu2 ON iu2.id = bi3.item_id
+               WHERE (bi3.box_id = bt.source_box_id OR bi3.box_id = bt.destination_box_id) AND bi3.active = 1
+             ) as box_qrs_str
       FROM box_transfers bt
       LEFT JOIN boxes sb ON sb.id = bt.source_box_id
       LEFT JOIN boxes db ON db.id = bt.destination_box_id
@@ -1672,15 +1689,20 @@ router.get('/reports/operational-logs', authenticateToken, requireRole(['ADMIN',
 // GET /api/reports/product-box-merged-export — Full Merged Product & Box CSV with AQL & Final AQL
 router.get('/reports/product-box-merged-export', authenticateToken, requireRole(['ADMIN', 'SUPERVISOR']), async (req: AuthRequest, res, next) => {
   try {
-    const { poId, soId, styleName, customer, range = 'all', startDate, endDate, search } = req.query as {
+    const { poId, soId, styleName, customer, size, resultFilter, range = 'all', startDate, endDate, search, format, limit, offset } = req.query as {
       poId?: string;
       soId?: string;
       styleName?: string;
       customer?: string;
+      size?: string;
+      resultFilter?: string;
       range?: string;
       startDate?: string;
       endDate?: string;
       search?: string;
+      format?: string;
+      limit?: string;
+      offset?: string;
     };
 
     const buildDateFilter = (field: string) => {
@@ -1728,8 +1750,10 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
       return str;
     };
 
-    let mergedQuery = `
+    const selectClause = `
       SELECT 
+        iu.id as item_id,
+        b.id as box_id,
         iu.qr_code as qc_qr_barcode,
         COALESCE(b.box_code, b.box_number) as box_code,
         b.status as box_status,
@@ -1818,6 +1842,9 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
           ORDER BY COALESCE(fai.completed_at, fai.started_at) DESC
           LIMIT 1
         ) as final_aql_date_time
+    `;
+
+    let fromWhereClause = `
       FROM item_units iu
       LEFT JOIN qc_results qr ON qr.item_id = iu.id
       LEFT JOIN box_items bi ON (bi.item_id = iu.id AND bi.active = 1)
@@ -1839,36 +1866,90 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
       const supervisorRow = await db.prepare(`SELECT plant_id, plant FROM users WHERE id = ?`).get(req.user.id) as any;
       const supervisorPlant = supervisorRow?.plant || supervisorRow?.plant_id;
       if (supervisorPlant && supervisorPlant !== 'ALL') {
-        mergedQuery += ` AND (po.plant = ? OR po.plant_id = ?)`;
+        fromWhereClause += ` AND (po.plant = ? OR po.plant_id = ?)`;
         mergedParams.push(supervisorPlant, supervisorPlant);
       }
     }
 
     if (poId && poId.trim()) {
-      mergedQuery += ` AND (po.id = ? OR po.po_number = ?)`;
+      fromWhereClause += ` AND (po.id = ? OR po.po_number = ?)`;
       mergedParams.push(poId.trim(), poId.trim());
     }
     if (soId && soId.trim()) {
-      mergedQuery += ` AND (so.id = ? OR so.so_number = ?)`;
+      fromWhereClause += ` AND (so.id = ? OR so.so_number = ?)`;
       mergedParams.push(soId.trim(), soId.trim());
     }
     if (styleName && styleName.trim()) {
-      mergedQuery += ` AND (s.name = ? OR s.code = ?)`;
+      fromWhereClause += ` AND (s.name = ? OR s.code = ?)`;
       mergedParams.push(styleName.trim(), styleName.trim());
     }
     if (customer && customer.trim()) {
-      mergedQuery += ` AND po.customer = ?`;
+      fromWhereClause += ` AND po.customer = ?`;
       mergedParams.push(customer.trim());
     }
+    if (size && size.trim()) {
+      const sz = size.trim().toUpperCase();
+      fromWhereClause += ` AND (UPPER(TRIM(iu.qr_code)) LIKE ? OR (iu.size IS NOT NULL AND UPPER(TRIM(iu.size)) = ?))`;
+      mergedParams.push(`%-${sz}-%`, sz);
+    }
+    if (resultFilter && resultFilter.trim().toUpperCase() === 'PASS') {
+      fromWhereClause += ` AND UPPER(COALESCE(NULLIF(TRIM(qr.qc_result), ''), NULLIF(TRIM(qr.test_result), ''), 'PASS')) = 'PASS'`;
+    } else if (resultFilter && resultFilter.trim().toUpperCase() === 'FAIL') {
+      fromWhereClause += ` AND (UPPER(COALESCE(qr.qc_result, '')) = 'FAIL' OR UPPER(COALESCE(qr.test_result, '')) = 'FAIL')`;
+    }
     if (search && search.trim()) {
-      mergedQuery += ` AND (iu.qr_code LIKE ? OR b.box_code LIKE ? OR b.box_number LIKE ? OR po.po_number LIKE ?)`;
+      fromWhereClause += ` AND (iu.qr_code LIKE ? OR b.box_code LIKE ? OR b.box_number LIKE ? OR po.po_number LIKE ?)`;
       const term = `%${search.trim()}%`;
       mergedParams.push(term, term, term, term);
     }
 
-    mergedQuery += ` ORDER BY COALESCE(qr.scanned_at, bi.packed_at, b.created_at) DESC`;
+    const orderByClause = ` ORDER BY COALESCE(qr.scanned_at, bi.packed_at, b.created_at) DESC`;
 
-    const results = await db.prepare(mergedQuery).all(...mergedParams) as any[];
+    if (format === 'json') {
+      const parsedLimit = Math.max(1, parseInt(String(limit || '50'), 10) || 50);
+      const parsedOffset = Math.max(0, parseInt(String(offset || '0'), 10) || 0);
+      const countRow = await db.prepare(`SELECT COUNT(*) as total ${fromWhereClause}`).get(...mergedParams) as any;
+      const total = Number(countRow?.total || 0);
+
+      const paginatedResults = await db.prepare(`${selectClause} ${fromWhereClause} ${orderByClause} LIMIT ? OFFSET ?`).all(...mergedParams, parsedLimit, parsedOffset) as any[];
+      const previewRows = paginatedResults.map((r, idx) => {
+        const isPacked = Boolean(r.box_code);
+        return {
+          rowNumber: parsedOffset + idx + 1,
+          itemId: r.item_id,
+          boxId: r.box_id || null,
+          qcQrBarcode: r.qc_qr_barcode,
+          boxCode: isPacked ? r.box_code : 'Not Packed',
+          packingState: isPacked ? 'PACKED' : 'UNPACKED',
+          boxStatus: isPacked ? (r.box_status || 'COMPLETE') : '',
+          customer: r.customer || '',
+          styleName: r.style_name || '',
+          poNumber: r.po_number || 'No PO & SO',
+          soName: r.so_name || 'No SO',
+          line: r.line_name || 'Line 1',
+          inspector: r.inspector_name || 'QC Inspector',
+          result: r.result || 'PASS',
+          defectReason: r.failure_reason || '',
+          qcDateTime: formatSriLankaDateTime(r.qc_scanned_at),
+          packedBy: isPacked ? (r.packed_by_name || 'Operator') : '',
+          capacity: isPacked ? (r.capacity || 24) : '',
+          currentFill: isPacked ? (r.box_current_fill || 0) : '',
+          packedDateTime: isPacked ? formatSriLankaDateTime(r.item_packed_at || r.box_packed_at) : '',
+          linkedPreQcs: r.linked_pre_qcs || 'Direct / None',
+          aqlResult: isPacked ? (r.aql_result || 'PENDING') : '',
+          aqlDefectNotes: isPacked ? (r.aql_defect_notes || '') : '',
+          aqlInspector: isPacked ? (r.aql_inspector_name || '') : '',
+          aqlDateTime: isPacked ? formatSriLankaDateTime(r.aql_date_time) : '',
+          finalAqlResult: isPacked ? (r.final_aql_result || 'PENDING') : '',
+          finalAqlNotes: isPacked ? (r.final_aql_notes || '') : '',
+          finalAqlAuditor: isPacked ? (r.final_aql_auditor_name || '') : '',
+          finalAqlDateTime: isPacked ? formatSriLankaDateTime(r.final_aql_date_time) : ''
+        };
+      });
+      return res.json({ total, limit: parsedLimit, offset: parsedOffset, rows: previewRows });
+    }
+
+    const results = await db.prepare(`${selectClause} ${fromWhereClause} ${orderByClause}`).all(...mergedParams) as any[];
 
     const headers = [
       '#',

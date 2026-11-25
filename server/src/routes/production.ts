@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../db/connection.js';
 import { authenticateToken, requireRole, AuthRequest, AuthUser } from '../middleware/auth.js';
 import { auditLog } from '../middleware/errorHandler.js';
+import { extractGarmentSerialNumber } from './scans.js';
 
 const router = ExpressRouter();
 
@@ -2403,6 +2404,96 @@ const handleUpdateBoxNumber = async (req: AuthRequest, res: any, next: any) => {
 
 router.patch('/boxes/:id', authenticateToken, handleUpdateBoxNumber);
 router.put('/boxes/:id', authenticateToken, handleUpdateBoxNumber);
+
+// PATCH / PUT /api/items/:id/qr — Admin edit of Product QR / Serial Number
+const handleUpdateItemQr = async (req: AuthRequest, res: any, next: any) => {
+  try {
+    const itemIdOrQr = req.params.id;
+    const rawNewQr = (req.body.newQr || req.body.qrCode || req.body.qr_code || '').toString().trim().toUpperCase();
+
+    if (!rawNewQr) {
+      return res.status(400).json({ error: 'INVALID_QR', message: 'New QR / Serial Number cannot be empty.' });
+    }
+
+    const item = await db.prepare(`
+      SELECT * FROM item_units WHERE id = ? OR UPPER(TRIM(qr_code)) = ?
+    `).get(itemIdOrQr, itemIdOrQr.trim().toUpperCase()) as any;
+
+    if (!item) {
+      return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: 'Garment item not found.' });
+    }
+
+    const oldQr = (item.qr_code || '').trim().toUpperCase();
+    if (oldQr === rawNewQr) {
+      return res.json({ success: true, message: 'No changes made.', item });
+    }
+
+    // Check duplicate QR code
+    const dupQr = await db.prepare(`
+      SELECT id, qr_code FROM item_units WHERE UPPER(TRIM(qr_code)) = ? AND id != ?
+    `).get(rawNewQr, item.id) as any;
+
+    if (dupQr) {
+      return res.status(409).json({
+        error: 'DUPLICATE_QR',
+        message: `QR code '${rawNewQr}' is already registered on another garment.`
+      });
+    }
+
+    const newSerial = extractGarmentSerialNumber(rawNewQr);
+    if (newSerial) {
+      const dupSerial = await db.prepare(`
+        SELECT id, qr_code FROM item_units 
+        WHERE (serial_number = ? OR (serial_number IS NULL AND UPPER(TRIM(qr_code)) LIKE ?))
+          AND id != ?
+        LIMIT 1
+      `).get(newSerial, `%-${newSerial}`, item.id) as any;
+
+      if (dupSerial) {
+        return res.status(409).json({
+          error: 'DUPLICATE_SERIAL_NUMBER',
+          message: `Serial number '${newSerial}' is already registered on garment '${dupSerial.qr_code}'.`
+        });
+      }
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.prepare(`
+        UPDATE item_units 
+        SET qr_code = ?, serial_number = ?, updated_at = NOW(3)
+        WHERE id = ?
+      `).run(rawNewQr, newSerial || null, item.id);
+
+      if (oldQr) {
+        await tx.prepare(`UPDATE pre_qc_assignments SET product_qr = ? WHERE UPPER(TRIM(product_qr)) = ?`).run(rawNewQr, oldQr).catch(() => {});
+        await tx.prepare(`UPDATE pre_qc_assignments SET pre_qc_qr = ? WHERE UPPER(TRIM(pre_qc_qr)) = ?`).run(rawNewQr, oldQr).catch(() => {});
+      }
+    });
+
+    await auditLog(req.user!.id, 'UPDATE_ITEM_QR', 'item_units', item.id, {
+      oldQr,
+      newQr: rawNewQr,
+      oldSerial: item.serial_number,
+      newSerial,
+      poId: item.production_order_id
+    });
+
+    return res.json({
+      success: true,
+      message: `QR / Serial updated from '${oldQr}' to '${rawNewQr}' successfully.`,
+      item: {
+        ...item,
+        qr_code: rawNewQr,
+        serial_number: newSerial || null
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.patch('/items/:id/qr', authenticateToken, requireRole('ADMIN'), handleUpdateItemQr);
+router.put('/items/:id/qr', authenticateToken, requireRole('ADMIN'), handleUpdateItemQr);
 
 // DELETE /api/boxes/:id — Delete a box and release its packed items
 router.delete('/boxes/:id', authenticateToken, async (req: AuthRequest, res, next) => {
