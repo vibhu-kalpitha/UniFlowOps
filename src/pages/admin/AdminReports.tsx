@@ -3208,36 +3208,51 @@ export const AdminReports: React.FC = () => {
             ) : (
               <div>
                 <div className="table-responsive-wrapper" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '620px', WebkitOverflowScrolling: 'touch', width: '100%', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
-                  <table className="responsive-table" style={{ ...styles.table, minWidth: '2400px' }}>
+                  <table className="responsive-table" style={{ ...styles.table, minWidth: '3800px' }}>
                     <thead>
                       <tr>
                         <th style={styles.th}>#</th>
-                        <th style={styles.th}>QC QR BARCODE</th>
-                        <th style={styles.th}>BOX CODE</th>
-                        <th style={styles.th}>PACKING STATE</th>
-                        <th style={styles.th}>BOX STATUS</th>
+                        <th style={styles.th}>PRODUCT QR BARCODE</th>
                         <th style={styles.th}>CUSTOMER</th>
                         <th style={styles.th}>STYLE NAME</th>
                         <th style={styles.th}>PO NUMBER</th>
                         <th style={styles.th}>SO NAME</th>
                         <th style={styles.th}>LINE</th>
-                        <th style={styles.th}>INSPECTOR</th>
-                        <th style={styles.th}>RESULT</th>
-                        <th style={styles.th}>DEFECT / REASON</th>
-                        <th style={styles.th}>QC DATE & TIME</th>
+                        <th style={styles.th}>INLINE PRE-QC QR(S)</th>
+                        <th style={styles.th}>INLINE RESULT</th>
+                        <th style={styles.th}>INLINE TESTS &amp; DETAILS</th>
+                        <th style={styles.th}>INLINE DEFECT / REASON</th>
+                        <th style={styles.th}>INLINE INSPECTOR</th>
+                        <th style={styles.th}>INLINE DATE &amp; TIME</th>
+                        <th style={styles.th}>ENDLINE QC RESULT</th>
+                        <th style={styles.th}>ENDLINE TEST RESULT</th>
+                        <th style={styles.th}>ENDLINE OVERALL RESULT</th>
+                        <th style={styles.th}>ENDLINE TESTS &amp; DETAILS</th>
+                        <th style={styles.th}>ENDLINE DEFECT / REASON</th>
+                        <th style={styles.th}>ENDLINE QC INSPECTOR</th>
+                        <th style={styles.th}>ENDLINE TEST INSPECTOR</th>
+                        <th style={styles.th}>ENDLINE DATE &amp; TIME</th>
+                        <th style={styles.th}>PACKING STATE</th>
+                        <th style={styles.th}>BOX CODE</th>
+                        <th style={styles.th}>BOX STATUS</th>
+                        <th style={styles.th}>BOX CAPACITY</th>
+                        <th style={styles.th}>BOX CURRENT FILL</th>
                         <th style={styles.th}>PACKED BY</th>
-                        <th style={styles.th}>CAPACITY</th>
-                        <th style={styles.th}>CURRENT FILL</th>
-                        <th style={styles.th}>PACKED DATE & TIME</th>
-                        <th style={styles.th}>LINKED PRE-QC QR(S)</th>
-                        <th style={styles.th}>AQL RESULT</th>
-                        <th style={styles.th}>AQL DEFECT / NOTES</th>
-                        <th style={styles.th}>AQL INSPECTOR</th>
-                        <th style={styles.th}>AQL DATE & TIME</th>
+                        <th style={styles.th}>PACKED DATE &amp; TIME</th>
+                        <th style={styles.th}>NORMAL AQL RESULT</th>
+                        <th style={styles.th}>NORMAL AQL DEFECT NOTES</th>
+                        <th style={styles.th}>NORMAL AQL INSPECTOR</th>
+                        <th style={styles.th}>NORMAL AQL DATE &amp; TIME</th>
                         <th style={styles.th}>FINAL AQL RESULT</th>
                         <th style={styles.th}>FINAL AQL NOTES</th>
                         <th style={styles.th}>FINAL AQL AUDITOR</th>
-                        <th style={styles.th}>FINAL AQL DATE & TIME</th>
+                        <th style={styles.th}>FINAL AQL DATE &amp; TIME</th>
+                        <th style={styles.th}>BOX TRANSFER STATE</th>
+                        <th style={styles.th}>TRANSFER FROM BOX</th>
+                        <th style={styles.th}>TRANSFER TO BOX</th>
+                        <th style={styles.th}>TRANSFERRED BY</th>
+                        <th style={styles.th}>TRANSFER DATE &amp; TIME</th>
+                        <th style={styles.th}>TRANSFER REMARKS</th>
                         {isAdmin && <th style={styles.th}>ACTION</th>}
                       </tr>
                     </thead>
@@ -3245,40 +3260,57 @@ export const AdminReports: React.FC = () => {
                       {allMergedRows.map((r: any, idx: number) => (
                         <tr key={`${r.itemId || r.qcQrBarcode}-${idx}`} style={styles.tr}>
                           <td data-label="#" style={{ ...styles.td, width: '40px', color: 'var(--text-muted)', fontSize: '11px' }}>{r.rowNumber || idx + 1}</td>
-                          <td data-label="QC QR BARCODE" style={styles.td}>
+                          <td data-label="PRODUCT QR BARCODE" style={styles.td}>
                             <strong style={{ color: 'var(--primary-teal)', fontFamily: 'monospace' }}>{r.qcQrBarcode}</strong>
                           </td>
-                          <td data-label="BOX CODE" style={styles.td}>
-                            <strong style={{ color: r.packingState === 'PACKED' ? '#FDE047' : 'var(--text-muted)', fontFamily: 'monospace' }}>{r.boxCode}</strong>
-                          </td>
-                          <td data-label="PACKING STATE" style={styles.td}>
-                            <StatusPill label={r.packingState} variant={r.packingState === 'PACKED' ? 'green' : 'muted'} />
-                          </td>
-                          <td data-label="BOX STATUS" style={styles.td}>{r.boxStatus || '—'}</td>
                           <td data-label="CUSTOMER" style={styles.td}>{r.customer || '—'}</td>
                           <td data-label="STYLE NAME" style={styles.td}>{r.styleName || '—'}</td>
                           <td data-label="PO NUMBER" style={styles.td}>{r.poNumber}</td>
                           <td data-label="SO NAME" style={styles.td}>{r.soName}</td>
                           <td data-label="LINE" style={styles.td}>{r.line}</td>
-                          <td data-label="INSPECTOR" style={styles.td}>{r.inspector}</td>
-                          <td data-label="RESULT" style={styles.td}>
-                            <StatusPill label={r.result} variant={r.result === 'PASS' ? 'green' : 'red'} />
+                          <td data-label="INLINE PRE-QC QR(S)" style={styles.td}><span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{r.linkedPreQcs}</span></td>
+                          <td data-label="INLINE RESULT" style={styles.td}>
+                            {r.inlineResult && r.inlineResult !== 'N/A' ? (
+                              <StatusPill label={r.inlineResult} variant={r.inlineResult === 'PASS' ? 'green' : 'red'} />
+                            ) : <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>N/A</span>}
                           </td>
-                          <td data-label="DEFECT / REASON" style={styles.td}>{r.defectReason || '—'}</td>
-                          <td data-label="QC DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.qcDateTime || '—'}</span></td>
+                          <td data-label="INLINE TESTS" style={styles.td}><span style={{ fontSize: '11px' }}>{r.inlineTests || '—'}</span></td>
+                          <td data-label="INLINE DEFECT" style={styles.td}>{r.inlineDefect || '—'}</td>
+                          <td data-label="INLINE INSPECTOR" style={styles.td}>{r.inlineInspector || '—'}</td>
+                          <td data-label="INLINE DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.inlineDateTime || '—'}</span></td>
+                          <td data-label="ENDLINE QC RESULT" style={styles.td}>
+                            <StatusPill label={r.endlineQcResult || 'PASS'} variant={r.endlineQcResult === 'PASS' ? 'green' : 'red'} />
+                          </td>
+                          <td data-label="ENDLINE TEST RESULT" style={styles.td}>
+                            <StatusPill label={r.endlineTestResult || 'PASS'} variant={r.endlineTestResult === 'PASS' ? 'green' : 'red'} />
+                          </td>
+                          <td data-label="ENDLINE OVERALL RESULT" style={styles.td}>
+                            <StatusPill label={r.endlineOverallResult || 'PASS'} variant={r.endlineOverallResult === 'PASS' ? 'green' : 'red'} />
+                          </td>
+                          <td data-label="ENDLINE TESTS" style={styles.td}><span style={{ fontSize: '11px' }}>{r.endlineTestsPassed || '—'}</span></td>
+                          <td data-label="ENDLINE DEFECT" style={styles.td}>{r.defectReason || '—'}</td>
+                          <td data-label="ENDLINE QC INSPECTOR" style={styles.td}>{r.endlineQcInspector || '—'}</td>
+                          <td data-label="ENDLINE TEST INSPECTOR" style={styles.td}>{r.endlineTestInspector || '—'}</td>
+                          <td data-label="ENDLINE DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.qcDateTime || '—'}</span></td>
+                          <td data-label="PACKING STATE" style={styles.td}>
+                            <StatusPill label={r.packingState} variant={r.packingState === 'PACKED' ? 'green' : 'muted'} />
+                          </td>
+                          <td data-label="BOX CODE" style={styles.td}>
+                            <strong style={{ color: r.packingState === 'PACKED' ? '#FDE047' : 'var(--text-muted)', fontFamily: 'monospace' }}>{r.boxCode}</strong>
+                          </td>
+                          <td data-label="BOX STATUS" style={styles.td}>{r.boxStatus || '—'}</td>
+                          <td data-label="BOX CAPACITY" style={styles.td}>{r.capacity !== '' ? r.capacity : '—'}</td>
+                          <td data-label="BOX CURRENT FILL" style={styles.td}>{r.currentFill !== '' ? r.currentFill : '—'}</td>
                           <td data-label="PACKED BY" style={styles.td}>{r.packedBy || '—'}</td>
-                          <td data-label="CAPACITY" style={styles.td}>{r.capacity !== '' ? r.capacity : '—'}</td>
-                          <td data-label="CURRENT FILL" style={styles.td}>{r.currentFill !== '' ? r.currentFill : '—'}</td>
                           <td data-label="PACKED DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.packedDateTime || '—'}</span></td>
-                          <td data-label="LINKED PRE-QC QR(S)" style={styles.td}><span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{r.linkedPreQcs}</span></td>
-                          <td data-label="AQL RESULT" style={styles.td}>
+                          <td data-label="NORMAL AQL RESULT" style={styles.td}>
                             {r.aqlResult ? (
                               <StatusPill label={r.aqlResult} variant={r.aqlResult === 'PASS' || r.aqlResult === 'PASSED' ? 'green' : r.aqlResult === 'FAIL' || r.aqlResult === 'FAILED' ? 'red' : 'amber'} />
                             ) : '—'}
                           </td>
-                          <td data-label="AQL DEFECT / NOTES" style={styles.td}>{r.aqlDefectNotes || '—'}</td>
-                          <td data-label="AQL INSPECTOR" style={styles.td}>{r.aqlInspector || '—'}</td>
-                          <td data-label="AQL DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.aqlDateTime || '—'}</span></td>
+                          <td data-label="NORMAL AQL DEFECT NOTES" style={styles.td}>{r.aqlDefectNotes || '—'}</td>
+                          <td data-label="NORMAL AQL INSPECTOR" style={styles.td}>{r.aqlInspector || '—'}</td>
+                          <td data-label="NORMAL AQL DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.aqlDateTime || '—'}</span></td>
                           <td data-label="FINAL AQL RESULT" style={styles.td}>
                             {r.finalAqlResult ? (
                               <StatusPill label={r.finalAqlResult} variant={r.finalAqlResult === 'PASS' || r.finalAqlResult === 'PASSED' ? 'green' : r.finalAqlResult === 'FAIL' || r.finalAqlResult === 'FAILED' ? 'red' : 'amber'} />
@@ -3287,6 +3319,14 @@ export const AdminReports: React.FC = () => {
                           <td data-label="FINAL AQL NOTES" style={styles.td}>{r.finalAqlNotes || '—'}</td>
                           <td data-label="FINAL AQL AUDITOR" style={styles.td}>{r.finalAqlAuditor || '—'}</td>
                           <td data-label="FINAL AQL DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.finalAqlDateTime || '—'}</span></td>
+                          <td data-label="BOX TRANSFER STATE" style={styles.td}>
+                            <StatusPill label={r.transferState || 'NOT TRANSFERRED'} variant={r.transferState === 'TRANSFERRED' ? 'teal' : 'muted'} />
+                          </td>
+                          <td data-label="TRANSFER FROM BOX" style={styles.td}>{r.transferFromBox || '—'}</td>
+                          <td data-label="TRANSFER TO BOX" style={styles.td}>{r.transferToBox || '—'}</td>
+                          <td data-label="TRANSFERRED BY" style={styles.td}>{r.transferredBy || '—'}</td>
+                          <td data-label="TRANSFER DATE & TIME" style={styles.td}><span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{r.transferDateTime || '—'}</span></td>
+                          <td data-label="TRANSFER REMARKS" style={styles.td}>{r.transferRemarks || '—'}</td>
                           {isAdmin && (
                             <td data-label="ACTION" style={styles.td}>
                               <button

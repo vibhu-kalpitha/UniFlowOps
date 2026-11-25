@@ -1768,14 +1768,65 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
         COALESCE(NULLIF(TRIM(so.so_number), ''), 'No SO') as so_name,
         COALESCE(NULLIF(TRIM(b.line_number), ''), NULLIF(TRIM(po.line_number), ''), 'Line 1') as line_name,
         COALESCE(NULLIF(TRIM(qc_u.full_name), ''), NULLIF(TRIM(test_u.full_name), ''), 'QC Inspector') as inspector_name,
+        COALESCE(NULLIF(TRIM(qc_u.full_name), ''), NULLIF(TRIM(qc_u.username), ''), '') as qc_inspector_name,
+        COALESCE(NULLIF(TRIM(test_u.full_name), ''), NULLIF(TRIM(test_u.username), ''), '') as test_inspector_name,
         COALESCE(NULLIF(TRIM(qr.qc_result), ''), NULLIF(TRIM(qr.test_result), ''), 'PASS') as result,
-        COALESCE(qr.failure_reason, '') as failure_reason,
+        COALESCE(NULLIF(TRIM(qr.qc_result), ''), 'PASS') as endline_qc_result,
+        COALESCE(NULLIF(TRIM(qr.test_result), ''), 'PASS') as endline_test_result,
+        qr.test_details as endline_test_details,
+        COALESCE(NULLIF(TRIM(qr.failure_reason), ''), NULLIF(TRIM(qr.test_failure_reason), ''), '') as failure_reason,
         qr.scanned_at as qc_scanned_at,
         (
           SELECT GROUP_CONCAT(DISTINCT pqa.pre_qc_qr SEPARATOR '; ')
           FROM pre_qc_assignments pqa
           WHERE pqa.product_qr = iu.qr_code
         ) as linked_pre_qcs,
+        (
+          SELECT pq.pre_qc_result
+          FROM pre_qc_results pq
+          LEFT JOIN item_units iu_pq ON iu_pq.id = pq.item_id
+          LEFT JOIN pre_qc_assignments pqa ON pqa.pre_qc_qr = iu_pq.qr_code
+          WHERE pq.item_id = iu.id OR pqa.product_qr = iu.qr_code
+          ORDER BY pq.scanned_at DESC
+          LIMIT 1
+        ) as inline_result,
+        (
+          SELECT pq.test_details
+          FROM pre_qc_results pq
+          LEFT JOIN item_units iu_pq ON iu_pq.id = pq.item_id
+          LEFT JOIN pre_qc_assignments pqa ON pqa.pre_qc_qr = iu_pq.qr_code
+          WHERE pq.item_id = iu.id OR pqa.product_qr = iu.qr_code
+          ORDER BY pq.scanned_at DESC
+          LIMIT 1
+        ) as inline_test_details,
+        (
+          SELECT pq.failure_reason
+          FROM pre_qc_results pq
+          LEFT JOIN item_units iu_pq ON iu_pq.id = pq.item_id
+          LEFT JOIN pre_qc_assignments pqa ON pqa.pre_qc_qr = iu_pq.qr_code
+          WHERE pq.item_id = iu.id OR pqa.product_qr = iu.qr_code
+          ORDER BY pq.scanned_at DESC
+          LIMIT 1
+        ) as inline_failure_reason,
+        (
+          SELECT COALESCE(NULLIF(TRIM(u_pq.full_name), ''), NULLIF(TRIM(u_pq.username), ''))
+          FROM pre_qc_results pq
+          LEFT JOIN users u_pq ON u_pq.id = pq.operator_id
+          LEFT JOIN item_units iu_pq ON iu_pq.id = pq.item_id
+          LEFT JOIN pre_qc_assignments pqa ON pqa.pre_qc_qr = iu_pq.qr_code
+          WHERE pq.item_id = iu.id OR pqa.product_qr = iu.qr_code
+          ORDER BY pq.scanned_at DESC
+          LIMIT 1
+        ) as inline_inspector_name,
+        (
+          SELECT pq.scanned_at
+          FROM pre_qc_results pq
+          LEFT JOIN item_units iu_pq ON iu_pq.id = pq.item_id
+          LEFT JOIN pre_qc_assignments pqa ON pqa.pre_qc_qr = iu_pq.qr_code
+          WHERE pq.item_id = iu.id OR pqa.product_qr = iu.qr_code
+          ORDER BY pq.scanned_at DESC
+          LIMIT 1
+        ) as inline_scanned_at,
         (
           SELECT ai.result
           FROM aql_inspections ai
@@ -1841,7 +1892,45 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
             AND UPPER(TRIM(fai.stage)) LIKE '%FINAL%'
           ORDER BY COALESCE(fai.completed_at, fai.started_at) DESC
           LIMIT 1
-        ) as final_aql_date_time
+        ) as final_aql_date_time,
+        (
+          SELECT COALESCE(sb.box_code, sb.box_number)
+          FROM box_transfers bt
+          LEFT JOIN boxes sb ON sb.id = bt.source_box_id
+          WHERE b.id IS NOT NULL AND (bt.source_box_id = b.id OR bt.destination_box_id = b.id)
+          ORDER BY bt.transferred_at DESC
+          LIMIT 1
+        ) as transfer_from_box,
+        (
+          SELECT COALESCE(db.box_code, db.box_number)
+          FROM box_transfers bt
+          LEFT JOIN boxes db ON db.id = bt.destination_box_id
+          WHERE b.id IS NOT NULL AND (bt.source_box_id = b.id OR bt.destination_box_id = b.id)
+          ORDER BY bt.transferred_at DESC
+          LIMIT 1
+        ) as transfer_to_box,
+        (
+          SELECT COALESCE(NULLIF(TRIM(u_trf.full_name), ''), NULLIF(TRIM(u_trf.username), ''))
+          FROM box_transfers bt
+          LEFT JOIN users u_trf ON (u_trf.id = bt.transferred_by OR u_trf.username = bt.transferred_by)
+          WHERE b.id IS NOT NULL AND (bt.source_box_id = b.id OR bt.destination_box_id = b.id)
+          ORDER BY bt.transferred_at DESC
+          LIMIT 1
+        ) as transferred_by_name,
+        (
+          SELECT bt.transferred_at
+          FROM box_transfers bt
+          WHERE b.id IS NOT NULL AND (bt.source_box_id = b.id OR bt.destination_box_id = b.id)
+          ORDER BY bt.transferred_at DESC
+          LIMIT 1
+        ) as transfer_date_time,
+        (
+          SELECT bt.remarks
+          FROM box_transfers bt
+          WHERE b.id IS NOT NULL AND (bt.source_box_id = b.id OR bt.destination_box_id = b.id)
+          ORDER BY bt.transferred_at DESC
+          LIMIT 1
+        ) as transfer_remarks
     `;
 
     let fromWhereClause = `
@@ -1905,6 +1994,108 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
 
     const orderByClause = ` ORDER BY COALESCE(qr.scanned_at, bi.packed_at, b.created_at) DESC`;
 
+    const formatTestDetails = (rawTestDetails: any, qcRes?: string, testRes?: string): string => {
+      const parts: string[] = [];
+      if (rawTestDetails) {
+        try {
+          const d = typeof rawTestDetails === 'string' ? JSON.parse(rawTestDetails) : rawTestDetails;
+          if (Array.isArray(d)) {
+            for (const item of d) {
+              if (typeof item === 'string') parts.push(item);
+              else if (item && typeof item === 'object') {
+                const name = item.testName || item.name || item.title || 'Test';
+                const res = item.result || item.status || (item.passed ? 'PASS' : 'FAIL') || 'PASS';
+                parts.push(`${name}: ${res}`);
+              }
+            }
+          } else if (d && typeof d === 'object') {
+            for (const [k, v] of Object.entries(d)) {
+              const res = typeof v === 'string' ? v : (v as any)?.result || (v as any)?.status || 'PASS';
+              parts.push(`${k}: ${res}`);
+            }
+          }
+        } catch {
+          parts.push(String(rawTestDetails));
+        }
+      }
+      if (parts.length === 0) {
+        if (qcRes) parts.push(`QC: ${qcRes}`);
+        if (testRes) parts.push(`Test: ${testRes}`);
+      }
+      return parts.join('; ') || 'PASS';
+    };
+
+    const mapMergedRow = (r: any, rowNumber: number) => {
+      const isPacked = Boolean(r.box_code);
+      const linkedPreQcs = r.linked_pre_qcs || 'Direct / None';
+      const inlineResult = r.inline_result || (r.linked_pre_qcs ? 'PASS' : 'N/A');
+      const inlineTests = formatTestDetails(r.inline_test_details, inlineResult);
+      const endlineQcResult = r.endline_qc_result || r.result || 'PASS';
+      const endlineTestResult = r.endline_test_result || 'PASS';
+      const endlineOverallResult = (endlineQcResult === 'FAIL' || endlineTestResult === 'FAIL') ? 'FAIL' : 'PASS';
+      const endlineTestsPassed = formatTestDetails(r.endline_test_details, endlineQcResult, endlineTestResult);
+      const isTransferred = Boolean(r.transfer_from_box || r.transfer_to_box);
+
+      return {
+        rowNumber,
+        itemId: r.item_id,
+        boxId: r.box_id || null,
+        qcQrBarcode: r.qc_qr_barcode,
+        customer: r.customer || '',
+        styleName: r.style_name || '',
+        poNumber: r.po_number || 'No PO & SO',
+        soName: r.so_name || 'No SO',
+        line: r.line_name || 'Line 1',
+
+        // Inline (Pre-QC)
+        linkedPreQcs,
+        inlineResult,
+        inlineTests,
+        inlineDefect: r.inline_failure_reason || '',
+        inlineInspector: r.inline_inspector_name || '',
+        inlineDateTime: formatSriLankaDateTime(r.inline_scanned_at),
+
+        // Endline (QC & Test)
+        endlineQcResult,
+        endlineTestResult,
+        endlineOverallResult,
+        endlineTestsPassed,
+        defectReason: r.failure_reason || '',
+        endlineQcInspector: r.qc_inspector_name || r.inspector_name || 'QC Inspector',
+        endlineTestInspector: r.test_inspector_name || r.qc_inspector_name || r.inspector_name || '',
+        qcDateTime: formatSriLankaDateTime(r.qc_scanned_at),
+
+        // Packing
+        packingState: isPacked ? 'PACKED' : 'UNPACKED',
+        boxCode: isPacked ? r.box_code : 'Not Packed',
+        boxStatus: isPacked ? (r.box_status || 'COMPLETE') : '',
+        capacity: isPacked ? (r.capacity || 24) : '',
+        currentFill: isPacked ? (r.box_current_fill || 0) : '',
+        packedBy: isPacked ? (r.packed_by_name || 'Operator') : '',
+        packedDateTime: isPacked ? formatSriLankaDateTime(r.item_packed_at || r.box_packed_at) : '',
+
+        // Normal AQL
+        aqlResult: isPacked ? (r.aql_result || 'PENDING') : '',
+        aqlDefectNotes: isPacked ? (r.aql_defect_notes || '') : '',
+        aqlInspector: isPacked ? (r.aql_inspector_name || '') : '',
+        aqlDateTime: isPacked ? formatSriLankaDateTime(r.aql_date_time) : '',
+
+        // Final AQL
+        finalAqlResult: isPacked ? (r.final_aql_result || 'PENDING') : '',
+        finalAqlNotes: isPacked ? (r.final_aql_notes || '') : '',
+        finalAqlAuditor: isPacked ? (r.final_aql_auditor_name || '') : '',
+        finalAqlDateTime: isPacked ? formatSriLankaDateTime(r.final_aql_date_time) : '',
+
+        // Box Transfer
+        transferState: isTransferred ? 'TRANSFERRED' : 'NOT TRANSFERRED',
+        transferFromBox: r.transfer_from_box || '',
+        transferToBox: r.transfer_to_box || '',
+        transferredBy: r.transferred_by_name || '',
+        transferDateTime: formatSriLankaDateTime(r.transfer_date_time),
+        transferRemarks: r.transfer_remarks || ''
+      };
+    };
+
     if (format === 'json') {
       const parsedLimit = Math.max(1, parseInt(String(limit || '50'), 10) || 50);
       const parsedOffset = Math.max(0, parseInt(String(offset || '0'), 10) || 0);
@@ -1912,40 +2103,7 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
       const total = Number(countRow?.total || 0);
 
       const paginatedResults = await db.prepare(`${selectClause} ${fromWhereClause} ${orderByClause} LIMIT ? OFFSET ?`).all(...mergedParams, parsedLimit, parsedOffset) as any[];
-      const previewRows = paginatedResults.map((r, idx) => {
-        const isPacked = Boolean(r.box_code);
-        return {
-          rowNumber: parsedOffset + idx + 1,
-          itemId: r.item_id,
-          boxId: r.box_id || null,
-          qcQrBarcode: r.qc_qr_barcode,
-          boxCode: isPacked ? r.box_code : 'Not Packed',
-          packingState: isPacked ? 'PACKED' : 'UNPACKED',
-          boxStatus: isPacked ? (r.box_status || 'COMPLETE') : '',
-          customer: r.customer || '',
-          styleName: r.style_name || '',
-          poNumber: r.po_number || 'No PO & SO',
-          soName: r.so_name || 'No SO',
-          line: r.line_name || 'Line 1',
-          inspector: r.inspector_name || 'QC Inspector',
-          result: r.result || 'PASS',
-          defectReason: r.failure_reason || '',
-          qcDateTime: formatSriLankaDateTime(r.qc_scanned_at),
-          packedBy: isPacked ? (r.packed_by_name || 'Operator') : '',
-          capacity: isPacked ? (r.capacity || 24) : '',
-          currentFill: isPacked ? (r.box_current_fill || 0) : '',
-          packedDateTime: isPacked ? formatSriLankaDateTime(r.item_packed_at || r.box_packed_at) : '',
-          linkedPreQcs: r.linked_pre_qcs || 'Direct / None',
-          aqlResult: isPacked ? (r.aql_result || 'PENDING') : '',
-          aqlDefectNotes: isPacked ? (r.aql_defect_notes || '') : '',
-          aqlInspector: isPacked ? (r.aql_inspector_name || '') : '',
-          aqlDateTime: isPacked ? formatSriLankaDateTime(r.aql_date_time) : '',
-          finalAqlResult: isPacked ? (r.final_aql_result || 'PENDING') : '',
-          finalAqlNotes: isPacked ? (r.final_aql_notes || '') : '',
-          finalAqlAuditor: isPacked ? (r.final_aql_auditor_name || '') : '',
-          finalAqlDateTime: isPacked ? formatSriLankaDateTime(r.final_aql_date_time) : ''
-        };
-      });
+      const previewRows = paginatedResults.map((r, idx) => mapMergedRow(r, parsedOffset + idx + 1));
       return res.json({ total, limit: parsedLimit, offset: parsedOffset, rows: previewRows });
     }
 
@@ -1953,94 +2111,94 @@ router.get('/reports/product-box-merged-export', authenticateToken, requireRole(
 
     const headers = [
       '#',
-      'QC QR Barcode',
-      'Box Code',
-      'Packing State',
-      'Box Status',
+      'Product QR Barcode',
       'Customer',
       'Style Name',
       'PO Number',
       'SO Name',
       'Line',
-      'Inspector',
-      'Result',
-      'Defect / Reason',
-      'QC Date & Time',
+      'Inline Pre-QC QR(s)',
+      'Inline Result',
+      'Inline Tests & Details',
+      'Inline Defect / Reason',
+      'Inline Inspector',
+      'Inline Date & Time',
+      'Endline QC Result',
+      'Endline Test Result',
+      'Endline Overall Result',
+      'Endline Tests & Details (Passed Tests)',
+      'Endline Defect / Reason',
+      'Endline QC Inspector',
+      'Endline Test Inspector',
+      'Endline Date & Time',
+      'Packing State',
+      'Box Code',
+      'Box Status',
+      'Box Capacity',
+      'Box Current Fill',
       'Packed By',
-      'Capacity',
-      'Current Fill',
       'Packed Date & Time',
-      'Linked Pre-QC QR(s)',
-      'AQL Result',
-      'AQL Defect / Notes',
-      'AQL Inspector',
-      'AQL Date & Time',
+      'Normal AQL Result',
+      'Normal AQL Defect Notes',
+      'Normal AQL Inspector',
+      'Normal AQL Date & Time',
       'Final AQL Result',
       'Final AQL Notes',
       'Final AQL Auditor',
-      'Final AQL Date & Time'
+      'Final AQL Date & Time',
+      'Box Transfer State',
+      'Transfer From Box',
+      'Transfer To Box',
+      'Transferred By',
+      'Transfer Date & Time',
+      'Transfer Remarks'
     ];
 
     const rows = results.map((r, idx) => {
-      const isPacked = Boolean(r.box_code);
-      const boxCode = isPacked ? r.box_code : 'Not Packed';
-      const packingState = isPacked ? 'PACKED' : 'UNPACKED';
-      const boxStatus = isPacked ? (r.box_status || 'COMPLETE') : '';
-      const customerVal = r.customer || '';
-      const styleNameVal = r.style_name || '';
-      const poNumVal = r.po_number || 'No PO & SO';
-      const soNumVal = r.so_name || 'No SO';
-      const lineVal = r.line_name || 'Line 1';
-      const inspectorVal = r.inspector_name || 'QC Inspector';
-      const resultVal = r.result || 'PASS';
-      const defectReasonVal = r.failure_reason || '';
-      const qcDateTimeVal = formatSriLankaDateTime(r.qc_scanned_at);
-      const packedByVal = isPacked ? (r.packed_by_name || 'Operator') : '';
-      const capacityVal = isPacked ? (r.capacity || 24) : '';
-      const currentFillVal = isPacked ? (r.box_current_fill || 0) : '';
-      const packedDateTimeVal = isPacked ? formatSriLankaDateTime(r.item_packed_at || r.box_packed_at) : '';
-      const linkedPreQcsVal = r.linked_pre_qcs || 'Direct / None';
-
-      // AQL Details
-      const aqlResultVal = isPacked ? (r.aql_result || 'PENDING') : '';
-      const aqlDefectNotesVal = isPacked ? (r.aql_defect_notes || '') : '';
-      const aqlInspectorVal = isPacked ? (r.aql_inspector_name || '') : '';
-      const aqlDateTimeVal = isPacked ? formatSriLankaDateTime(r.aql_date_time) : '';
-
-      // Final AQL Details
-      const finalAqlResultVal = isPacked ? (r.final_aql_result || 'PENDING') : '';
-      const finalAqlNotesVal = isPacked ? (r.final_aql_notes || '') : '';
-      const finalAqlAuditorVal = isPacked ? (r.final_aql_auditor_name || '') : '';
-      const finalAqlDateTimeVal = isPacked ? formatSriLankaDateTime(r.final_aql_date_time) : '';
-
+      const m = mapMergedRow(r, idx + 1);
       return [
-        idx + 1,
-        toCsvField(r.qc_qr_barcode),
-        toCsvField(boxCode),
-        packingState,
-        boxStatus,
-        toCsvField(customerVal),
-        toCsvField(styleNameVal),
-        toCsvField(poNumVal),
-        toCsvField(soNumVal),
-        toCsvField(lineVal),
-        toCsvField(inspectorVal),
-        resultVal,
-        toCsvField(defectReasonVal),
-        toCsvField(qcDateTimeVal),
-        toCsvField(packedByVal),
-        capacityVal,
-        currentFillVal,
-        toCsvField(packedDateTimeVal),
-        toCsvField(linkedPreQcsVal),
-        toCsvField(aqlResultVal),
-        toCsvField(aqlDefectNotesVal),
-        toCsvField(aqlInspectorVal),
-        toCsvField(aqlDateTimeVal),
-        toCsvField(finalAqlResultVal),
-        toCsvField(finalAqlNotesVal),
-        toCsvField(finalAqlAuditorVal),
-        toCsvField(finalAqlDateTimeVal)
+        m.rowNumber,
+        toCsvField(m.qcQrBarcode),
+        toCsvField(m.customer),
+        toCsvField(m.styleName),
+        toCsvField(m.poNumber),
+        toCsvField(m.soName),
+        toCsvField(m.line),
+        toCsvField(m.linkedPreQcs),
+        toCsvField(m.inlineResult),
+        toCsvField(m.inlineTests),
+        toCsvField(m.inlineDefect),
+        toCsvField(m.inlineInspector),
+        toCsvField(m.inlineDateTime),
+        toCsvField(m.endlineQcResult),
+        toCsvField(m.endlineTestResult),
+        toCsvField(m.endlineOverallResult),
+        toCsvField(m.endlineTestsPassed),
+        toCsvField(m.defectReason),
+        toCsvField(m.endlineQcInspector),
+        toCsvField(m.endlineTestInspector),
+        toCsvField(m.qcDateTime),
+        m.packingState,
+        toCsvField(m.boxCode),
+        m.boxStatus,
+        m.capacity,
+        m.currentFill,
+        toCsvField(m.packedBy),
+        toCsvField(m.packedDateTime),
+        toCsvField(m.aqlResult),
+        toCsvField(m.aqlDefectNotes),
+        toCsvField(m.aqlInspector),
+        toCsvField(m.aqlDateTime),
+        toCsvField(m.finalAqlResult),
+        toCsvField(m.finalAqlNotes),
+        toCsvField(m.finalAqlAuditor),
+        toCsvField(m.finalAqlDateTime),
+        toCsvField(m.transferState),
+        toCsvField(m.transferFromBox),
+        toCsvField(m.transferToBox),
+        toCsvField(m.transferredBy),
+        toCsvField(m.transferDateTime),
+        toCsvField(m.transferRemarks)
       ];
     });
 
