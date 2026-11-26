@@ -366,17 +366,6 @@ export async function validateBoxForProductionOrder(
     };
   }
 
-  const existingItem = await db.prepare(`
-    SELECT id FROM item_units WHERE UPPER(TRIM(qr_code)) = ? LIMIT 1
-  `).get(code) as any;
-  if (existingItem) {
-    return {
-      valid: false,
-      error: 'IS_PRODUCT_QR',
-      message: `Scanned code '${code}' is already registered as a Garment/Product QR! Please scan a Box Barcode.`
-    };
-  }
-
   const allowNoBoxPrefix = Boolean(po.allow_no_box_prefix || po.allowNoBoxPrefix);
 
   const configs = await db.prepare(`
