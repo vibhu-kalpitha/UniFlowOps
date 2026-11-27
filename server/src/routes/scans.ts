@@ -1776,23 +1776,23 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     let nextTestResult = existingQc?.test_result || 'PENDING';
     let qcOpId = existingQc?.operator_id || operatorId;
     let testOpId = existingQc?.test_operator_id || (targetStage === 'TEST' ? operatorId : null);
-    let qcScannedAt = existingQc?.scanned_at || new Date();
-    let testScannedAt = existingQc?.test_scanned_at || (targetStage === 'TEST' ? new Date() : null);
+    let shouldUpdateQcTime = !existingQc;
+    let shouldUpdateTestTime = targetStage === 'TEST';
 
     if (isCombinedSave || (stationCount === 1 && mode === 'QC_AND_TEST')) {
       nextQcResult = parsed.qcResult!;
       nextTestResult = parsed.testResult!;
       qcOpId = operatorId;
       testOpId = operatorId;
-      qcScannedAt = new Date();
-      testScannedAt = new Date();
+      shouldUpdateQcTime = true;
+      shouldUpdateTestTime = true;
     } else if (targetStage === 'QC') {
       if (!parsed.qcResult) {
         return res.status(400).json({ error: 'QC_RESULT_REQUIRED', message: 'QC Result (PASS/FAIL) is required.' });
       }
       nextQcResult = parsed.qcResult;
       qcOpId = operatorId;
-      qcScannedAt = new Date();
+      shouldUpdateQcTime = true;
       if (mode === 'QC_ONLY') {
         nextTestResult = 'PASS';
       }
@@ -1802,7 +1802,7 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       }
       nextTestResult = parsed.testResult;
       testOpId = operatorId;
-      testScannedAt = new Date();
+      shouldUpdateTestTime = true;
       if (mode === 'TEST_ONLY') {
         nextQcResult = 'PASS';
       }
@@ -1893,17 +1893,17 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
         retryCount = (existingQc.retry_count || 0) + 1;
         await tx.prepare(`
           UPDATE qc_results 
-          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, test_details = COALESCE(?, test_details), failure_reason = ?, retry_count = ?, scanned_at = ?, test_scanned_at = NOW(3),
+          SET operator_id = ?, test_operator_id = ?, qc_result = ?, test_result = ?, test_details = COALESCE(?, test_details), failure_reason = ?, retry_count = ?, scanned_at = IF(?, NOW(3), scanned_at), test_scanned_at = IF(?, NOW(3), test_scanned_at),
               line_number = COALESCE(NULLIF(?, ''), line_number)
           WHERE item_id = ?
-        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, testDetailsJson, failureReason || existingQc.failure_reason || null, retryCount, qcScannedAt, effectiveLineNumber, item.id);
+        `).run(qcOpId, testOpId, nextQcResult, nextTestResult, testDetailsJson, failureReason || existingQc.failure_reason || null, retryCount, shouldUpdateQcTime ? 1 : 0, shouldUpdateTestTime ? 1 : 0, effectiveLineNumber, item.id);
       } else {
         retryCount = 0;
         const qcId = `qc-${Date.now()}`;
         await tx.prepare(`
           INSERT INTO qc_results (id, item_id, operator_id, test_operator_id, qc_result, test_result, test_details, failure_reason, retry_count, first_scanned_at, scanned_at, test_scanned_at, line_number)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(3), ?, ?, ?)
-        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, testDetailsJson, failureReason || null, qcScannedAt, testScannedAt, effectiveLineNumber);
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(3), NOW(3), IF(?, NOW(3), NULL), ?)
+        `).run(qcId, item.id, qcOpId, testOpId, nextQcResult, nextTestResult, testDetailsJson, failureReason || null, shouldUpdateTestTime ? 1 : 0, effectiveLineNumber);
       }
 
       await tx.prepare(`UPDATE item_units SET status = ?, updated_at = NOW(3) WHERE id = ?`).run(finalItemStatus, item.id);

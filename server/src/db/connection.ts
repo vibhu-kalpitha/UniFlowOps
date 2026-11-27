@@ -48,6 +48,7 @@ export function getPool(): Pool {
       queueLimit: 0,
       namedPlaceholders: false,
       dateStrings: true,
+      timezone: process.env.DB_TIMEZONE || '+05:30',
     });
   }
   return pool;
