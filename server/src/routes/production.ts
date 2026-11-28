@@ -2601,13 +2601,38 @@ router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: Auth
   }
 });
 
+// Helper: remove item_units row if no operational records remain for it
+async function cleanupOrphanItemUnit(tx: any, itemId: string) {
+  if (!itemId) return;
+  const hasQc = await tx.prepare(`SELECT 1 FROM qc_results WHERE item_id = ? LIMIT 1`).get(itemId);
+  const hasPreQc = await tx.prepare(`SELECT 1 FROM pre_qc_results WHERE item_id = ? LIMIT 1`).get(itemId);
+  const hasFail = await tx.prepare(`SELECT 1 FROM qc_fail_log WHERE item_id = ? LIMIT 1`).get(itemId);
+  const hasBox = await tx.prepare(`SELECT 1 FROM box_items WHERE item_id = ? AND active = 1 LIMIT 1`).get(itemId);
+  if (!hasQc && !hasPreQc && !hasFail && !hasBox) {
+    const iu = await tx.prepare(`SELECT qr_code FROM item_units WHERE id = ?`).get(itemId) as any;
+    if (iu?.qr_code) {
+      await tx.prepare(`DELETE FROM pre_qc_assignments WHERE UPPER(TRIM(product_qr)) = ? OR UPPER(TRIM(pre_qc_qr)) = ?`)
+        .run(iu.qr_code.trim().toUpperCase(), iu.qr_code.trim().toUpperCase()).catch(() => {});
+    }
+    await tx.prepare(`DELETE FROM item_units WHERE id = ?`).run(itemId);
+  }
+}
+
 // DELETE /api/admin/qc-logs/:id — Delete a QC inspection log entry
 router.delete('/admin/qc-logs/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
     await db.transaction(async (tx) => {
+      const qcRow = await tx.prepare(`SELECT item_id FROM qc_results WHERE id = ?`).get(id) as any;
+      const failRow = await tx.prepare(`SELECT item_id FROM qc_fail_log WHERE id = ?`).get(id) as any;
+      const itemId = qcRow?.item_id || failRow?.item_id;
+
       await tx.prepare(`DELETE FROM qc_results WHERE id = ?`).run(id);
       await tx.prepare(`DELETE FROM qc_fail_log WHERE id = ?`).run(id);
+
+      if (itemId) {
+        await cleanupOrphanItemUnit(tx, itemId);
+      }
     });
     await auditLog(req.user!.id, 'DELETE_QC_LOG', 'qc_results', id, {});
     return res.json({ success: true, message: 'QC inspection log deleted successfully.' });
@@ -2620,7 +2645,13 @@ router.delete('/admin/qc-logs/:id', authenticateToken, async (req: AuthRequest, 
 router.delete('/admin/pre-qc-logs/:id', authenticateToken, async (req: AuthRequest, res, next) => {
   try {
     const { id } = req.params;
-    await db.prepare(`DELETE FROM pre_qc_results WHERE id = ?`).run(id);
+    await db.transaction(async (tx) => {
+      const pqRow = await tx.prepare(`SELECT item_id FROM pre_qc_results WHERE id = ?`).get(id) as any;
+      await tx.prepare(`DELETE FROM pre_qc_results WHERE id = ?`).run(id);
+      if (pqRow?.item_id) {
+        await cleanupOrphanItemUnit(tx, pqRow.item_id);
+      }
+    });
     await auditLog(req.user!.id, 'DELETE_PRE_QC_LOG', 'pre_qc_results', id, {});
     return res.json({ success: true, message: 'Pre-QC validation log deleted successfully.' });
   } catch (err) {

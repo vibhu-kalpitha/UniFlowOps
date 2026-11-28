@@ -299,6 +299,12 @@ export async function validateGlobalSerialNumber(
       LEFT JOIN styles s ON s.id = po.style_id
       WHERE (iu.serial_number = ? OR (iu.serial_number IS NULL AND UPPER(TRIM(iu.qr_code)) LIKE ?))
         AND UPPER(TRIM(iu.qr_code)) != ?
+        AND (
+          iu.status != 'CREATED'
+          OR EXISTS (SELECT 1 FROM qc_results qr WHERE qr.item_id = iu.id)
+          OR EXISTS (SELECT 1 FROM pre_qc_results pq WHERE pq.item_id = iu.id)
+          OR EXISTS (SELECT 1 FROM box_items bi WHERE bi.item_id = iu.id AND bi.active = 1)
+        )
       LIMIT 1
     `).get(serial, `%-` + serial, code) as any;
 
