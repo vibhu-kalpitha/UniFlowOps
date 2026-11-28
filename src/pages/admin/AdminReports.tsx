@@ -150,9 +150,7 @@ export const AdminReports: React.FC = () => {
         { label: 'Packed Items', value: `${bx.activeFilledCount || bx.current_fill || (bx.productQrs?.length || 0)} pcs` }
       ],
       onConfirm: async () => {
-        await apiFetch(`/api/boxes/${encodeURIComponent(boxId)}`, { method: 'DELETE' }).catch(err => {
-          console.warn('API box delete warning:', err);
-        });
+        await apiFetch(`/api/boxes/${encodeURIComponent(boxId)}`, { method: 'DELETE' });
         setOpLogsData((prev: any) => {
           const base = prev || FALLBACK_OPERATIONAL_DATA;
           return {
@@ -600,9 +598,7 @@ export const AdminReports: React.FC = () => {
         { label: 'QC Result', value: `${qc.qc_result || 'N/A'} / ${qc.test_result || 'N/A'}` }
       ],
       onConfirm: async () => {
-        await apiFetch(`/api/admin/qc-logs/${encodeURIComponent(qc.id)}`, { method: 'DELETE' }).catch(err => {
-          console.warn('API qc delete warning:', err);
-        });
+        await apiFetch(`/api/admin/qc-logs/${encodeURIComponent(qc.id)}`, { method: 'DELETE' });
         setOpLogsData((prev: any) => {
           const base = prev || FALLBACK_OPERATIONAL_DATA;
           return {
@@ -699,9 +695,7 @@ export const AdminReports: React.FC = () => {
         { label: 'Pre-QC Result', value: pq.pre_qc_result || 'PASS' }
       ],
       onConfirm: async () => {
-        await apiFetch(`/api/admin/pre-qc-logs/${encodeURIComponent(pq.id)}`, { method: 'DELETE' }).catch(err => {
-          console.warn('API pre-qc delete warning:', err);
-        });
+        await apiFetch(`/api/admin/pre-qc-logs/${encodeURIComponent(pq.id)}`, { method: 'DELETE' });
         setOpLogsData((prev: any) => {
           const base = prev || FALLBACK_OPERATIONAL_DATA;
           return {
@@ -734,9 +728,7 @@ export const AdminReports: React.FC = () => {
         { label: 'AQL Result', value: aql.result || 'PENDING' }
       ],
       onConfirm: async () => {
-        await apiFetch(`/api/admin/aql-logs/${encodeURIComponent(aql.id || aql.box_id)}`, { method: 'DELETE' }).catch(err => {
-          console.warn('API aql delete warning:', err);
-        });
+        await apiFetch(`/api/admin/aql-logs/${encodeURIComponent(aql.id || aql.box_id)}`, { method: 'DELETE' });
         setOpLogsData((prev: any) => {
           const base = prev || FALLBACK_OPERATIONAL_DATA;
           return {
@@ -772,9 +764,7 @@ export const AdminReports: React.FC = () => {
         { label: 'Items', value: `${tr.item_count || 1} pcs` }
       ],
       onConfirm: async () => {
-        await apiFetch(`/api/admin/transfer-logs/${encodeURIComponent(transferId)}`, { method: 'DELETE' }).catch(err => {
-          console.warn('API transfer delete warning:', err);
-        });
+        await apiFetch(`/api/admin/transfer-logs/${encodeURIComponent(transferId)}`, { method: 'DELETE' });
         setOpLogsData((prev: any) => {
           const base = prev || FALLBACK_OPERATIONAL_DATA;
           return {
@@ -808,9 +798,7 @@ export const AdminReports: React.FC = () => {
         { label: 'PO / Box', value: scrapped.po_number || scrapped.box_id || 'N/A' }
       ],
       onConfirm: async () => {
-        await apiFetch(`/api/admin/scrapped/${encodeURIComponent(scrapId)}`, { method: 'DELETE' }).catch(err => {
-          console.warn('API scrap delete warning:', err);
-        });
+        await apiFetch(`/api/admin/scrapped/${encodeURIComponent(scrapId)}`, { method: 'DELETE' });
         setOpLogsData((prev: any) => {
           const base = prev || FALLBACK_OPERATIONAL_DATA;
           return {

@@ -2369,7 +2369,7 @@ const handleUpdateBoxNumber = async (req: AuthRequest, res: any, next: any) => {
       // 1. Update boxes table
       await tx.prepare(`
         UPDATE boxes 
-        SET box_number = ?, box_code = ?, updated_at = NOW(3) 
+        SET box_number = ?, box_code = ? 
         WHERE id = ?
       `).run(newBoxNumber, newBoxNumber, box.id);
 
@@ -2583,7 +2583,7 @@ router.delete('/boxes/:boxId/items/:qrCode', authenticateToken, async (req: Auth
       const remainingRow = await tx.prepare(`SELECT COUNT(*) as cnt FROM box_items WHERE (box_id = ? OR box_id = ? OR box_id = ?) AND active = 1`).get(box.id, box.box_code || '', box.box_number || '') as any;
       const remainingCount = Number(remainingRow?.cnt || 0);
       if (remainingCount < box.capacity) {
-        await tx.prepare(`UPDATE boxes SET status = 'OPEN', updated_at = NOW(3) WHERE id = ?`).run(box.id);
+        await tx.prepare(`UPDATE boxes SET status = 'OPEN' WHERE id = ?`).run(box.id);
       }
     });
 

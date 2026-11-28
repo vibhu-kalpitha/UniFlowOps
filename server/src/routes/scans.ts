@@ -1823,32 +1823,6 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
       isFullyCompleted = nextQcResult === 'PASS' && nextTestResult === 'PASS';
     }
 
-    // QC PASS Limit Rule: PASS count <= PO quantity. FAIL results do NOT consume PO quantity.
-    const isAttemptingPass = (targetStage === 'QC' && nextQcResult === 'PASS') ||
-      (targetStage === 'TEST' && nextTestResult === 'PASS') ||
-      (isCombinedSave && (nextQcResult === 'PASS' || nextTestResult === 'PASS'));
-
-    if (isAttemptingPass) {
-      const poTargetQty = await getPOTargetQuantity(po.id);
-      if (poTargetQty > 0) {
-        const passRow = await db.prepare(`
-          SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
-          JOIN item_units iu ON iu.id = qr.item_id
-          WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-            AND qr.qc_result = 'PASS'
-            AND qr.item_id != ?
-        `).get(po.id, po.id, item.id) as any;
-        const currentPassCount = passRow?.cnt || 0;
-
-        if (currentPassCount >= poTargetQty) {
-          return res.status(400).json({
-            error: 'QC_PASS_LIMIT_EXCEEDED',
-            message: 'QC PASS quantity is already complete for this Production Order.'
-          });
-        }
-      }
-    }
-
     const finalItemStatus = isFullyCompleted ? 'QC_PASSED' : (nextQcResult === 'FAIL' || nextTestResult === 'FAIL' ? 'QC_FAILED' : 'CREATED');
 
     const existingFailsRow = await db.prepare(`SELECT COUNT(*) as cnt FROM qc_fail_log WHERE item_id = ?`).get(item.id) as any;
@@ -1856,24 +1830,6 @@ router.post('/qc/results', authenticateToken, async (req: AuthRequest, res, next
     let retryCount = 0;
 
     await db.transaction(async (tx) => {
-      // Concurrency check for PASS submissions inside transaction
-      if (isAttemptingPass) {
-        const poTargetQtyTx = await getPOTargetQuantity(po.id);
-        if (poTargetQtyTx > 0) {
-          const passRowTx = await tx.queryOne<{ cnt: number }>(`
-            SELECT COUNT(DISTINCT iu.id) as cnt FROM qc_results qr
-            JOIN item_units iu ON iu.id = qr.item_id
-            WHERE (iu.production_order_id = ? OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id = ?))
-              AND qr.qc_result = 'PASS'
-              AND qr.item_id != ?
-          `, [po.id, po.id, item.id]);
-          const currentPassCountTx = passRowTx?.cnt || 0;
-          if (currentPassCountTx >= poTargetQtyTx) {
-            throw new Error('QC PASS quantity is already complete for this Production Order.');
-          }
-        }
-      }
-
       const effectiveLineNumber = rawSelectedLine || po.line_number || null;
 
       const stageResultVal = targetStage === 'QC' ? nextQcResult : nextTestResult;
@@ -2326,7 +2282,7 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
 
     if (box) {
       if (!box.production_order_id || box.capacity !== configuredCapacity) {
-        await db.prepare(`UPDATE boxes SET production_order_id = ?, capacity = ?, updated_at = NOW(3) WHERE id = ?`).run(po.id, configuredCapacity, box.id);
+        await db.prepare(`UPDATE boxes SET production_order_id = ?, capacity = ? WHERE id = ?`).run(po.id, configuredCapacity, box.id);
         box.production_order_id = po.id;
         box.capacity = configuredCapacity;
       }
@@ -2511,9 +2467,15 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
       }
     }
 
-    // STEP 7, 8, 9 — DUPLICATE CHECK & PACK EXECUTION INSIDE ATOMIC TRANSACTION WITH ROW LOCK
+    // STEP 7, 8, 9 — DUPLICATE CHECK, PO PACKED LIMIT CHECK & PACK EXECUTION INSIDE ATOMIC TRANSACTION WITH ROW LOCK
     const boxItemId = `bi-${Date.now()}-${Math.random().toString().slice(2, 6)}`;
-    const duplicateInfo = await db.transaction<{ isSameBox: boolean; existingBoxCode: string } | null>(async (tx) => {
+    const packResult = await db.transaction<{
+      isSameBox?: boolean;
+      existingBoxCode?: string;
+      poLimitExceeded?: boolean;
+      poTargetQty?: number;
+      currentPoPackedCount?: number;
+    } | null>(async (tx) => {
       // Row lock on item_units to serialize concurrent scans for this exact item
       await tx.prepare(`SELECT id, status FROM item_units WHERE id = ? FOR UPDATE`).get(item.id);
 
@@ -2536,6 +2498,33 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
         };
       }
 
+      // Enforce PO Packed Quantity Limit: total packed items across all boxes for this PO <= PO target quantity
+      const poTargetQty = await getPOTargetQuantity(po.id);
+      if (poTargetQty > 0) {
+        const poKeys = [po.id, po.po_number, po.map_po].filter(Boolean);
+        const placeholders = poKeys.map(() => '?').join(',');
+        const packedRowTx = await tx.queryOne<{ cnt: number }>(`
+          SELECT COUNT(DISTINCT bi.id) as cnt
+          FROM box_items bi
+          JOIN boxes b ON b.id = bi.box_id
+          LEFT JOIN item_units iu ON iu.id = bi.item_id
+          WHERE (
+            b.production_order_id IN (${placeholders})
+            OR iu.production_order_id IN (${placeholders})
+            OR b.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+            OR iu.sales_order_id IN (SELECT id FROM sales_orders WHERE production_order_id IN (${placeholders}))
+          ) AND bi.active = 1
+        `, [...poKeys, ...poKeys, ...poKeys, ...poKeys]);
+        const currentPoPackedCount = packedRowTx?.cnt || 0;
+        if (currentPoPackedCount >= poTargetQty) {
+          return {
+            poLimitExceeded: true,
+            poTargetQty,
+            currentPoPackedCount
+          };
+        }
+      }
+
       await tx.prepare(`
         INSERT INTO box_items (id, box_id, item_id, packed_by, packed_at, active)
         VALUES (?, ?, ?, ?, NOW(3), 1)
@@ -2549,6 +2538,17 @@ router.post('/packing/items/scan', authenticateToken, async (req: AuthRequest, r
 
       return null;
     });
+
+    if (packResult?.poLimitExceeded) {
+      const limitMsg = `PO packed quantity is already complete (${packResult.currentPoPackedCount}/${packResult.poTargetQty}) for this Production Order.`;
+      await recordScanEvent(idempotencyKey || '', operatorId, 'PACKING', itemQr, 'REJECTED', 'PO_PACKED_LIMIT_EXCEEDED', limitMsg);
+      return res.status(400).json({
+        error: 'PO_PACKED_LIMIT_EXCEEDED',
+        message: limitMsg
+      });
+    }
+
+    const duplicateInfo = packResult?.isSameBox !== undefined ? packResult as { isSameBox: boolean; existingBoxCode: string } : null;
 
     if (duplicateInfo) {
       if (duplicateInfo.isSameBox) {
